@@ -1,4 +1,4 @@
-{
+﻿{
   "expo": {
     "name": "Leap_MVP",
     "slug": "Leap_MVP",
@@ -19,7 +19,7 @@
         "NSMicrophoneUsageDescription": "Leap needs microphone access to record audio with your video.",
         "NSPhotoLibraryUsageDescription": "Leap needs photo library access so you can attach a video to your challenge.",
         "NSPhotoLibraryAddUsageDescription": "Leap can save your completed takes to your photo library when you enable Save to camera roll.",
-        "NSUserNotificationsUsageDescription": "Leap uses notifications to remind you when today’s challenge is live and before time runs out.",
+        "NSUserNotificationsUsageDescription": "Leap uses notifications to remind you when todayâ€™s challenge is live and before time runs out.",
         "NSFaceIDUsageDescription": "Leap uses Face ID to protect your saved sign-in."
       }
     },
@@ -72,7 +72,7 @@
         "messagingSenderId": "1047286135542",
         "appId": "1:1047286135542:web:d5a184e16b3f9ee8b20ad7"
       },
-      "adminUids": [],
+      "adminUids": ["is10Doy7zQYUeCi36P8gE1M3lZe2"],
       "googleAuth": {
         "webClientId": "",
         "iosClientId": "",
@@ -81,3 +81,5 @@
     }
   }
 }
+
+
