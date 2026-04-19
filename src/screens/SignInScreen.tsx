@@ -1,28 +1,23 @@
 import * as React from 'react';
 import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Constants from 'expo-constants';
 import { useNavigation } from '@react-navigation/native';
 
-import { Brandmark } from '../components/Brandmark';
-import { GoogleAuthPanel } from '../components/GoogleAuthPanel';
+import { AuthHero } from '../components/AuthHero';
 import { KeyboardScreen } from '../components/KeyboardScreen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { TextField } from '../components/TextField';
+import { requireLoginEmailOtp } from '../config/requireLoginEmailOtp';
+import { isFirebaseConfigured } from '../firebase/firebase';
+import { sendLoginOtpEmail, verifyLoginOtpCode } from '../services/loginOtp';
 import { colors } from '../theme/colors';
 import { useAuth } from '../state/auth';
+import { friendlySignInError } from '../utils/authErrors';
 import { isValidEmail, isValidPassword, PASSWORD_MIN_LENGTH } from '../utils/authValidation';
-
-function googleOAuthReady() {
-  const g = (Constants.expoConfig?.extra as { googleAuth?: Record<string, string> } | undefined)
-    ?.googleAuth;
-  return !!(g?.webClientId || g?.iosClientId || g?.androidClientId);
-}
 
 export function SignInScreen() {
   const nav = useNavigation<any>();
   const {
     signIn,
-    signInWithGoogleIdToken,
     signInWithApple,
     saveBiometricCredentials,
     tryBiometricSignIn,
@@ -33,50 +28,128 @@ export function SignInScreen() {
   const [password, setPassword] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [bioSaved, setBioSaved] = React.useState(false);
+  const [step, setStep] = React.useState<'credentials' | 'otp'>('credentials');
+  const [otpId, setOtpId] = React.useState('');
+  const [otpCode, setOtpCode] = React.useState('');
+  const passwordRef = React.useRef('');
+
+  const otpEnabled = requireLoginEmailOtp() && isFirebaseConfigured();
 
   React.useEffect(() => {
     void isBiometricSaved().then(setBioSaved);
   }, [isBiometricSaved]);
 
+  /** If OTP was turned off (or extra was stale), leave the code step so email/password works. */
+  React.useEffect(() => {
+    if (otpEnabled) return;
+    setStep('credentials');
+    setOtpId('');
+    setOtpCode('');
+    passwordRef.current = '';
+  }, [otpEnabled]);
+
   const emailOk = isValidEmail(email);
   const pwOk = isValidPassword(password);
   const canSubmit = emailOk && pwOk && !busy;
+  const otpDigits = otpCode.replace(/\s/g, '');
+  const canVerifyOtp = otpDigits.length === 6 && !!otpId && !busy;
+
+  const promptSaveBiometric = (pw: string) => {
+    if (Platform.OS === 'web') return;
+    Alert.alert(
+      'Face ID / fingerprint',
+      'Save this sign-in so you can unlock Leap with biometrics next time?',
+      [
+        { text: 'Not now', style: 'cancel' },
+        {
+          text: 'Save',
+          onPress: () => void saveBiometricCredentials(email.trim(), pw).then(() => setBioSaved(true)),
+        },
+      ]
+    );
+  };
 
   const onFaceId = async () => {
     setBusy(true);
     try {
       await tryBiometricSignIn();
     } catch (e: unknown) {
-      Alert.alert('Could not sign in', e instanceof Error ? e.message : 'Unknown error');
+      Alert.alert('Could not sign in', friendlySignInError(e));
     } finally {
       setBusy(false);
     }
+  };
+
+  const finishEmailSignIn = async () => {
+    const pw = passwordRef.current || password;
+    await signIn({ email: email.trim(), password: pw });
+    promptSaveBiometric(pw);
+    setStep('credentials');
+    setOtpId('');
+    setOtpCode('');
+    passwordRef.current = '';
   };
 
   const onContinue = async () => {
     if (!canSubmit) return;
     setBusy(true);
     try {
-      await signIn({ email: email.trim(), password });
-      if (Platform.OS !== 'web') {
+      if (requireLoginEmailOtp() && !isFirebaseConfigured()) {
         Alert.alert(
-          'Face ID / fingerprint',
-          'Save this sign-in so you can unlock Leap with biometrics next time?',
-          [
-            { text: 'Not now', style: 'cancel' },
-            {
-              text: 'Save',
-              onPress: () =>
-                void saveBiometricCredentials(email.trim(), password).then(() =>
-                  setBioSaved(true)
-                ),
-            },
-          ]
+          'Sign-in',
+          'Email verification is enabled but Firebase is not configured. Add expo.extra.firebase or turn off requireLoginEmailOtp.'
         );
+        return;
       }
+      if (otpEnabled) {
+        const { otpId: id } = await sendLoginOtpEmail(email.trim());
+        passwordRef.current = password;
+        setOtpId(id);
+        setOtpCode('');
+        setStep('otp');
+        return;
+      }
+      await finishEmailSignIn();
+    } catch (e: unknown) {
+      Alert.alert('Could not continue', friendlySignInError(e));
     } finally {
       setBusy(false);
     }
+  };
+
+  const onVerifyOtp = async () => {
+    if (!canVerifyOtp) return;
+    setBusy(true);
+    try {
+      await verifyLoginOtpCode(otpId, otpDigits);
+      await finishEmailSignIn();
+    } catch (e: unknown) {
+      Alert.alert('Verification failed', friendlySignInError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onResendOtp = async () => {
+    if (!emailOk || busy) return;
+    setBusy(true);
+    try {
+      const { otpId: id } = await sendLoginOtpEmail(email.trim());
+      setOtpId(id);
+      setOtpCode('');
+      Alert.alert('Code sent', 'Check your inbox for a new 6-digit code.');
+    } catch (e: unknown) {
+      Alert.alert('Could not resend', friendlySignInError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onBackFromOtp = () => {
+    setStep('credentials');
+    setOtpId('');
+    setOtpCode('');
+    passwordRef.current = '';
   };
 
   const onApple = async () => {
@@ -90,19 +163,21 @@ export function SignInScreen() {
 
   return (
     <KeyboardScreen contentContainerStyle={styles.screen}>
-      <View style={styles.hero}>
-        <View style={styles.logoWrap}>
-          <Brandmark size={88} />
-        </View>
-        <Text style={styles.tagline}>Stop overthinking.</Text>
-      </View>
+      <AuthHero />
 
       <View style={styles.form}>
-        <Text style={styles.rules}>
-          Use a valid email address. Password must be at least {PASSWORD_MIN_LENGTH} characters.
-        </Text>
+        {step === 'otp' ? (
+          <Text style={styles.rules}>
+            We sent a 6-digit code to <Text style={styles.emailEmph}>{email.trim()}</Text>. Enter it
+            below, then sign in. Codes expire in 10 minutes.
+          </Text>
+        ) : (
+          <Text style={styles.rules}>
+            Use a valid email address. Password must be at least {PASSWORD_MIN_LENGTH} characters.
+          </Text>
+        )}
 
-        {bioSaved ? (
+        {step === 'credentials' && bioSaved ? (
           <TouchableOpacity
             style={[styles.bioBtn, busy && styles.bioBtnDisabled]}
             onPress={onFaceId}
@@ -112,50 +187,77 @@ export function SignInScreen() {
           </TouchableOpacity>
         ) : null}
 
-        <TextField
-          label="EMAIL"
-          inputProps={{
-            placeholder: 'your@email.com',
-            keyboardType: 'email-address',
-            autoCapitalize: 'none',
-            value: email,
-            onChangeText: setEmail,
-            returnKeyType: 'next',
-          }}
-        />
-        {!emailOk && email.length > 0 ? (
-          <Text style={styles.error}>Enter a valid email (example@domain.com).</Text>
-        ) : null}
+        {step === 'credentials' ? (
+          <>
+            <TextField
+              label="EMAIL"
+              inputProps={{
+                placeholder: 'your@email.com',
+                keyboardType: 'email-address',
+                autoCapitalize: 'none',
+                value: email,
+                onChangeText: setEmail,
+                returnKeyType: 'next',
+              }}
+            />
+            {!emailOk && email.length > 0 ? (
+              <Text style={styles.error}>Enter a valid email (example@domain.com).</Text>
+            ) : null}
 
-        <TextField
-          label="PASSWORD"
-          inputProps={{
-            placeholder: `at least ${PASSWORD_MIN_LENGTH} characters`,
-            secureTextEntry: true,
-            value: password,
-            onChangeText: setPassword,
-            returnKeyType: 'done',
-          }}
-        />
-        {!pwOk && password.length > 0 ? (
-          <Text style={styles.error}>Password must be at least {PASSWORD_MIN_LENGTH} characters.</Text>
-        ) : null}
+            <TextField
+              label="PASSWORD"
+              inputProps={{
+                placeholder: `at least ${PASSWORD_MIN_LENGTH} characters`,
+                secureTextEntry: true,
+                value: password,
+                onChangeText: setPassword,
+                returnKeyType: 'done',
+              }}
+            />
+            {!pwOk && password.length > 0 ? (
+              <Text style={styles.error}>
+                Password must be at least {PASSWORD_MIN_LENGTH} characters.
+              </Text>
+            ) : null}
 
-        <PrimaryButton
-          title={busy ? 'PLEASE WAIT' : 'CONTINUE'}
-          onPress={onContinue}
-          disabled={!canSubmit}
-          variant="black"
-          style={styles.cta}
-        />
-
-        {googleOAuthReady() ? (
-          <GoogleAuthPanel disabled={busy} onIdToken={signInWithGoogleIdToken} />
+            <PrimaryButton
+              title={busy ? 'PLEASE WAIT' : 'CONTINUE'}
+              onPress={() => void onContinue()}
+              disabled={!canSubmit}
+              variant="black"
+              style={styles.cta}
+            />
+          </>
         ) : (
-          <Text style={styles.oauthHint}>
-            Add Google OAuth client IDs under <Text style={styles.mono}>expo.extra.googleAuth</Text> in
-            app.json to enable Google sign-in.
-          </Text>
+          <>
+            <TextField
+              label="6-DIGIT CODE"
+              inputProps={{
+                placeholder: '000000',
+                keyboardType: 'number-pad',
+                maxLength: 6,
+                value: otpCode,
+                onChangeText: (t) => setOtpCode(t.replace(/[^\d]/g, '')),
+                returnKeyType: 'done',
+              }}
+            />
+
+            <PrimaryButton
+              title={busy ? 'PLEASE WAIT' : 'VERIFY & SIGN IN'}
+              onPress={() => void onVerifyOtp()}
+              disabled={!canVerifyOtp}
+              variant="black"
+              style={styles.cta}
+            />
+
+            <TouchableOpacity onPress={() => void onResendOtp()} disabled={busy} style={styles.linkBtn}>
+              <Text style={[styles.linkText, busy && styles.linkDisabled]}>Resend code</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={onBackFromOtp} disabled={busy} style={styles.linkBtn}>
+              <Text style={[styles.linkText, busy && styles.linkDisabled]}>Change email or password</Text>
+            </TouchableOpacity>
+          </>
         )}
 
         {Platform.OS === 'ios' ? (
@@ -183,26 +285,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 28,
   },
-  hero: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 18,
-  },
-  logoWrap: {
-    width: 88,
-    height: 88,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tagline: {
-    marginTop: 18,
-    fontSize: 11,
-    letterSpacing: 2.6,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    color: colors.muted2,
-  },
   form: {
     gap: 14,
     paddingBottom: 18,
@@ -212,6 +294,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.muted,
     lineHeight: 17,
+  },
+  emailEmph: {
+    color: colors.text,
+    fontWeight: '800',
   },
   error: {
     fontSize: 12,
@@ -233,14 +319,16 @@ const styles = StyleSheet.create({
   cta: {
     marginTop: 4,
   },
-  oauthHint: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.muted,
-    textAlign: 'center',
-    lineHeight: 16,
+  linkBtn: {
+    alignItems: 'center',
+    paddingVertical: 4,
   },
-  mono: { fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: undefined }) },
+  linkText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.moss,
+  },
+  linkDisabled: { opacity: 0.45 },
   appleBtn: {
     height: 48,
     borderRadius: 14,

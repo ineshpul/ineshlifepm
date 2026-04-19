@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '../theme/colors';
@@ -22,12 +22,6 @@ export type TabsParamList = {
 
 const Tab = createBottomTabNavigator<TabsParamList>();
 
-function TabLabel({ label, focused }: { label: string; focused: boolean }) {
-  return (
-    <Text style={[styles.tabLabel, focused && styles.tabLabelFocused]}>{label}</Text>
-  );
-}
-
 function TabIcon({
   name,
   focused,
@@ -47,6 +41,7 @@ export function AppTabs() {
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
+        tabBarShowLabel: false,
         tabBarStyle: styles.tabBar,
         tabBarActiveTintColor: colors.text,
         tabBarInactiveTintColor: colors.muted,
@@ -56,7 +51,8 @@ export function AppTabs() {
         name="Today"
         component={TodayScreen}
         options={{
-          tabBarLabel: ({ focused }) => <TabLabel label="TODAY" focused={focused} />,
+          title: 'Today',
+          tabBarAccessibilityLabel: 'Today',
           tabBarIcon: ({ focused }) => <TabIcon name="today-outline" focused={focused} />,
         }}
       />
@@ -64,7 +60,8 @@ export function AppTabs() {
         name="Feed"
         component={FeedScreen}
         options={{
-          tabBarLabel: ({ focused }) => <TabLabel label="FEED" focused={focused} />,
+          title: 'Feed',
+          tabBarAccessibilityLabel: 'Feed',
           tabBarIcon: ({ focused }) => <TabIcon name="albums-outline" focused={focused} />,
         }}
       />
@@ -72,7 +69,8 @@ export function AppTabs() {
         name="Record"
         component={RecordScreen}
         options={{
-          tabBarLabel: ({ focused }) => <TabLabel label="RECORD" focused={focused} />,
+          title: 'Record',
+          tabBarAccessibilityLabel: 'Record',
           tabBarIcon: ({ focused }) => <TabIcon name="videocam-outline" focused={focused} />,
         }}
       />
@@ -80,7 +78,8 @@ export function AppTabs() {
         name="Top"
         component={TopScreen}
         options={{
-          tabBarLabel: ({ focused }) => <TabLabel label="TOP" focused={focused} />,
+          title: 'How high can you jump?',
+          tabBarAccessibilityLabel: 'How high can you jump? Leaderboard',
           tabBarIcon: ({ focused }) => <TabIcon name="trending-up-outline" focused={focused} />,
         }}
       />
@@ -88,7 +87,8 @@ export function AppTabs() {
         name="Chat"
         component={ChatStackNavigator}
         options={{
-          tabBarLabel: ({ focused }) => <TabLabel label="CHAT" focused={focused} />,
+          title: 'Chat',
+          tabBarAccessibilityLabel: 'Chat',
           tabBarIcon: ({ focused }) => <TabIcon name="chatbubbles-outline" focused={focused} />,
         }}
       />
@@ -96,7 +96,8 @@ export function AppTabs() {
         name="Me"
         component={MeScreen}
         options={{
-          tabBarLabel: ({ focused }) => <TabLabel label="ME" focused={focused} />,
+          title: 'Me',
+          tabBarAccessibilityLabel: 'Me',
           tabBarIcon: ({ focused }) => <TabIcon name="person-circle-outline" focused={focused} />,
         }}
       />
@@ -106,19 +107,10 @@ export function AppTabs() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    height: 74,
-    paddingTop: 8,
-    paddingBottom: 16,
+    height: 58,
+    paddingTop: 6,
+    paddingBottom: 10,
     borderTopColor: colors.border,
-  },
-  tabLabel: {
-    fontSize: 10,
-    letterSpacing: 1.2,
-    fontWeight: '800',
-    color: colors.muted,
-  },
-  tabLabelFocused: {
-    color: colors.text,
   },
   iconWrap: {
     width: 30,

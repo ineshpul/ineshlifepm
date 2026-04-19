@@ -2,6 +2,7 @@ import { collection, deleteDoc, doc, getDoc, getDocs, limit, query } from 'fireb
 import { deleteObject, ref } from 'firebase/storage';
 
 import { firestore, storage } from '../firebase/firebase';
+import { scheduleVerticalScoreRecompute } from './verticalScore';
 
 /**
  * Deletes a video the user owns: engagement subcollections, Firestore doc, Storage file,
@@ -49,4 +50,6 @@ export async function deleteOwnedVideo(args: { videoId: string; viewerUid: strin
       // optional ledger
     }
   }
+
+  scheduleVerticalScoreRecompute(viewerUid, 500);
 }

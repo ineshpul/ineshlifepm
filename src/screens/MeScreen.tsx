@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, doc, limit, onSnapshot, query, where } from 'firebase/firestore';
@@ -14,6 +14,37 @@ import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { deleteOwnedVideo } from '../services/deleteVideo';
 import { showError } from '../utils/ui';
 import { subscribeFollowing, type FollowingRow } from '../services/social';
+import { verticalScoreTier } from '../lib/verticalScore';
+import { recomputeVerticalScoreForUser } from '../services/verticalScore';
+import type { VerticalScoreBreakdownFirestore } from '../types/verticalScore';
+
+function ScoreBar({ label, value }: { label: string; value: number }) {
+  const pct = Math.max(0, Math.min(100, value));
+  return (
+    <View style={scoreBarStyles.row}>
+      <Text style={scoreBarStyles.label}>{label}</Text>
+      <View style={scoreBarStyles.track}>
+        <View style={[scoreBarStyles.fill, { width: `${pct}%` }]} />
+      </View>
+    </View>
+  );
+}
+
+const scoreBarStyles = StyleSheet.create({
+  row: { marginTop: 10, gap: 4 },
+  label: { fontSize: 11, fontWeight: '800', color: colors.muted, letterSpacing: 0.6 },
+  track: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#E5E7EB',
+    overflow: 'hidden',
+  },
+  fill: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.moss,
+  },
+});
 
 type MyVideo = {
   id: string;
@@ -112,14 +143,30 @@ export function MeScreen() {
     (username.split(/[\s_]+/).filter(Boolean)[0]?.[0] ?? 'U').toUpperCase() +
     (username.split(/[\s_]+/).filter(Boolean)[1]?.[0] ?? '').toUpperCase();
 
+  const verticalScore = Math.round(Number(profile?.verticalScore ?? 0));
+  const breakdown: VerticalScoreBreakdownFirestore =
+    profile?.verticalScoreBreakdown != null && typeof profile.verticalScoreBreakdown === 'object'
+      ? (profile.verticalScoreBreakdown as VerticalScoreBreakdownFirestore)
+      : { consistency: 0, engagement: 0, reliability: 0, bonus: 0 };
+  const tier = verticalScoreTier(verticalScore);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!user?.uid) return;
+      void recomputeVerticalScoreForUser(user.uid);
+    }, [user?.uid])
+  );
+
   return (
     <Screen style={styles.screen}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <View style={styles.headerRow}>
           <View style={styles.brandRow}>
             <Brandmark size={36} />
-            <View>
-              <Text style={styles.brand}>Leap</Text>
+            <View style={styles.brandTextCol}>
+              <Text style={styles.headerTagline} numberOfLines={2}>
+                Leap
+              </Text>
               <Text style={styles.sub}>PROFILE</Text>
             </View>
           </View>
@@ -146,9 +193,27 @@ export function MeScreen() {
             <View style={styles.schoolPill}>
               <Text style={styles.schoolText}>{schoolRaw}</Text>
             </View>
-          ) : (
-            <Text style={styles.schoolPlaceholder}>School — you can set this in a future update.</Text>
-          )}
+          ) : null}
+        </View>
+
+        <View style={styles.scoreCard}>
+          <View style={styles.scoreHeader}>
+            <Text style={styles.scoreTitle}>VERTICAL SCORE</Text>
+            <View style={styles.tierPill}>
+              <Text style={styles.tierPillText}>{tier.label}</Text>
+            </View>
+          </View>
+          <Text style={styles.scoreNumber}>{verticalScore}</Text>
+          <Text style={styles.scoreTierHint}>{tier.hint}</Text>
+          <Text style={styles.scoreFoot}>
+            Rolling 14 days · recency-weighted · not editable
+          </Text>
+          <View style={styles.breakdownBlock}>
+            <ScoreBar label="Consistency" value={breakdown.consistency} />
+            <ScoreBar label="Engagement" value={breakdown.engagement} />
+            <ScoreBar label="Reliability" value={breakdown.reliability} />
+            <ScoreBar label="Bonus" value={breakdown.bonus} />
+          </View>
         </View>
 
         <View style={styles.jumpCard}>
@@ -276,10 +341,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  brand: { fontSize: 22, fontWeight: '900', color: colors.text },
+  brandRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, flex: 1, minWidth: 0 },
+  brandTextCol: { flex: 1, minWidth: 0, paddingTop: 2 },
+  headerTagline: {
+    marginTop: 0,
+    fontSize: 20,
+    letterSpacing: -0.4,
+    fontWeight: '900',
+    color: colors.text,
+  },
   sub: {
-    marginTop: 2,
+    marginTop: 4,
     fontSize: 11,
     letterSpacing: 2.2,
     fontWeight: '900',
@@ -332,14 +404,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   schoolText: { fontSize: 12, fontWeight: '800', color: colors.muted },
-  schoolPlaceholder: {
-    marginTop: 4,
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.muted,
-    textAlign: 'center',
-    paddingHorizontal: 8,
+  scoreCard: {
+    marginTop: 14,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    padding: 18,
+    gap: 6,
   },
+  scoreHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  scoreTitle: { fontSize: 11, letterSpacing: 2.2, fontWeight: '900', color: colors.muted },
+  tierPill: {
+    paddingHorizontal: 10,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.cardTint,
+    borderWidth: 1,
+    borderColor: '#E6F4D7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tierPillText: { fontSize: 11, fontWeight: '900', color: colors.text },
+  scoreNumber: { fontSize: 44, fontWeight: '900', color: colors.text, marginTop: 4 },
+  scoreTierHint: { fontSize: 13, fontWeight: '700', color: colors.muted, lineHeight: 18 },
+  scoreFoot: { marginTop: 4, fontSize: 11, fontWeight: '600', color: colors.muted2, lineHeight: 16 },
+  breakdownBlock: { marginTop: 8, paddingTop: 4 },
   jumpCard: {
     marginTop: 14,
     borderRadius: 22,

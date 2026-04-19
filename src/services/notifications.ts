@@ -85,7 +85,7 @@ export async function syncLeapScheduledNotifications(opts: {
     await Notifications.scheduleNotificationAsync({
       content: {
         title: 'Today’s Leap is live',
-        body: 'Open Leap and take the leap before midnight.',
+        body: 'Open Leap and post before midnight.',
       },
       trigger: dateTriggerAtUtcMs(tNoon),
     });

@@ -58,7 +58,7 @@ export function Feed() {
                   marginBottom: '8px',
                 }}
               >
-                Take the leap to continue
+                Post to continue
               </div>
               <div 
                 style={{
@@ -86,7 +86,7 @@ export function Feed() {
                 boxShadow: '0 8px 24px rgba(15,17,23,.12)',
               }}
             >
-              Record now
+              Leap
             </button>
           </div>
         </div>

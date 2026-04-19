@@ -1,11 +1,7 @@
-import Constants from 'expo-constants';
-
-function readExtra(): any {
-  return (Constants.expoConfig as any)?.extra ?? (Constants as any)?.manifest?.extra ?? {};
-}
+import { getExpoExtra } from './expoExtra';
 
 export function getAdminUids(): string[] {
-  const extra = readExtra();
+  const extra = getExpoExtra();
   const raw = extra?.adminUids;
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.map(String).filter(Boolean);

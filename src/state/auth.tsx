@@ -4,7 +4,6 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import {
-  GoogleAuthProvider,
   OAuthProvider,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
@@ -35,7 +34,6 @@ type AuthContextValue = {
   signUp: (args: { email: string; password: string; username: string }) => Promise<void>;
   signIn: (args: { email: string; password: string }) => Promise<void>;
   signOut: () => Promise<void>;
-  signInWithGoogleIdToken: (idToken: string) => Promise<void>;
   signInWithApple: () => Promise<void>;
   saveBiometricCredentials: (email: string, password: string) => Promise<void>;
   tryBiometricSignIn: () => Promise<void>;
@@ -65,7 +63,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           updatedAt: serverTimestamp(),
         },
         { merge: true }
-      );
+      ).catch(() => {
+        // Sign-in still succeeds; profile sync can retry on next launch.
+      });
       setUser({
         uid: u.uid,
         email: u.email ?? '',
@@ -96,13 +96,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const auth = firebaseAuth();
     await signInWithEmailAndPassword(auth, email, password);
-  }, []);
-
-  const signInWithGoogleIdToken = React.useCallback(async (idToken: string) => {
-    if (!isFirebaseConfigured()) return;
-    const auth = firebaseAuth();
-    const cred = GoogleAuthProvider.credential(idToken);
-    await signInWithCredential(auth, cred);
   }, []);
 
   const signInWithApple = React.useCallback(async () => {
@@ -182,7 +175,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signUp,
       signIn,
       signOut,
-      signInWithGoogleIdToken,
       signInWithApple,
       saveBiometricCredentials,
       tryBiometricSignIn,
@@ -193,7 +185,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signUp,
       signIn,
       signOut,
-      signInWithGoogleIdToken,
       signInWithApple,
       saveBiometricCredentials,
       tryBiometricSignIn,

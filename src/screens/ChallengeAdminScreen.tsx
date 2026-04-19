@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { deleteField, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -20,7 +20,6 @@ export function ChallengeAdminScreen() {
   const win = useChallengeWindow();
 
   const [title, setTitle] = React.useState('');
-  const [subtitle, setSubtitle] = React.useState('');
   const [maxDurationSeconds, setMaxDurationSeconds] = React.useState<TaskDurationSeconds>(60);
   const [busy, setBusy] = React.useState(false);
 
@@ -33,7 +32,6 @@ export function ChallengeAdminScreen() {
         if (cancelled || !snap.exists()) return;
         const data: any = snap.data();
         setTitle(String(data?.title ?? ''));
-        setSubtitle(String(data?.subtitle ?? ''));
         setMaxDurationSeconds(normalizeTaskDurationSeconds(data?.maxDurationSeconds));
       } catch {
         // leave fields as-is
@@ -60,7 +58,7 @@ export function ChallengeAdminScreen() {
         {
           dateKey: win.dateKey,
           title: title.trim(),
-          subtitle: subtitle.trim(),
+          subtitle: deleteField(),
           maxDurationSeconds,
           updatedAt: serverTimestamp(),
           publishedAt: serverTimestamp(),
@@ -87,16 +85,9 @@ export function ChallengeAdminScreen() {
         <TextInput value={title} onChangeText={setTitle} style={styles.input} placeholder="Prompt title" />
       </View>
 
-      <View style={styles.field}>
-        <Text style={styles.label}>SUBTITLE</Text>
-        <TextInput
-          value={subtitle}
-          onChangeText={setSubtitle}
-          style={[styles.input, styles.textarea]}
-          placeholder="Supporting copy"
-          multiline
-        />
-      </View>
+      <Text style={styles.helper}>
+        Only the title is editable for players. Instructions on Today are fixed (one take, post it fast) plus the time limit.
+      </Text>
 
       <View style={styles.field}>
         <Text style={styles.label}>MAX LENGTH (SECONDS)</Text>
@@ -163,9 +154,11 @@ const styles = StyleSheet.create({
     color: colors.text,
     backgroundColor: '#FAFBFC',
   },
-  textarea: {
-    minHeight: 110,
-    textAlignVertical: 'top',
+  helper: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+    lineHeight: 17,
   },
   durationRow: {
     flexDirection: 'row',

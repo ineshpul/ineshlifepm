@@ -211,7 +211,7 @@ export function Leaderboard() {
               cursor: 'pointer',
             }}
           >
-            Top jumps
+            Highest Jumps
           </button>
           <button
             onClick={() => setActiveTab('users')}

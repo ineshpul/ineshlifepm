@@ -2,6 +2,7 @@
   "expo": {
     "name": "Leap_MVP",
     "slug": "Leap_MVP",
+    "scheme": "leapmvp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -58,7 +59,8 @@
       ],
       "expo-apple-authentication",
       "expo-web-browser",
-      "expo-media-library"
+      "expo-media-library",
+      "expo-video"
     ],
     "extra": {
       "eas": {
@@ -72,14 +74,10 @@
         "messagingSenderId": "1047286135542",
         "appId": "1:1047286135542:web:d5a184e16b3f9ee8b20ad7"
       },
-      "adminUids": ["is10Doy7zQYUeCi36P8gE1M3lZe2"],
-      "googleAuth": {
-        "webClientId": "",
-        "iosClientId": "",
-        "androidClientId": ""
-      }
+      "adminUids": [
+        "is10Doy7zQYUeCi36P8gE1M3lZe2"
+      ],
+      "requireLoginEmailOtp": false
     }
   }
 }
-
-

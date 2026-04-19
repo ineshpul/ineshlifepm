@@ -2,7 +2,25 @@ import * as logger from 'firebase-functions/logger';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import * as admin from 'firebase-admin';
 
+import { sendLoginOtp, verifyLoginOtp } from './loginOtp';
+import {
+  onVerticalScoreCommentWrite,
+  onVerticalScoreLikeWrite,
+  onVerticalScoreVideoCreated,
+  onVerticalScoreVideoDeleted,
+} from './verticalScoreRecompute';
+import { recomputeVerticalScoreCallable } from './verticalScoreCallable';
+
 admin.initializeApp();
+
+export { sendLoginOtp, verifyLoginOtp };
+export {
+  onVerticalScoreCommentWrite,
+  onVerticalScoreLikeWrite,
+  onVerticalScoreVideoCreated,
+  onVerticalScoreVideoDeleted,
+  recomputeVerticalScoreCallable,
+};
 
 type ChatMessagePayload = {
   senderId?: string;

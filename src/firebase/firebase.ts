@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth, initializeAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
 import { getStorage } from 'firebase/storage';
 
 import { getFirebaseConfig } from './config';
@@ -44,5 +45,9 @@ export function firestore() {
 
 export function storage() {
   return getStorage(getFirebaseApp());
+}
+
+export function firebaseFunctions() {
+  return getFunctions(getFirebaseApp(), 'us-central1');
 }
 

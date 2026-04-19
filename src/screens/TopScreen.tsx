@@ -1,44 +1,82 @@
 import * as React from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
 import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 
 import { Brandmark } from '../components/Brandmark';
 import { Screen } from '../components/Screen';
 import { colors } from '../theme/colors';
-import { firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { useAuth } from '../state/auth';
 
-type Row = { id: string; username: string; verticalInches: number };
+type Row = { id: string; username: string; verticalScore: number };
 
 export function TopScreen() {
+  const { user } = useAuth();
   const [rows, setRows] = React.useState<Row[]>([]);
+  const [leaderboardHydrated, setLeaderboardHydrated] = React.useState(false);
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured()) {
+    if (!isFirebaseConfigured() || !user?.uid) {
       setRows([]);
+      setLeaderboardHydrated(true);
       return;
     }
-    const q = query(
-      collection(firestore(), 'users'),
-      orderBy('verticalInches', 'desc'),
-      limit(50)
-    );
-    return onSnapshot(
-      q,
-      (snap) => {
-        setRows(
-          snap.docs.map((d) => {
-            const data: any = d.data();
-            return {
-              id: d.id,
-              username: String(data?.username ?? 'user'),
-              verticalInches: Number(data?.verticalInches ?? 0),
-            };
-          })
+
+    setLeaderboardHydrated(false);
+    let cancelled = false;
+    let unsub: (() => void) | undefined;
+    let firstSnap = false;
+
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled) setLeaderboardHydrated(true);
+    }, 15_000);
+
+    void firebaseAuth()
+      .authStateReady()
+      .then(() => {
+        if (cancelled) return;
+        const q = query(
+          collection(firestore(), 'users'),
+          orderBy('verticalScore', 'desc'),
+          limit(50)
         );
-      },
-      () => setRows([])
-    );
-  }, []);
+        unsub = onSnapshot(
+          q,
+          (snap) => {
+            setRows(
+              snap.docs.map((d) => {
+                const data: any = d.data();
+                return {
+                  id: d.id,
+                  username: String(data?.username ?? 'user'),
+                  verticalScore: Number(data?.verticalScore ?? 0),
+                };
+              })
+            );
+            if (!firstSnap) {
+              firstSnap = true;
+              setLeaderboardHydrated(true);
+            }
+          },
+          () => {
+            setRows([]);
+            if (!firstSnap) {
+              firstSnap = true;
+              setLeaderboardHydrated(true);
+            }
+          }
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setLeaderboardHydrated(true);
+      });
+
+    return () => {
+      cancelled = true;
+      clearTimeout(safetyTimer);
+      unsub?.();
+    };
+  }, [user?.uid]);
 
   return (
     <Screen style={styles.screen}>
@@ -46,8 +84,8 @@ export function TopScreen() {
         <View style={styles.headerLeft}>
           <Brandmark size={36} />
           <View>
-            <Text style={styles.title}>Top jumps</Text>
-            <Text style={styles.sub}>Leaderboard by jump height</Text>
+            <Text style={styles.title}>How high can you jump?</Text>
+            <Text style={styles.sub}>Leaderboard · last 14 days</Text>
           </View>
         </View>
       </View>
@@ -57,14 +95,21 @@ export function TopScreen() {
         keyExtractor={(x) => x.id}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
-          <Text style={styles.empty}>No jump data yet. Log a height on your profile later.</Text>
+          !leaderboardHydrated ? (
+            <View style={styles.emptyLoading}>
+              <ActivityIndicator size="large" color={colors.moss} />
+              <Text style={styles.emptyLoadingText}>Loading leaderboard…</Text>
+            </View>
+          ) : (
+            <Text style={styles.empty}>No leaderboard yet. Post and engage to climb the board.</Text>
+          )
         }
         renderItem={({ item, index }) => (
           <View style={styles.row}>
             <Text style={styles.rank}>{index + 1}</Text>
             <View style={styles.rowBody}>
               <Text style={styles.name}>{item.username}</Text>
-              <Text style={styles.inches}>{item.verticalInches}"</Text>
+              <Text style={styles.score}>{item.verticalScore}</Text>
             </View>
           </View>
         )}
@@ -81,6 +126,12 @@ const styles = StyleSheet.create({
   sub: { marginTop: 2, fontSize: 12, fontWeight: '600', color: colors.muted },
   list: { paddingBottom: 24, gap: 10 },
   empty: { marginTop: 24, fontSize: 14, fontWeight: '600', color: colors.muted },
+  emptyLoading: {
+    marginTop: 48,
+    alignItems: 'center',
+    gap: 14,
+  },
+  emptyLoadingText: { fontSize: 14, fontWeight: '700', color: colors.muted },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -101,5 +152,5 @@ const styles = StyleSheet.create({
   },
   rowBody: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   name: { fontSize: 15, fontWeight: '800', color: colors.text },
-  inches: { fontSize: 15, fontWeight: '900', color: colors.moss },
+  score: { fontSize: 15, fontWeight: '900', color: colors.moss },
 });

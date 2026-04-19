@@ -1,4 +1,4 @@
-import Constants from 'expo-constants';
+import { getExpoExtra } from '../config/expoExtra';
 
 export type FirebaseConfig = {
   apiKey: string;
@@ -9,25 +9,20 @@ export type FirebaseConfig = {
   appId: string;
 };
 
-function readExtra(): any {
-  // Expo Go: Constants.expoConfig is present; in some native contexts it may be Constants.manifest.
-  return (Constants.expoConfig as any)?.extra ?? (Constants as any)?.manifest?.extra ?? {};
-}
-
 export function getFirebaseConfig(): FirebaseConfig | null {
-  const extra = readExtra();
-  const cfg = extra?.firebase;
-  if (!cfg) return null;
+  const extra = getExpoExtra();
+  const cfg = extra.firebase as Record<string, unknown> | undefined;
+  if (!cfg || typeof cfg !== 'object') return null;
   const apiKey = String(cfg.apiKey ?? '');
   const projectId = String(cfg.projectId ?? '');
   const appId = String(cfg.appId ?? '');
   if (!apiKey || !projectId || !appId) return null;
   return {
     apiKey,
-    authDomain: cfg.authDomain,
+    authDomain: cfg.authDomain != null ? String(cfg.authDomain) : undefined,
     projectId,
-    storageBucket: cfg.storageBucket,
-    messagingSenderId: cfg.messagingSenderId,
+    storageBucket: cfg.storageBucket != null ? String(cfg.storageBucket) : undefined,
+    messagingSenderId: cfg.messagingSenderId != null ? String(cfg.messagingSenderId) : undefined,
     appId,
   };
 }

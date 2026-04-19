@@ -12,7 +12,6 @@ export type MessageAudience = 'everyone' | 'friends' | 'none';
 export type SettingsPreferencesState = {
   notificationsEnabled: boolean;
   feedType: FeedType;
-  autoPlayVideos: boolean;
   dataSaver: boolean;
   privateAccount: boolean;
   whoCanComment: CommentAudience;
@@ -35,7 +34,6 @@ export type SettingsPreferencesState = {
 export const SETTINGS_DEFAULTS: SettingsPreferencesState = {
   notificationsEnabled: true,
   feedType: 'mixed',
-  autoPlayVideos: true,
   dataSaver: false,
   privateAccount: false,
   whoCanComment: 'everyone',
@@ -66,10 +64,11 @@ const PrefsContext = React.createContext<Ctx | null>(null);
 
 function mergeLoaded(raw: unknown): SettingsPreferencesState {
   if (!raw || typeof raw !== 'object') return { ...SETTINGS_DEFAULTS };
-  const o = raw as Partial<SettingsPreferencesState>;
+  const o = raw as Partial<SettingsPreferencesState> & { autoPlayVideos?: boolean };
+  const { autoPlayVideos: _removedAutoPlay, ...rest } = o;
   return {
     ...SETTINGS_DEFAULTS,
-    ...o,
+    ...rest,
     blockedUsernames: Array.isArray(o.blockedUsernames)
       ? o.blockedUsernames.map(String)
       : SETTINGS_DEFAULTS.blockedUsernames,

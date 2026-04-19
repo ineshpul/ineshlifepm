@@ -1,17 +1,22 @@
 import * as React from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
+  LayoutChangeEvent,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
   type ViewToken,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
+import { Audio, Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
 import { collection, doc, limit, onSnapshot, query, where } from 'firebase/firestore';
 
 import { Brandmark } from '../components/Brandmark';
@@ -23,7 +28,7 @@ import { colors } from '../theme/colors';
 import { deleteOwnedVideo } from '../services/deleteVideo';
 import { useAppState } from '../state/appState';
 import { normalizeTaskDurationSeconds, useChallengeWindow } from '../state/challenge';
-import { firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
 import { todayVideoDocId } from '../state/posting';
 import { showError } from '../utils/ui';
@@ -44,11 +49,38 @@ type FeedVideo = {
 /** One preview credit per challenge day (survives leaving/reopening the Feed tab). */
 let lastPreviewChargeDateKey: string | null = null;
 
+/** Bottom sheet height (instructions + engagement) per reel page — matches Tabs tab bar feel. */
+const REEL_BOTTOM_SHEET = 232;
+const TAB_BAR_HEIGHT = 58;
+
 function formatTimeLeft(totalSeconds: number) {
   const s = Math.max(0, totalSeconds);
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${m}:${String(r).padStart(2, '0')}`;
+}
+
+/** Pick the feed item that should play: prefer highest reported visible %, else bottom-most row. */
+function pickPrimaryViewable(viewableItems: ViewToken[]): FeedVideo | null {
+  const vis = viewableItems.filter(
+    (v): v is ViewToken & { item: FeedVideo } => Boolean(v.isViewable && v.item && (v.item as FeedVideo).id)
+  );
+  if (!vis.length) return null;
+  let best = vis[0];
+  let bestPct = -1;
+  for (const v of vis) {
+    const pct = (v as { percentVisible?: number }).percentVisible;
+    const score = typeof pct === 'number' && Number.isFinite(pct) ? pct : -1;
+    if (score > bestPct) {
+      bestPct = score;
+      best = v;
+    }
+  }
+  if (bestPct < 0) {
+    vis.sort((a, b) => (b.index ?? 0) - (a.index ?? 0));
+    best = vis[0];
+  }
+  return (best.item as FeedVideo) ?? null;
 }
 
 function FeedPostVideo(props: {
@@ -59,14 +91,83 @@ function FeedPostVideo(props: {
   maxDurationSeconds: number;
   showPreviewBadge: boolean;
   dataSaver: boolean;
+  /** Full-bleed vertical clip (Reels-style); hides native controls for a TikTok-like surface. */
+  reel?: boolean;
+  /** When autoplay is off: tap the inactive reel to start this clip. */
+  onReelActivate?: () => void;
 }) {
-  const { url, shouldPlay, isMuted, useNativeControls, maxDurationSeconds, showPreviewBadge, dataSaver } =
-    props;
+  const {
+    url,
+    shouldPlay,
+    isMuted,
+    useNativeControls,
+    maxDurationSeconds,
+    showPreviewBadge,
+    dataSaver,
+    reel = false,
+    onReelActivate,
+  } = props;
+  const videoRef = React.useRef<Video>(null);
   const [status, setStatus] = React.useState<AVPlaybackStatus | null>(null);
+  /** User tapped pause while this reel is still the active slot (feed scroll / focus unchanged). */
+  const [userPaused, setUserPaused] = React.useState(false);
+  const [pauseFlash, setPauseFlash] = React.useState(false);
+  const pauseFlashTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => {
+    if (!shouldPlay) setUserPaused(false);
+  }, [shouldPlay]);
+
+  React.useEffect(
+    () => () => {
+      if (pauseFlashTimerRef.current) clearTimeout(pauseFlashTimerRef.current);
+    },
+    []
+  );
+
+  const effectivePlay = shouldPlay && !userPaused;
+
+  React.useEffect(() => {
+    const player = videoRef.current;
+    if (!player) return;
+    if (effectivePlay) {
+      void (async () => {
+        try {
+          await player.setIsMutedAsync(false);
+          await player.setVolumeAsync(1.0);
+          await player.playAsync();
+        } catch {
+          /* native race or unload */
+        }
+      })();
+    } else {
+      void player.pauseAsync?.();
+    }
+  }, [effectivePlay, url]);
 
   const onPlaybackStatusUpdate = (s: AVPlaybackStatus) => {
     setStatus(s);
   };
+
+  const onReelTap = React.useCallback(() => {
+    if (!shouldPlay && onReelActivate) {
+      onReelActivate();
+      setUserPaused(false);
+      return;
+    }
+    if (!shouldPlay) return;
+    if (userPaused) {
+      setUserPaused(false);
+      return;
+    }
+    setUserPaused(true);
+    setPauseFlash(true);
+    if (pauseFlashTimerRef.current) clearTimeout(pauseFlashTimerRef.current);
+    pauseFlashTimerRef.current = setTimeout(() => {
+      pauseFlashTimerRef.current = null;
+      setPauseFlash(false);
+    }, 550);
+  }, [shouldPlay, userPaused, onReelActivate]);
 
   let remainingSec = maxDurationSeconds;
   if (status?.isLoaded) {
@@ -78,19 +179,60 @@ function FeedPostVideo(props: {
     remainingSec = Math.max(0, Math.ceil((durMs - posMs) / 1000));
   }
 
+  const nativeControls = reel ? false : useNativeControls;
+  const resizeMode = reel ? ResizeMode.COVER : ResizeMode.CONTAIN;
+  const videoStyle = reel ? StyleSheet.absoluteFillObject : styles.video;
+
+  const reelTapLayer =
+    reel && (shouldPlay || onReelActivate) ? (
+      <Pressable
+        style={styles.reelTouchLayer}
+        onPress={onReelTap}
+        accessibilityRole="button"
+        accessibilityLabel={
+          !shouldPlay && onReelActivate
+            ? 'Play video'
+            : userPaused
+              ? 'Play video'
+              : 'Pause video'
+        }
+      >
+        {pauseFlash ? (
+          <View style={styles.reelIconCenter} pointerEvents="none">
+            <Ionicons name="pause" size={58} color="rgba(255,255,255,0.92)" />
+          </View>
+        ) : shouldPlay && userPaused ? (
+          <View style={styles.reelIconCenter} pointerEvents="none">
+            <View style={styles.reelPlayCircle}>
+              <Ionicons name="play" size={42} color="rgba(255,255,255,0.96)" style={{ marginLeft: 4 }} />
+            </View>
+          </View>
+        ) : !shouldPlay && onReelActivate ? (
+          <View style={styles.reelIconCenter} pointerEvents="none">
+            <View style={styles.reelPlayCircle}>
+              <Ionicons name="play" size={42} color="rgba(255,255,255,0.96)" style={{ marginLeft: 4 }} />
+            </View>
+          </View>
+        ) : null}
+      </Pressable>
+    ) : null;
+
   return (
-    <View style={styles.videoStage}>
+    <View style={reel ? styles.videoStageReel : styles.videoStage}>
       <Video
+        ref={videoRef}
         source={{ uri: url }}
-        style={styles.video}
-        resizeMode={ResizeMode.CONTAIN}
-        shouldPlay={shouldPlay}
+        style={videoStyle}
+        resizeMode={resizeMode}
+        shouldPlay={effectivePlay}
         isMuted={isMuted}
+        isLooping={reel}
         volume={1.0}
-        useNativeControls={useNativeControls}
+        useNativeControls={nativeControls}
         progressUpdateIntervalMillis={dataSaver ? 1000 : 250}
         onPlaybackStatusUpdate={onPlaybackStatusUpdate}
       />
+      {reelTapLayer}
       <View style={styles.timerBar} pointerEvents="none">
         <Text style={styles.timerText}>{formatTimeLeft(remainingSec)} left</Text>
       </View>
@@ -105,12 +247,29 @@ export function FeedScreen() {
   const { hasPostedToday, previewViewsRemaining, markPreviewView, clearPostedOverride } = useAppState();
   const { user } = useAuth();
   const win = useChallengeWindow();
+
+  React.useEffect(() => {
+    void Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
+  }, []);
   const [videos, setVideos] = React.useState<FeedVideo[]>([]);
+  /** False until auth is ready and we have had at least one merge from Firestore listeners. */
+  const [feedHydrated, setFeedHydrated] = React.useState(false);
   const [followingRows, setFollowingRows] = React.useState<FollowingRow[]>([]);
   const [activeVideoId, setActiveVideoId] = React.useState<string | null>(null);
-  const [manualPlayId, setManualPlayId] = React.useState<string | null>(null);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [unreadNotifications, setUnreadNotifications] = React.useState(0);
+
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const [slotHeight, setSlotHeight] = React.useState(0);
+  const onSlotLayout = React.useCallback((e: LayoutChangeEvent) => {
+    const h = Math.floor(e.nativeEvent.layout.height);
+    if (h > 0) setSlotHeight((prev) => (Math.abs(prev - h) > 2 ? h : prev));
+  }, []);
+  const pageHeight = React.useMemo(() => {
+    if (slotHeight > 0) return slotHeight;
+    return Math.max(380, windowHeight - insets.top - insets.bottom - TAB_BAR_HEIGHT - 52);
+  }, [slotHeight, windowHeight, insets.top, insets.bottom]);
 
   const displayVideos = React.useMemo(() => {
     let v = videos;
@@ -141,16 +300,32 @@ export function FeedScreen() {
   }, [user?.uid]);
 
   const viewabilityConfig = React.useMemo(
-    () => ({ itemVisiblePercentThreshold: 55, minimumViewTime: 120 }),
+    () => ({
+      // Reel pages are tall; a lower threshold keeps the active index in sync with paging.
+      itemVisiblePercentThreshold: 35,
+      minimumViewTime: 80,
+      waitForInteraction: false,
+    }),
     []
   );
 
-  const onViewableItemsChanged = React.useCallback(
-    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
-      const next = viewableItems.find((v) => v.isViewable)?.item as FeedVideo | undefined;
-      if (next?.id) setActiveVideoId(next.id);
-    },
-    []
+  const onViewableItemsChangedRef = React.useRef(
+    (_info: { viewableItems: ViewToken[]; changed: ViewToken[] }) => {}
+  );
+  onViewableItemsChangedRef.current = ({ viewableItems }) => {
+    const next = pickPrimaryViewable(viewableItems);
+    if (next?.id) setActiveVideoId(next.id);
+  };
+
+  const viewabilityConfigCallbackPairs = React.useMemo(
+    () => [
+      {
+        viewabilityConfig,
+        onViewableItemsChanged: (info: { viewableItems: ViewToken[]; changed: ViewToken[] }) =>
+          onViewableItemsChangedRef.current(info),
+      },
+    ],
+    [viewabilityConfig]
   );
 
   React.useEffect(() => {
@@ -160,14 +335,10 @@ export function FeedScreen() {
   React.useEffect(() => {
     if (displayVideos.length === 0) {
       setActiveVideoId(null);
-      setManualPlayId(null);
       return;
     }
     setActiveVideoId((cur) =>
       cur && displayVideos.some((v) => v.id === cur) ? cur : displayVideos[0].id
-    );
-    setManualPlayId((cur) =>
-      cur && displayVideos.some((v) => v.id === cur) ? cur : null
     );
   }, [displayVideos]);
 
@@ -206,22 +377,25 @@ export function FeedScreen() {
   };
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured()) {
+    if (!isFirebaseConfigured() || !user?.uid) {
       setVideos([]);
+      setFeedHydrated(true);
       return;
     }
 
-    // Avoid orderBy here so the feed works before composite indexes are deployed; merge() sorts by time.
-    const approvedQ = query(
-      collection(firestore(), 'videos'),
-      where('challengeDate', '==', win.dateKey),
-      where('moderationStatus', '==', 'approved'),
-      limit(200)
-    );
-
+    setFeedHydrated(false);
+    let cancelled = false;
+    let approvedUnsub: (() => void) | undefined;
     let mineUnsub: (() => void) | null = null;
     let approvedDocs: FeedVideo[] = [];
     let mineDocs: FeedVideo[] = [];
+    let approvedListenerSeen = false;
+    let mineListenerSeen = false;
+
+    const bumpHydrated = () => {
+      if (cancelled) return;
+      if (approvedListenerSeen && mineListenerSeen) setFeedHydrated(true);
+    };
 
     const merge = () => {
       const map = new Map<string, FeedVideo>();
@@ -233,70 +407,96 @@ export function FeedScreen() {
       setVideos(merged);
     };
 
-    const approvedUnsub = onSnapshot(
-      approvedQ,
-      (snap) => {
-        approvedDocs = snap.docs.map((d) => {
-          const data: any = d.data();
-          const createdAtMs =
-            typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
-          return {
-            id: d.id,
-            username: String(data?.username ?? 'user'),
-            prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
-            url: String(data?.url ?? ''),
-            createdAtMs,
-            ownerUid: String(data?.uid ?? ''),
-            moderationStatus: String(data?.moderationStatus ?? 'approved'),
-            maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
-          };
-        });
-        merge();
-      },
-      () => {
-        approvedDocs = [];
-        merge();
-      }
-    );
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled) setFeedHydrated(true);
+    }, 15_000);
 
-    if (user?.uid) {
-      const mineRef = doc(firestore(), 'videos', todayVideoDocId(user.uid, win.dateKey));
-      mineUnsub = onSnapshot(
-        mineRef,
-        (snap) => {
-          if (!snap.exists()) {
-            mineDocs = [];
-          } else {
-            const data: any = snap.data();
-            const createdAtMs =
-              typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
-            mineDocs = [
-              {
-                id: snap.id,
+    void firebaseAuth()
+      .authStateReady()
+      .then(() => {
+        if (cancelled) return;
+
+        // Avoid orderBy here so the feed works before composite indexes are deployed; merge() sorts by time.
+        const approvedQ = query(
+          collection(firestore(), 'videos'),
+          where('challengeDate', '==', win.dateKey),
+          where('moderationStatus', '==', 'approved'),
+          limit(200)
+        );
+
+        approvedUnsub = onSnapshot(
+          approvedQ,
+          (snap) => {
+            approvedDocs = snap.docs.map((d) => {
+              const data: any = d.data();
+              const createdAtMs =
+                typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+              return {
+                id: d.id,
                 username: String(data?.username ?? 'user'),
                 prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
                 url: String(data?.url ?? ''),
                 createdAtMs,
                 ownerUid: String(data?.uid ?? ''),
-                moderationStatus: String(data?.moderationStatus ?? 'pending'),
+                moderationStatus: String(data?.moderationStatus ?? 'approved'),
                 maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
-              },
-            ];
+              };
+            });
+            merge();
+            approvedListenerSeen = true;
+            bumpHydrated();
+          },
+          () => {
+            approvedDocs = [];
+            merge();
+            approvedListenerSeen = true;
+            bumpHydrated();
           }
-          merge();
-        },
-        () => {
-          mineDocs = [];
-          merge();
-        }
-      );
-    } else {
-      mineDocs = [];
-      merge();
-    }
+        );
+
+        const mineRef = doc(firestore(), 'videos', todayVideoDocId(user.uid, win.dateKey));
+        mineUnsub = onSnapshot(
+          mineRef,
+          (snap) => {
+            if (!snap.exists()) {
+              mineDocs = [];
+            } else {
+              const data: any = snap.data();
+              const createdAtMs =
+                typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+              mineDocs = [
+                {
+                  id: snap.id,
+                  username: String(data?.username ?? 'user'),
+                  prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
+                  url: String(data?.url ?? ''),
+                  createdAtMs,
+                  ownerUid: String(data?.uid ?? ''),
+                  moderationStatus: String(data?.moderationStatus ?? 'pending'),
+                  maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
+                },
+              ];
+            }
+            merge();
+            mineListenerSeen = true;
+            bumpHydrated();
+          },
+          () => {
+            mineDocs = [];
+            merge();
+            mineListenerSeen = true;
+            bumpHydrated();
+          }
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setFeedHydrated(true);
+      });
 
     return () => {
-      approvedUnsub();
+      cancelled = true;
+      clearTimeout(safetyTimer);
+      approvedUnsub?.();
       mineUnsub?.();
     };
   }, [win.dateKey, user?.uid]);
@@ -307,12 +507,12 @@ export function FeedScreen() {
         <View style={styles.lockIcon}>
           <Text style={styles.lockEmoji}>🔒</Text>
         </View>
-        <Text style={styles.gateTitle}>Take the leap to continue</Text>
+        <Text style={styles.gateTitle}>Post to continue</Text>
         <Text style={styles.gateBody}>
           Post today’s challenge to unlock the feed and see what everyone else is doing.
         </Text>
         <PrimaryButton
-          title="RECORD NOW"
+          title="Leap"
           variant="green"
           onPress={() => nav.navigate('Record')}
           style={styles.gateCta}
@@ -322,98 +522,97 @@ export function FeedScreen() {
   }
 
   return (
-    <Screen style={styles.screen}>
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Brandmark size={36} />
-          <View>
-            <Text style={styles.headerTitle}>{hasPostedToday ? 'Daily Feed' : 'Preview'}</Text>
-            {!hasPostedToday && (
-              <Text style={styles.headerSub}>{previewViewsRemaining} previews left</Text>
-            )}
+    <Screen style={styles.feedScreen}>
+      <View style={styles.headerWrap}>
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <Brandmark size={36} />
+            <View>
+              <Text style={styles.headerTitle}>{hasPostedToday ? 'Daily Feed' : 'Preview'}</Text>
+              {!hasPostedToday && (
+                <Text style={styles.headerSub}>{previewViewsRemaining} previews left</Text>
+              )}
+            </View>
           </View>
+          {user?.uid ? (
+            <View style={styles.headerRight}>
+              <TouchableOpacity
+                style={styles.notifBtn}
+                onPress={() => nav.navigate('Notifications')}
+                accessibilityRole="button"
+                accessibilityLabel="Notifications"
+              >
+                <Ionicons name="notifications-outline" size={22} color={colors.text} />
+                {unreadNotifications > 0 ? (
+                  <View style={styles.notifBadge}>
+                    <Text style={styles.notifBadgeText}>
+                      {unreadNotifications > 99 ? '99+' : String(unreadNotifications)}
+                    </Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.notifBtn}
+                onPress={() => nav.navigate('Settings')}
+                accessibilityRole="button"
+                accessibilityLabel="Settings"
+              >
+                <Ionicons name="settings-outline" size={22} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
-        {user?.uid ? (
-          <View style={styles.headerRight}>
-            <TouchableOpacity
-              style={styles.notifBtn}
-              onPress={() => nav.navigate('Notifications')}
-              accessibilityRole="button"
-              accessibilityLabel="Notifications"
-            >
-              <Ionicons name="notifications-outline" size={24} color={colors.text} />
-              {unreadNotifications > 0 ? (
-                <View style={styles.notifBadge}>
-                  <Text style={styles.notifBadgeText}>
-                    {unreadNotifications > 99 ? '99+' : String(unreadNotifications)}
-                  </Text>
-                </View>
-              ) : null}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.notifBtn}
-              onPress={() => nav.navigate('Settings')}
-              accessibilityRole="button"
-              accessibilityLabel="Settings"
-            >
-              <Ionicons name="settings-outline" size={24} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-        ) : null}
       </View>
 
-      <FlatList
-        contentContainerStyle={styles.list}
-        data={displayVideos}
-        keyExtractor={(x) => x.id}
-        viewabilityConfig={viewabilityConfig}
-        onViewableItemsChanged={onViewableItemsChanged}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>No posts yet.</Text>
-            <Text style={styles.emptyBody}>Be the first to take the leap today.</Text>
-            <PrimaryButton
-              title="RECORD"
-              variant="green"
-              onPress={() => nav.navigate('Record')}
-              style={{ width: 200, borderRadius: 30, marginTop: 10 }}
-            />
-          </View>
-        }
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{item.username[0]?.toUpperCase()}</Text>
-            </View>
-            <View style={styles.cardBody}>
-              <View style={styles.cardTitleRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.user}>{item.username}</Text>
-                  <Text style={styles.caption}>{item.prompt}</Text>
-                </View>
-                <View style={styles.cardTitleActions}>
-                  {user?.uid && item.ownerUid !== user.uid ? (
-                    <FollowButton
-                      viewerUid={user.uid}
-                      viewerUsername={user.username}
-                      targetUid={item.ownerUid}
-                      targetUsername={item.username}
-                    />
-                  ) : null}
-                  {user?.uid && item.ownerUid === user.uid ? (
-                    <TouchableOpacity
-                      onPress={() => confirmDelete(item)}
-                      disabled={deletingId === item.id}
-                      hitSlop={8}
-                    >
-                      <Text style={styles.deleteLink}>{deletingId === item.id ? '…' : 'Delete'}</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
+      <View style={styles.feedSlot} onLayout={onSlotLayout}>
+        <FlatList
+          style={styles.reelList}
+          data={displayVideos}
+          keyExtractor={(x) => x.id}
+          extraData={`${pageHeight}-${activeVideoId}-${feedHydrated}`}
+          viewabilityConfigCallbackPairs={viewabilityConfigCallbackPairs}
+          contentContainerStyle={displayVideos.length === 0 ? { flexGrow: 1 } : undefined}
+          pagingEnabled
+          snapToInterval={pageHeight}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          disableIntervalMomentum
+          showsVerticalScrollIndicator={false}
+          removeClippedSubviews={false}
+          windowSize={5}
+          getItemLayout={
+            slotHeight > 0 && pageHeight > 40
+              ? (_, index) => ({
+                  length: pageHeight,
+                  offset: pageHeight * index,
+                  index,
+                })
+              : undefined
+          }
+          ListEmptyComponent={
+            !feedHydrated ? (
+              <View style={[styles.empty, styles.emptyLoading, { minHeight: pageHeight }]}>
+                <ActivityIndicator size="large" color={colors.moss} />
+                <Text style={styles.emptyLoadingText}>Loading feed…</Text>
               </View>
-
-              {preferences.autoPlayVideos ? (
+            ) : (
+              <View style={[styles.empty, { minHeight: pageHeight }]}>
+                <Text style={styles.emptyTitle}>No posts yet.</Text>
+                <Text style={styles.emptyBody}>Be the first to Leap today.</Text>
+                <PrimaryButton
+                  title="Leap"
+                  variant="green"
+                  onPress={() => nav.navigate('Record')}
+                  style={{ width: 200, borderRadius: 30, marginTop: 10 }}
+                />
+              </View>
+            )
+          }
+          renderItem={({ item }) => (
+            <View style={[styles.reelPage, { height: pageHeight }]}>
+              <View style={[styles.reelVideoSlot, { bottom: REEL_BOTTOM_SHEET }]}>
                 <FeedPostVideo
+                  reel
                   url={item.url}
                   shouldPlay={activeVideoId === item.id}
                   isMuted={false}
@@ -422,59 +621,194 @@ export function FeedScreen() {
                   showPreviewBadge={!hasPostedToday}
                   dataSaver={preferences.dataSaver}
                 />
-              ) : (
-                <Pressable
-                  onPress={() =>
-                    setManualPlayId((id) => (id === item.id ? null : item.id))
-                  }
-                >
-                  <FeedPostVideo
-                    url={item.url}
-                    shouldPlay={manualPlayId === item.id}
-                    isMuted={false}
-                    useNativeControls={hasPostedToday}
-                    maxDurationSeconds={item.maxDurationSeconds}
-                    showPreviewBadge={!hasPostedToday}
-                    dataSaver={preferences.dataSaver}
-                  />
-                </Pressable>
-              )}
+              </View>
 
-              {user?.uid ? (
-                <FeedPostEngagement
-                  videoId={item.id}
-                  videoOwnerUid={item.ownerUid}
-                  shareTitle={`${item.username} on Leap`}
-                  shareUrl={item.url}
-                  viewerUid={user.uid}
-                  viewerUsername={user.username}
-                />
-              ) : null}
+              <View style={[styles.reelSheet, { height: REEL_BOTTOM_SHEET }]}>
+                <View style={styles.reelSheetTop}>
+                  <View style={styles.reelAvatar}>
+                    <Text style={styles.reelAvatarText}>{item.username[0]?.toUpperCase()}</Text>
+                  </View>
+                  <View style={styles.reelTextCol}>
+                    <Text style={styles.reelUser}>@{item.username}</Text>
+                    <Text style={styles.reelPrompt} numberOfLines={2}>
+                      {item.prompt}
+                    </Text>
+                  </View>
+                  <View style={styles.reelSheetActions}>
+                    {user?.uid && item.ownerUid !== user.uid ? (
+                      <FollowButton
+                        viewerUid={user.uid}
+                        viewerUsername={user.username}
+                        targetUid={item.ownerUid}
+                        targetUsername={item.username}
+                      />
+                    ) : null}
+                    {user?.uid && item.ownerUid === user.uid ? (
+                      <TouchableOpacity
+                        onPress={() => confirmDelete(item)}
+                        disabled={deletingId === item.id}
+                        hitSlop={8}
+                      >
+                        <Text style={styles.deleteLink}>
+                          {deletingId === item.id ? '…' : 'Delete'}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </View>
+                {user?.uid ? (
+                  <ScrollView
+                    style={styles.reelEngagementScroll}
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    <FeedPostEngagement
+                      videoId={item.id}
+                      videoOwnerUid={item.ownerUid}
+                      shareTitle={`${item.username} on Leap`}
+                      shareUrl={item.url}
+                      viewerUid={user.uid}
+                      viewerUsername={user.username}
+                    />
+                  </ScrollView>
+                ) : null}
+              </View>
             </View>
-          </View>
-        )}
-      />
+          )}
+        />
+      </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   screen: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 12,
+  },
+  feedScreen: {
+    flex: 1,
+  },
+  headerWrap: {
+    paddingHorizontal: 12,
+  },
+  feedSlot: {
+    flex: 1,
+    minHeight: 0,
+  },
+  reelList: {
+    flex: 1,
+  },
+  reelPage: {
+    width: '100%',
+    backgroundColor: colors.bg,
+  },
+  reelVideoSlot: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+  },
+  reelSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'column',
+    backgroundColor: colors.white,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: -2 },
+    elevation: 6,
+  },
+  reelSheetTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 6,
+  },
+  reelAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.cardTint,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reelAvatarText: {
+    fontWeight: '900',
+    color: colors.text,
+  },
+  reelTextCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  reelUser: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: colors.text,
+  },
+  reelPrompt: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.muted,
+  },
+  reelSheetActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
+  },
+  reelEngagementScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  videoStageReel: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
+    backgroundColor: '#0B1020',
+  },
+  reelTouchLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+  },
+  reelIconCenter: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.32)',
+  },
+  reelPlayCircle: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   header: {
-    paddingTop: 12,
-    paddingBottom: 10,
+    paddingTop: 6,
+    paddingBottom: 4,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
+    gap: 8,
   },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   notifBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -501,8 +835,9 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
     flex: 1,
+    minWidth: 0,
   },
   headerTitle: {
     fontSize: 22,
@@ -515,22 +850,22 @@ const styles = StyleSheet.create({
     color: colors.muted,
   },
   list: {
-    paddingBottom: 18,
-    gap: 12,
+    paddingBottom: 10,
+    gap: 8,
   },
   card: {
     flexDirection: 'row',
-    gap: 12,
-    padding: 14,
-    borderRadius: 18,
+    gap: 8,
+    padding: 10,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: colors.cardTint,
     alignItems: 'center',
     justifyContent: 'center',
@@ -541,7 +876,7 @@ const styles = StyleSheet.create({
   },
   cardBody: {
     flex: 1,
-    gap: 6,
+    gap: 4,
   },
   cardTitleRow: {
     flexDirection: 'row',
@@ -571,8 +906,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   videoStage: {
-    marginTop: 10,
-    borderRadius: 16,
+    marginTop: 6,
+    borderRadius: 12,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.border,
@@ -588,6 +923,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    zIndex: 4,
     paddingVertical: 8,
     paddingHorizontal: 10,
     backgroundColor: 'rgba(0,0,0,0.55)',
@@ -603,6 +939,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 10,
     top: 10,
+    zIndex: 5,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 14,
@@ -614,9 +951,9 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   empty: {
-    paddingTop: 30,
+    paddingTop: 16,
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
   },
   emptyTitle: {
     fontSize: 18,
@@ -630,11 +967,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 24,
   },
-  gateScreen: {
-    paddingHorizontal: 22,
-    alignItems: 'center',
+  emptyLoading: {
     justifyContent: 'center',
     gap: 14,
+  },
+  emptyLoadingText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.muted,
+  },
+  gateScreen: {
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
   },
   lockIcon: {
     width: 72,

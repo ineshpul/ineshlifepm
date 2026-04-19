@@ -51,13 +51,15 @@ export function Auth() {
         >
           <Brandmark className="w-full h-full" />
         </div>
-        <div 
+        <div
           style={{
+            marginTop: '18px',
             fontSize: '11px',
             fontWeight: 600,
             letterSpacing: '.16em',
             textTransform: 'uppercase',
             color: 'var(--muted-2)',
+            textAlign: 'center',
           }}
         >
           Stop overthinking.

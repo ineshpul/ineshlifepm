@@ -34,6 +34,7 @@ import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/fireb
 import { LEAP_SUPPORT_EMAIL } from '../constants/support';
 import type { LegalDocId } from '../content/settingsLegal';
 import { showError, showInfo } from '../utils/ui';
+import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 
 function SectionHeader({ title }: { title: string }) {
   return (
@@ -188,6 +189,20 @@ export function SettingsScreen() {
       showInfo('Saved', 'Your profile was updated.');
     } catch (e) {
       showError('Could not save profile', e);
+    }
+  };
+
+  const refreshVerticalScore = async () => {
+    if (!user?.uid) {
+      showInfo('Sign in', 'Vertical Score needs an account.');
+      return;
+    }
+    try {
+      const r = await recomputeVerticalScoreForUser(user.uid);
+      if (r) showInfo('Vertical Score', `Updated to ${r.verticalScore}.`);
+      else showError('Could not update', new Error('Check your connection or try again.'));
+    } catch (e) {
+      showError('Could not update score', e);
     }
   };
 
@@ -392,12 +407,6 @@ export function SettingsScreen() {
           />
           <Separator />
           <RowToggle
-            label="Auto-play videos"
-            value={preferences.autoPlayVideos}
-            onValueChange={(v) => patch({ autoPlayVideos: v })}
-          />
-          <Separator />
-          <RowToggle
             label="Data saver mode"
             subtitle="Lighter playback updates."
             value={preferences.dataSaver}
@@ -486,6 +495,8 @@ export function SettingsScreen() {
             value={preferences.showScorePublic}
             onValueChange={(v) => patch({ showScorePublic: v })}
           />
+          <Separator />
+          <RowChevron label="Recalculate vertical score" onPress={() => void refreshVerticalScore()} />
         </Card>
 
         <SectionHeader title="Camera / Upload" />

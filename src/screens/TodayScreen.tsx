@@ -8,6 +8,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
 import { useTodayChallenge } from '../state/challenge';
 import { useLiveCount } from '../state/live';
+import { CHALLENGE_INSTRUCTIONS, LEAP_BOTTOM_TAGLINE } from '../content/challengeCopy';
 import { useAuth } from '../state/auth';
 
 function formatHMS(ms: number) {
@@ -32,14 +33,14 @@ export function TodayScreen() {
   return (
     <Screen style={styles.screen}>
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerBrand}>
           <View style={styles.brandRow}>
             <Brandmark size={32} />
-            <View>
-              <Text style={styles.brand}>Leap</Text>
+            <View style={styles.brandTextCol}>
+              <Text style={styles.brandName}>Leap</Text>
+              <Text style={styles.sub}>TODAY</Text>
             </View>
           </View>
-          <Text style={styles.sub}>TODAY</Text>
         </View>
         <View style={styles.headerRight}>
           {user?.isAdmin && (
@@ -61,8 +62,9 @@ export function TodayScreen() {
         </View>
 
         <Text style={styles.title}>{challenge.title}</Text>
-        <Text style={styles.desc}>{challenge.subtitle}</Text>
-        <Text style={styles.taskLength}>Task: up to {challenge.maxDurationSeconds}s</Text>
+        <Text style={styles.instructions}>
+          {CHALLENGE_INSTRUCTIONS} · Up to {challenge.maxDurationSeconds}s
+        </Text>
 
         <View style={styles.cardFooter}>
           <View style={styles.expirePill}>
@@ -85,15 +87,13 @@ export function TodayScreen() {
 
       <View style={styles.bottom}>
         <PrimaryButton
-          title="LEAP"
+          title="Leap"
           variant="green"
           onPress={() => nav.navigate('Record')}
           style={styles.leapBtn}
         />
         <Text style={styles.bottomHint}>TAP TO RECORD</Text>
-        <Text style={styles.bottomSub}>
-          One take · up to {challenge.maxDurationSeconds}s · post it fast.
-        </Text>
+        <Text style={styles.bottomSub}>{LEAP_BOTTOM_TAGLINE}</Text>
       </View>
     </Screen>
   );
@@ -130,18 +130,29 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     color: colors.text,
   },
+  headerBrand: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 8,
+  },
   brandRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    alignItems: 'flex-start',
+    gap: 10,
   },
-  brand: {
+  brandTextCol: {
+    flex: 1,
+    minWidth: 0,
+    paddingTop: 2,
+  },
+  brandName: {
+    marginTop: 0,
     fontSize: 22,
     fontWeight: '900',
     color: colors.text,
   },
   sub: {
-    marginTop: 2,
+    marginTop: 4,
     fontSize: 11,
     letterSpacing: 2.2,
     fontWeight: '900',
@@ -202,31 +213,25 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: colors.text,
   },
-  desc: {
+  instructions: {
     marginTop: 10,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
     color: colors.muted,
     fontWeight: '600',
   },
-  taskLength: {
-    marginTop: 8,
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.text,
-  },
   cardFooter: {
-    marginTop: 18,
+    marginTop: 14,
     flexDirection: 'column',
     alignItems: 'stretch',
-    gap: 12,
+    gap: 10,
   },
   expirePill: {
     alignSelf: 'flex-start',
-    minHeight: 36,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    minHeight: 34,
+    borderRadius: 17,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.white,
@@ -234,30 +239,38 @@ const styles = StyleSheet.create({
     borderColor: '#E6F4D7',
   },
   expireText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
     color: colors.text,
   },
   liveRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
+    width: '100%',
+    minWidth: 0,
   },
   liveBarBg: {
-    height: 4,
-    width: 68,
+    height: 3,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 40,
+    maxWidth: 112,
     borderRadius: 2,
     backgroundColor: '#D1D5DB',
     overflow: 'hidden',
   },
   liveBarFill: {
-    height: 4,
-    width: 22,
+    height: 3,
+    width: '36%',
+    maxWidth: 40,
     borderRadius: 2,
     backgroundColor: '#F97316',
   },
   liveText: {
-    fontSize: 12,
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 11,
     fontWeight: '800',
     color: colors.muted,
   },
@@ -267,9 +280,9 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     paddingBottom: 18,
   },
+  /** Same footprint as Record screen POST (PrimaryButton + postBtn). */
   leapBtn: {
     width: 220,
-    height: 60,
     borderRadius: 30,
   },
   bottomHint: {

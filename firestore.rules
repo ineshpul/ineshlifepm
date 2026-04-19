@@ -194,9 +194,12 @@ service cloud.firestore {
 
     // Daily post is unique per user per challenge day (doc id `${uid}_${challengeDate}`).
     match /videos/{videoId} {
+      // Allow read when the doc is missing so `onSnapshot` (e.g. “posted today?”) does not throw
+      // permission-denied — `resource.data` is not valid if the document does not exist.
       allow read: if signedIn()
         && (
-          resource.data.moderationStatus == 'approved'
+          !exists(/databases/$(database)/documents/videos/$(videoId))
+          || resource.data.moderationStatus == 'approved'
           || resource.data.uid == request.auth.uid
         );
 
@@ -252,7 +255,18 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if signedIn();
-      allow create, update: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && !request.resource.data.keys().hasAny([
+          'verticalScore',
+          'verticalScoreBreakdown',
+          'verticalScoreUpdatedAt',
+        ]);
+      allow update: if isOwner(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'verticalScore',
+          'verticalScoreBreakdown',
+          'verticalScoreUpdatedAt',
+        ]);
       allow delete: if false;
 
       // In-app inbox (likes / comments / follows). Only recipient reads; actors create docs.
@@ -293,6 +307,15 @@ service cloud.firestore {
         allow create, delete: if isOwner(userId) && userId != blockedUid;
         allow update: if false;
       }
+    }
+
+    // Server-only (Cloud Functions admin SDK). Holds short-lived email sign-in OTPs + rate limits.
+    match /loginOtps/{id} {
+      allow read, write: if false;
+    }
+
+    match /loginOtpRate/{id} {
+      allow read, write: if false;
     }
 
     match /challenges/{id} {

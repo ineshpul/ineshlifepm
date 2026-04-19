@@ -6,6 +6,7 @@ import { launchImageLibraryAsync, MediaTypeOptions } from 'expo-image-picker';
 import { doc, increment, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
+import { RecordClipPreview } from '../components/RecordClipPreview';
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
@@ -13,11 +14,32 @@ import { useAppState } from '../state/appState';
 import { useAuth } from '../state/auth';
 import { useTodayChallenge } from '../state/challenge';
 import { firestore, isFirebaseConfigured, storage } from '../firebase/firebase';
-import { commitPostedVideo, consumeRecordingAttempt, useAttemptsRemaining } from '../state/postAttempts';
+import {
+  commitPostedVideo,
+  refundRecordingAttemptIfNoPostedVideo,
+  syncAttemptLedgerAfterSuccessfulPost,
+  useAttemptsRemaining,
+} from '../state/postAttempts';
 import { useHasPostedToday } from '../state/posting';
 import { showError } from '../utils/ui';
+import { CHALLENGE_INSTRUCTIONS } from '../content/challengeCopy';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import * as MediaLibrary from 'expo-media-library';
+import { recomputeVerticalScoreForUser } from '../services/verticalScore';
+
+async function clipUriToBlob(uri: string): Promise<Blob> {
+  const res = await fetch(uri);
+  if (!res.ok) {
+    throw new Error(
+      `Could not read your clip (HTTP ${res.status}). Try recording again or pick another video.`
+    );
+  }
+  const blob = await res.blob();
+  if (!blob || blob.size < 64) {
+    throw new Error('This video looks empty or unreadable. Try recording again or choose another clip.');
+  }
+  return blob;
+}
 
 export function RecordScreen() {
   const nav = useNavigation<any>();
@@ -41,6 +63,12 @@ export function RecordScreen() {
   const cameraRef = React.useRef<CameraView>(null);
 
   const canUseCamera = permission?.granted;
+
+  const clearPreview = React.useCallback(() => {
+    setClipUri(null);
+    setClipSource(null);
+    setCountdown(null);
+  }, []);
 
   React.useEffect(() => {
     setClipUri(null);
@@ -109,13 +137,6 @@ export function RecordScreen() {
       setClipUri(fileUri);
       if (fileUri) {
         setClipSource('recorded');
-        if (user?.uid && isFirebaseConfigured()) {
-          try {
-            await consumeRecordingAttempt({ uid: user.uid, challengeDate: window.dateKey });
-          } catch (e) {
-            showError('Could not sync your take', e);
-          }
-        }
       } else {
         showError(
           'Recording failed',
@@ -150,20 +171,6 @@ export function RecordScreen() {
     }
     setClipUri(asset.uri);
     setClipSource('library');
-    if (user?.uid && isFirebaseConfigured()) {
-      try {
-        await consumeRecordingAttempt({ uid: user.uid, challengeDate: window.dateKey });
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (msg.includes('No attempts')) {
-          showError('No attempts left', e);
-          setClipUri(null);
-          setClipSource(null);
-        } else {
-          showError('Could not sync your take', e);
-        }
-      }
-    }
   };
 
   const onTapRecord = async () => {
@@ -206,7 +213,7 @@ export function RecordScreen() {
         return;
       }
 
-      const blob = await fetch(clipUri).then((r) => r.blob());
+      const blob = await clipUriToBlob(clipUri);
       const ext =
         clipSource === 'library'
           ? clipUri.toLowerCase().endsWith('.mov')
@@ -223,10 +230,10 @@ export function RecordScreen() {
         await commitPostedVideo({
           payload: {
             uid: user.uid,
-            username: user.username,
+            username: String(user.username ?? 'user').trim() || 'user',
             challengeDate: window.dateKey,
             challengeTitle: challenge.title,
-            challengeSubtitle: challenge.subtitle,
+            challengeSubtitle: CHALLENGE_INSTRUCTIONS,
             prompt: challenge.title,
             maxDurationSeconds: maxSec,
             source: clipSource ?? 'unknown',
@@ -236,6 +243,14 @@ export function RecordScreen() {
           },
         });
         try {
+          await syncAttemptLedgerAfterSuccessfulPost({
+            uid: user.uid,
+            challengeDate: window.dateKey,
+          });
+        } catch {
+          // Best-effort; video doc is the source of truth for “posted today”.
+        }
+        try {
           await updateDoc(doc(firestore(), 'users', user.uid), {
             challengesCompleted: increment(1),
             updatedAt: serverTimestamp(),
@@ -243,6 +258,7 @@ export function RecordScreen() {
         } catch {
           // Best-effort; video post already succeeded.
         }
+        void recomputeVerticalScoreForUser(user.uid);
       } catch (e) {
         try {
           await deleteObject(rref);
@@ -257,6 +273,16 @@ export function RecordScreen() {
       setClipSource(null);
       nav.navigate('Feed');
     } catch (e) {
+      if (user?.uid && isFirebaseConfigured()) {
+        try {
+          await refundRecordingAttemptIfNoPostedVideo({
+            uid: user.uid,
+            challengeDate: window.dateKey,
+          });
+        } catch {
+          // ignore ledger cleanup failures
+        }
+      }
       showError('Post failed', e);
     } finally {
       setUploading(false);
@@ -289,34 +315,39 @@ export function RecordScreen() {
             {challenge.title}
           </Text>
         </View>
-        <TouchableOpacity
-          onPress={() => {
-            setClipUri(null);
-            setClipSource(null);
-            setCountdown(null);
-          }}
-          style={styles.topBtn}
-        >
+        <TouchableOpacity onPress={clearPreview} style={styles.topBtn}>
           <Text style={styles.topBtnText}>↺</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.cameraWrap}>
-        {canUseCamera ? (
-          <CameraView
-            key={`camera-${challenge.dateKey}-${challenge.maxDurationSeconds}`}
-            ref={cameraRef}
-            style={StyleSheet.absoluteFill}
-            facing="front"
-            mode="video"
-            onCameraReady={() => {
-              cameraReadyRef.current = true;
-            }}
-            onMountError={({ message }) => {
-              cameraReadyRef.current = false;
-              showError('Camera error', new Error(message));
-            }}
-          />
+        {clipUri && !clipUri.startsWith('demo://') ? (
+          <RecordClipPreview key={clipUri} uri={clipUri} />
+        ) : clipUri?.startsWith('demo://') ? (
+          <View style={styles.demo}>
+            <Text style={styles.demoTitle}>Demo take ready</Text>
+            <Text style={styles.demoBody}>
+              No camera file — post to try the rest of the app, or tap ↺ to reset.
+            </Text>
+          </View>
+        ) : canUseCamera ? (
+          <>
+            <CameraView
+              key={`camera-${challenge.dateKey}-${challenge.maxDurationSeconds}`}
+              ref={cameraRef}
+              style={StyleSheet.absoluteFill}
+              facing="front"
+              mode="video"
+              onCameraReady={() => {
+                cameraReadyRef.current = true;
+              }}
+              onMountError={({ message }) => {
+                cameraReadyRef.current = false;
+                showError('Camera error', new Error(message));
+              }}
+            />
+            <View style={styles.overlayFade} />
+          </>
         ) : (
           <View style={styles.demo}>
             <Text style={styles.demoTitle}>Demo Mode</Text>
@@ -325,12 +356,11 @@ export function RecordScreen() {
             </Text>
           </View>
         )}
-        <View style={styles.overlayFade} />
-        {countdown != null && countdown > 0 && (
+        {countdown != null && countdown > 0 && !clipUri ? (
           <View style={styles.countdownOverlay}>
             <Text style={styles.countdownText}>{countdown}</Text>
           </View>
-        )}
+        ) : null}
       </View>
 
       <View style={styles.bottomBar}>
@@ -341,13 +371,32 @@ export function RecordScreen() {
         </Text>
 
         {clipUri ? (
-          <PrimaryButton
-            title={uploading ? 'POSTING…' : 'POST'}
-            variant="green"
-            onPress={onPost}
-            style={styles.postBtn}
-            disabled={uploading}
-          />
+          <>
+            <View style={styles.doneCard}>
+              <Text style={styles.doneTitle}>
+                {clipSource === 'library' ? 'Clip ready' : 'Recording complete'}
+              </Text>
+              <Text style={styles.doneBody}>
+                {clipUri.startsWith('demo://')
+                  ? 'Demo mode — post to continue, or record again.'
+                  : 'Replay your take with the video controls, then post or record again.'}
+              </Text>
+            </View>
+            <PrimaryButton
+              title={uploading ? 'POSTING…' : 'POST'}
+              variant="green"
+              onPress={onPost}
+              style={styles.postBtn}
+              disabled={uploading}
+            />
+            <PrimaryButton
+              title="RECORD AGAIN"
+              variant="outline"
+              onPress={clearPreview}
+              disabled={uploading || postedToday}
+              style={styles.attachBtn}
+            />
+          </>
         ) : (
           <>
             <TouchableOpacity
@@ -358,8 +407,18 @@ export function RecordScreen() {
                 (attemptsLeft <= 0 || uploading || countdown != null) && styles.recordBtnDisabled,
               ]}
             >
-              <View style={styles.recordOuter}>
-                <View style={[styles.recordInner, isRecording && styles.recordInnerRecording]} />
+              <View
+                style={[
+                  styles.recordOuter,
+                  (attemptsLeft <= 0 || uploading || countdown != null) && styles.recordOuterDisabled,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.recordInner,
+                    isRecording ? styles.recordInnerRecording : styles.recordInnerIdle,
+                  ]}
+                />
               </View>
               <Text style={styles.recordHint}>
                 {!permission?.granted
@@ -494,14 +553,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  recordOuterDisabled: {
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
   recordInner: {
     width: 54,
     height: 54,
     borderRadius: 27,
+  },
+  recordInnerIdle: {
     backgroundColor: '#FB4B4B',
   },
   recordInnerRecording: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
     backgroundColor: '#F97316',
+  },
+  doneCard: {
+    alignSelf: 'stretch',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(34,197,94,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(34,197,94,0.35)',
+    marginBottom: 4,
+  },
+  doneTitle: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
+  doneBody: {
+    marginTop: 6,
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
   },
   recordHint: {
     color: 'rgba(255,255,255,0.75)',

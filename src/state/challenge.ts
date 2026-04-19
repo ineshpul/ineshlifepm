@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { computeChallengeWindowFromNow } from '../utils/nyTime';
@@ -45,21 +45,19 @@ export function useTodayChallenge() {
   const [challenge, setChallenge] = React.useState<Challenge>(() => ({
     dateKey: win.dateKey,
     title: 'Introduce yourself',
-    subtitle: 'New challenge dropping soon. Same prompt for everyone. No retakes. No filler.',
+    subtitle: '',
     maxDurationSeconds: 60,
   }));
 
   React.useEffect(() => {
-    let alive = true;
-    const run = async () => {
-      if (!isFirebaseConfigured()) {
-        setChallenge((c) => ({ ...c, dateKey: win.dateKey }));
-        return;
-      }
-      try {
-        const ref = doc(firestore(), 'challenges', win.dateKey);
-        const snap = await getDoc(ref);
-        if (!alive) return;
+    if (!isFirebaseConfigured()) {
+      setChallenge((c) => ({ ...c, dateKey: win.dateKey }));
+      return;
+    }
+    const ref = doc(firestore(), 'challenges', win.dateKey);
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
         if (snap.exists()) {
           const data: any = snap.data();
           setChallenge({
@@ -71,15 +69,12 @@ export function useTodayChallenge() {
         } else {
           setChallenge((c) => ({ ...c, dateKey: win.dateKey }));
         }
-      } catch {
-        if (!alive) return;
+      },
+      () => {
         setChallenge((c) => ({ ...c, dateKey: win.dateKey }));
       }
-    };
-    run();
-    return () => {
-      alive = false;
-    };
+    );
+    return () => unsub();
   }, [win.dateKey]);
 
   return { challenge, window: win };

@@ -1,10 +1,8 @@
 import * as React from 'react';
 import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Constants from 'expo-constants';
 import { useNavigation } from '@react-navigation/native';
 
-import { Brandmark } from '../components/Brandmark';
-import { GoogleAuthPanel } from '../components/GoogleAuthPanel';
+import { AuthHero } from '../components/AuthHero';
 import { KeyboardScreen } from '../components/KeyboardScreen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { TextField } from '../components/TextField';
@@ -12,15 +10,9 @@ import { colors } from '../theme/colors';
 import { useAuth } from '../state/auth';
 import { isValidEmail, isValidPassword, PASSWORD_MIN_LENGTH } from '../utils/authValidation';
 
-function googleOAuthReady() {
-  const g = (Constants.expoConfig?.extra as { googleAuth?: Record<string, string> } | undefined)
-    ?.googleAuth;
-  return !!(g?.webClientId || g?.iosClientId || g?.androidClientId);
-}
-
 export function SignUpScreen() {
   const nav = useNavigation<any>();
-  const { signUp, signInWithGoogleIdToken, signInWithApple, saveBiometricCredentials } = useAuth();
+  const { signUp, signInWithApple, saveBiometricCredentials } = useAuth();
 
   const [username, setUsername] = React.useState('');
   const [email, setEmail] = React.useState('');
@@ -66,12 +58,7 @@ export function SignUpScreen() {
 
   return (
     <KeyboardScreen contentContainerStyle={styles.screen}>
-      <View style={styles.hero}>
-        <View style={styles.logoWrap}>
-          <Brandmark size={88} />
-        </View>
-        <Text style={styles.tagline}>Stop overthinking.</Text>
-      </View>
+      <AuthHero />
 
       <View style={styles.form}>
         <Text style={styles.rules}>
@@ -124,15 +111,6 @@ export function SignUpScreen() {
           style={styles.cta}
         />
 
-        {googleOAuthReady() ? (
-          <GoogleAuthPanel disabled={busy} onIdToken={signInWithGoogleIdToken} />
-        ) : (
-          <Text style={styles.oauthHint}>
-            Add Google OAuth client IDs under <Text style={styles.mono}>expo.extra.googleAuth</Text> in
-            app.json to enable Google sign-in.
-          </Text>
-        )}
-
         {Platform.OS === 'ios' ? (
           <TouchableOpacity
             style={[styles.appleBtn, busy && styles.disabled]}
@@ -158,26 +136,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 28,
   },
-  hero: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 18,
-  },
-  logoWrap: {
-    width: 88,
-    height: 88,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tagline: {
-    marginTop: 18,
-    fontSize: 11,
-    letterSpacing: 2.6,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    color: colors.muted2,
-  },
   form: {
     gap: 14,
     paddingBottom: 18,
@@ -197,14 +155,6 @@ const styles = StyleSheet.create({
   cta: {
     marginTop: 4,
   },
-  oauthHint: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.muted,
-    textAlign: 'center',
-    lineHeight: 16,
-  },
-  mono: { fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: undefined }) },
   appleBtn: {
     height: 48,
     borderRadius: 14,

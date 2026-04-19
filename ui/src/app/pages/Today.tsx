@@ -248,7 +248,7 @@ export function Today() {
                 textTransform: 'uppercase',
               }}
             >
-              {hasPosted ? 'POSTED' : 'LEAP'}
+              {hasPosted ? 'POSTED' : 'Leap'}
             </span>
             <span 
               style={{
@@ -269,7 +269,7 @@ export function Today() {
               fontWeight: 500,
             }}
           >
-            Do it once. Post it fast.
+            One Day. One Leap.
           </div>
         </div>
       </div>
