@@ -1,0 +1,304 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    function videoDoc(videoId) {
+      return get(/databases/$(database)/documents/videos/$(videoId)).data;
+    }
+
+    function canReadVideoDoc(videoId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/videos/$(videoId))
+        && (
+          videoDoc(videoId).moderationStatus == 'approved'
+          || videoDoc(videoId).uid == request.auth.uid
+        );
+    }
+
+    // --- Chat (conversations, members, messages, reactions, typing) ---
+    function convDoc(convId) {
+      return get(/databases/$(database)/documents/conversations/$(convId)).data;
+    }
+
+    function isConvMember(convId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/conversations/$(convId))
+        && request.auth.uid in convDoc(convId).memberIds;
+    }
+
+    function follows(a, b) {
+      return exists(/databases/$(database)/documents/users/$(a)/following/$(b));
+    }
+
+    function mutualFollow(a, b) {
+      return follows(a, b) && follows(b, a);
+    }
+
+    function chatAudience(u) {
+      let d = get(/databases/$(database)/documents/users/$(u)).data;
+      return d.chatMessageAudience != null ? d.chatMessageAudience : 'friends';
+    }
+
+    function canDm(sender, recipient) {
+      return chatAudience(recipient) != 'none'
+        && (
+          chatAudience(recipient) == 'everyone'
+          || (chatAudience(recipient) == 'friends' && mutualFollow(sender, recipient))
+        );
+    }
+
+    function dmOtherUid(mids) {
+      return mids[0] == request.auth.uid ? mids[1] : mids[0];
+    }
+
+    function isBlockedPair(a, b) {
+      return exists(/databases/$(database)/documents/users/$(a)/userBlocks/$(b))
+        || exists(/databases/$(database)/documents/users/$(b)/userBlocks/$(a));
+    }
+
+    function validMessageText(t) {
+      return t is string && t.size() >= 0 && t.size() <= 4000;
+    }
+
+    function validAttachments(atts) {
+      return atts == null
+        || (atts is list && atts.size() <= 4);
+    }
+
+    match /conversations/{convId} {
+      allow read: if signedIn() && isConvMember(convId);
+
+      allow create: if signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.auth.uid in request.resource.data.memberIds
+        && request.resource.data.memberIds is list
+        && request.resource.data.memberIds.size() >= 2
+        && request.resource.data.memberIds.size() <= 50
+        && request.resource.data.memberCount == request.resource.data.memberIds.size()
+        && request.resource.data.type in ['dm', 'group']
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() < 200
+        && (
+          (
+            request.resource.data.type == 'dm'
+            && request.resource.data.memberIds.size() == 2
+            && request.resource.data.dmPairKey is string
+            && canDm(request.auth.uid, dmOtherUid(request.resource.data.memberIds))
+            && !isBlockedPair(
+              request.resource.data.memberIds[0],
+              request.resource.data.memberIds[1]
+            )
+          )
+          || (request.resource.data.type == 'group')
+        );
+
+      allow update: if signedIn() && isConvMember(convId);
+
+      allow delete: if false;
+
+      match /conversationMembers/{userId} {
+        allow read: if signedIn() && isConvMember(convId);
+
+        allow create: if signedIn()
+          && exists(/databases/$(database)/documents/conversations/$(convId))
+          && (
+            get(/databases/$(database)/documents/conversations/$(convId)).data.createdBy
+              == request.auth.uid
+          )
+          && request.resource.data.memberUid == userId;
+
+        allow update: if signedIn() && isConvMember(convId);
+
+        allow delete: if false;
+      }
+
+      match /messages/{messageId} {
+        allow read: if signedIn() && isConvMember(convId);
+
+        allow create: if signedIn()
+          && isConvMember(convId)
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.conversationId == convId
+          && validMessageText(request.resource.data.text)
+          && validMessageText(request.resource.data.searchText)
+          && validAttachments(request.resource.data.attachments)
+          && (
+            !request.resource.data.keys().hasAny(['kind'])
+            || request.resource.data.kind in ['text', 'system', 'share_post']
+          )
+          && (
+            !request.resource.data.keys().hasAny(['deletedForEveryone'])
+            || request.resource.data.deletedForEveryone == false
+          );
+
+        allow update: if signedIn()
+          && isConvMember(convId)
+          && resource.data.senderId == request.auth.uid
+          && request.resource.data.senderId == resource.data.senderId
+          && request.resource.data.conversationId == resource.data.conversationId
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['text', 'searchText', 'editedAt', 'deletedForSelfUids']);
+
+        allow delete: if false;
+
+        match /messageReactions/{reactionId} {
+          allow read: if signedIn() && isConvMember(convId);
+          allow create: if signedIn()
+            && isConvMember(convId)
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.emoji is string
+            && request.resource.data.emoji.size() > 0
+            && request.resource.data.emoji.size() < 32;
+          allow delete: if signedIn() && isConvMember(convId) && resource.data.userId == request.auth.uid;
+          allow update: if false;
+        }
+      }
+
+      match /typing/{userId} {
+        allow read: if signedIn() && isConvMember(convId);
+        allow create, update: if signedIn() && isConvMember(convId) && request.auth.uid == userId;
+        allow delete: if signedIn() && request.auth.uid == userId;
+      }
+    }
+
+    match /userPresence/{uid} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(uid);
+      allow delete: if false;
+    }
+
+    match /messageReports/{reportId} {
+      allow read: if false;
+      allow create: if signedIn()
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.conversationId is string
+        && request.resource.data.messageId is string
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() > 0
+        && request.resource.data.reason.size() < 500;
+      allow update, delete: if false;
+    }
+
+    // Daily post is unique per user per challenge day (doc id `${uid}_${challengeDate}`).
+    match /videos/{videoId} {
+      allow read: if signedIn()
+        && (
+          resource.data.moderationStatus == 'approved'
+          || resource.data.uid == request.auth.uid
+        );
+
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && (
+          request.resource.data.moderationStatus == 'pending'
+          || request.resource.data.moderationStatus == 'approved'
+        );
+
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+
+      match /likes/{likerId} {
+        allow read: if canReadVideoDoc(videoId);
+        allow create: if canReadVideoDoc(videoId) && signedIn() && request.auth.uid == likerId;
+        allow delete: if signedIn()
+          && (
+            request.auth.uid == likerId
+            || (
+              exists(/databases/$(database)/documents/videos/$(videoId))
+              && get(/databases/$(database)/documents/videos/$(videoId)).data.uid == request.auth.uid
+            )
+          );
+        allow update: if false;
+      }
+
+      match /comments/{commentId} {
+        allow read: if canReadVideoDoc(videoId);
+        allow create: if canReadVideoDoc(videoId)
+          && signedIn()
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.username is string
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() < 500;
+        allow delete: if signedIn()
+          && exists(/databases/$(database)/documents/videos/$(videoId))
+          && (
+            get(/databases/$(database)/documents/videos/$(videoId)).data.uid == request.auth.uid
+            || resource.data.uid == request.auth.uid
+          );
+        allow update: if false;
+      }
+    }
+
+    // Attempt ledger for enforcing max tries + coordinating with unique video doc id.
+    match /postAttempts/{attemptId} {
+      allow read: if signedIn() && attemptId.matches('^' + request.auth.uid + '_.+');
+      allow create, update: if signedIn() && attemptId.matches('^' + request.auth.uid + '_.+');
+      allow delete: if signedIn() && attemptId.matches('^' + request.auth.uid + '_.+');
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(userId);
+      allow delete: if false;
+
+      // In-app inbox (likes / comments / follows). Only recipient reads; actors create docs.
+      match /notifications/{notifId} {
+        allow read: if isOwner(userId);
+        allow create: if signedIn()
+          && request.resource.data.fromUid == request.auth.uid
+          && request.resource.data.type in ['like', 'comment', 'follow']
+          && request.resource.data.fromUsername is string
+          && request.resource.data.read == false
+          && request.auth.uid != userId;
+        allow update: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+
+      // Who you follow — visible only to you. No public follower lists or counts.
+      match /following/{targetUid} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && request.auth.uid == userId
+          && userId != targetUid
+          && request.resource.data.targetUsername is string;
+        allow delete: if isOwner(userId);
+        allow update: if false;
+      }
+
+      // Expo push tokens for this user (one doc per device). Used by Cloud Functions only to send pushes.
+      match /pushDevices/{deviceId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && request.resource.data.token is string
+          && request.resource.data.platform is string;
+        allow delete: if isOwner(userId);
+      }
+
+      match /userBlocks/{blockedUid} {
+        allow read: if isOwner(userId);
+        allow create, delete: if isOwner(userId) && userId != blockedUid;
+        allow update: if false;
+      }
+    }
+
+    match /challenges/{id} {
+      allow read: if signedIn();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+  }
+}

@@ -1,0 +1,165 @@
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 16px;
+  
+  /* Leap Custom Colors - Moss Theme */
+  --bg: #E8F5E9;  /* Light moss/mint background */
+  --card: #FFFFFF;  /* White cards */
+  --ink: #000000;  /* Black text */
+  --ink-2: #1a1a1a;  /* Slightly lighter black */
+  --muted: #666666;  /* Muted gray */
+  --muted-2: #888888;  /* Lighter muted */
+  --line: #C8E6C9;  /* Light moss line */
+  --line-2: #E1F5E1;  /* Lighter moss line */
+  --accent: #2E7D32;  /* Rich moss green accent */
+  --coral: #FF6B54;  /* Vibrant coral/salmon - pops against green */
+  --coral-soft: rgba(255,107,84,.12);
+  --blue: #1976D2;  /* Deep blue */
+  --blue-soft: rgba(25,118,210,.1);
+  --teal: #00897B;  /* Deep teal */
+  --teal-soft: rgba(0,137,123,.1);
+  --moss: #4CAF50;  /* Primary moss green */
+  --moss-dark: #2E7D32;  /* Dark moss */
+  --moss-bright: #66BB6A;  /* Bright moss green accent */
+  --moss-soft: rgba(76,175,80,.15);
+  --warm: #F1F8E9;  /* Warm light green */
+  --warm-2: #DCEDC8;  /* Lighter warm green */
+  
+  /* Legacy theme variables */
+  --background: #E8F5E9;
+  --foreground: #000000;
+  --card-foreground: #000000;
+  --popover: #FFFFFF;
+  --popover-foreground: #000000;
+  --primary: #2E7D32;
+  --primary-foreground: #FFFFFF;
+  --secondary: #C8E6C9;
+  --secondary-foreground: #000000;
+  --muted-foreground: #666666;
+  --accent-foreground: #FFFFFF;
+  --destructive: #FF6B54;
+  --destructive-foreground: #ffffff;
+  --border: rgba(46, 125, 50, 0.2);
+  --input: transparent;
+  --input-background: #F1F8E9;
+  --switch-background: #4CAF50;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: #4CAF50;
+  --chart-1: #66BB6A;
+  --chart-2: #00897B;
+  --chart-3: #1976D2;
+  --chart-4: #FF6B54;
+  --chart-5: #4CAF50;
+  --radius: 0.625rem;
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #1B3A1B;
+  --sidebar-primary: #2E7D32;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #F1F8E9;
+  --sidebar-accent-foreground: #1B3A1B;
+  --sidebar-border: #C8E6C9;
+  --sidebar-ring: #4CAF50;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: var(--bg);
+    color: var(--ink);
+  }
+
+  html {
+    font-size: var(--font-size);
+  }
+
+  h1 {
+    font-size: var(--text-2xl);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  h2 {
+    font-size: var(--text-xl);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  h3 {
+    font-size: var(--text-lg);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  h4 {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  label {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  button {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  input {
+    font-size: var(--text-base);
+    font-weight: var(--font-weight-normal);
+    line-height: 1.5;
+  }
+}

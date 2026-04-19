@@ -1,0 +1,83 @@
+{
+  "expo": {
+    "name": "Leap_MVP",
+    "slug": "Leap_MVP",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Leap needs camera access to record your daily challenge.",
+        "NSMicrophoneUsageDescription": "Leap needs microphone access to record audio with your video.",
+        "NSPhotoLibraryUsageDescription": "Leap needs photo library access so you can attach a video to your challenge.",
+        "NSPhotoLibraryAddUsageDescription": "Leap can save your completed takes to your photo library when you enable Save to camera roll.",
+        "NSUserNotificationsUsageDescription": "Leap uses notifications to remind you when today’s challenge is live and before time runs out.",
+        "NSFaceIDUsageDescription": "Leap uses Face ID to protect your saved sign-in."
+      }
+    },
+    "android": {
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_MEDIA_VIDEO",
+        "READ_EXTERNAL_STORAGE",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "sounds": [],
+          "enableBackgroundRemoteNotifications": true
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "Leap uses Face ID to protect your saved sign-in."
+        }
+      ],
+      "expo-apple-authentication",
+      "expo-web-browser",
+      "expo-media-library"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": ""
+      },
+      "firebase": {
+        "apiKey": "AIzaSyCw4_L2aawbQKIhTQ5jBppwDBeK76U5Yxk",
+        "authDomain": "leap-e4cce.firebaseapp.com",
+        "projectId": "leap-e4cce",
+        "storageBucket": "leap-e4cce.firebasestorage.app",
+        "messagingSenderId": "1047286135542",
+        "appId": "1:1047286135542:web:d5a184e16b3f9ee8b20ad7"
+      },
+      "adminUids": [],
+      "googleAuth": {
+        "webClientId": "",
+        "iosClientId": "",
+        "androidClientId": ""
+      }
+    }
+  }
+}

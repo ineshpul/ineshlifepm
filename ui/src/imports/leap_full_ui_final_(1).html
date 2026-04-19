@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Leap — Full UI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Satoshi:wght@400;500;700;900&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  @font-face {
+    font-family: 'Satoshi';
+    src: url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+  }
+  :root {
+    --bg: #F6F7F9;
+    --card: #FFFFFF;
+    --ink: #0F1117;
+    --ink-2: #1A1D26;
+    --muted: #6B7082;
+    --muted-2: #8F95A8;
+    --line: #E4E6ED;
+    --line-2: #EDEEF3;
+    --accent: #1D1F27;
+    --coral: #E8503A;
+    --coral-soft: rgba(232,80,58,.08);
+    --blue: #2563EB;
+    --blue-soft: rgba(37,99,235,.07);
+    --teal: #0D9488;
+    --teal-soft: rgba(13,148,136,.07);
+    --warm: #F5F0EB;
+    --warm-2: #EDE7DF;
+    --shadow: 0 20px 60px rgba(15,17,23,.08), 0 1px 3px rgba(15,17,23,.06);
+    --shadow-soft: 0 8px 24px rgba(15,17,23,.05);
+    --r-lg: 28px;
+    --r-md: 20px;
+    --r-sm: 14px;
+    --r-xs: 10px;
+    --font: 'Outfit', 'Instrument Sans', system-ui, -apple-system, sans-serif;
+    --font-display: 'Outfit', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #F0F1F4;
+    color: var(--ink);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  .wrap { padding: 28px 24px; max-width: 1780px; margin: 0 auto; }
+  .header { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin: 0 0 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+  .header-left h1 { font-family: var(--font-display); font-size: 13px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted-2); }
+  .header-left .sub { font-size: 13px; color: var(--muted); font-weight: 400; margin-top: 4px; }
+  .header-right { display:flex; align-items:center; gap: 12px; }
+  .tag { display:inline-flex; align-items:center; gap:6px; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: .02em; }
+  .tag .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--coral); }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(295px, 1fr)); gap: 24px; }
+
+  /* Phone shell */
+  .phone {
+    width: 100%; max-width: 340px; height: 740px;
+    background: var(--card);
+    border: 1px solid rgba(0,0,0,.06);
+    border-radius: 44px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    position: relative;
+    justify-self: center;
+  }
+  .phone::before {
+    content: ''; position: absolute; inset: 6px; border-radius: 40px;
+    border: 1px solid rgba(255,255,255,.7); pointer-events: none; z-index: 1;
+  }
+  .screen { width:100%; height:100%; position:relative; display:flex; flex-direction:column; background: #FAFBFC; }
+  .status { height: 28px; padding: 10px 22px 0; display:flex; align-items:center; justify-content:space-between; font-size: 12px; font-weight: 600; color: var(--ink-2); letter-spacing: -.01em; }
+  .notch { width: 80px; height: 24px; border-radius: 0 0 18px 18px; background: var(--ink); margin: 0 auto; position: relative; z-index: 3; }
+  .notch::after { content:''; width: 10px; height: 10px; border-radius: 50%; background: #1C1F28; border: 2px solid #2A2D38; position: absolute; right: 16px; top: 7px; }
+
+  /* Topbar */
+  .topbar { display:flex; align-items:center; justify-content:space-between; padding: 14px 20px 10px; gap: 12px; }
+  .logo-mini { display:flex; align-items:center; gap: 10px; }
+  .logo-mini .brandmark { width: 36px; height: 36px; display:block; }
+  .logo-word { font-family: var(--font-display); font-weight: 800; font-size: 20px; letter-spacing: -.04em; line-height: 1; color: var(--ink); }
+  .logo-sub { font-size: 10px; text-transform: uppercase; letter-spacing: .16em; color: var(--muted-2); margin-top: 2px; font-weight: 600; }
+
+  /* Pill badge */
+  .pill { display:inline-flex; align-items:center; gap:6px; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-size: 11px; color: var(--ink-2); font-weight: 600; letter-spacing: -.01em; }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--coral); }
+
+  /* ============= AUTH SCREEN ============= */
+  .auth { flex:1; display:flex; flex-direction:column; justify-content:center; padding: 28px 24px; gap: 20px; }
+  .auth-brand { display:flex; flex-direction:column; align-items:center; gap: 14px; }
+  .auth-badge { width: 88px; height: 88px; display:flex; align-items:center; justify-content:center; background: transparent; }
+  .auth-badge .brandmark { width: 100%; height: 100%; display:block; }
+  .auth-tagline { font-family: var(--font-display); font-size: 11px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--muted-2); }
+  .field { display:flex; flex-direction:column; gap: 6px; }
+  .label { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted-2); }
+  .input { height: 50px; border-radius: var(--r-sm); border: 1px solid var(--line); background: #FAFBFC; padding: 0 16px; font: inherit; font-size: 14px; font-weight: 500; color: var(--ink); outline: none; transition: border-color .15s; }
+  .input:focus { border-color: var(--ink); }
+  .input::placeholder { color: #B5B9C7; font-weight: 400; }
+  .button { height: 52px; border: 0; border-radius: var(--r-sm); background: var(--ink); color: white; font-family: var(--font-display); font-size: 14px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; cursor: pointer; transition: transform .12s, box-shadow .12s; }
+  .button:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(15,17,23,.15); }
+  .stack { display:flex; flex-direction:column; gap: 10px; }
+
+  /* ============= CHALLENGE / TODAY ============= */
+  .challenge { flex:1; display:flex; flex-direction:column; }
+  .challenge-hero {
+    margin: 0 16px 12px; padding: 24px 22px; border-radius: var(--r-lg);
+    background: var(--warm);
+    border: 1px solid var(--warm-2);
+    min-height: 290px; display:flex; flex-direction:column; justify-content:space-between;
+  }
+  .challenge-chip { display:inline-flex; align-items:center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; width: fit-content; }
+  .challenge-chip .mini-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--coral); }
+  .challenge-title { margin: 20px 0 8px; font-family: var(--font-display); font-size: 36px; line-height: .96; letter-spacing: -.05em; font-weight: 800; color: var(--ink); }
+  .challenge-copy { color: var(--muted); font-size: 13px; line-height: 1.5; font-weight: 400; }
+  .challenge-meta { display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-top: 18px; }
+  .countdown { padding: 9px 14px; border-radius: var(--r-xs); background: var(--card); border: 1px solid var(--line); font-size: 11px; font-weight: 700; color: var(--ink-2); letter-spacing: -.01em; }
+  .meter-inline { display:flex; align-items:center; gap: 8px; }
+  .meter-line { width: 64px; height: 5px; border-radius: 999px; background: rgba(0,0,0,.06); overflow:hidden; }
+  .meter-fill { width: 38%; height:100%; background: var(--coral); border-radius: inherit; }
+  .challenge-footer { margin-top:auto; padding: 0 16px 16px; display:flex; flex-direction:column; align-items:center; gap: 10px; }
+  .cta-pill {
+    width: 164px; height: 54px; border-radius: 999px; border: 0;
+    background: var(--ink); color: white;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap: 2px;
+    box-shadow: 0 12px 32px rgba(15,17,23,.16); cursor: pointer; transition: transform .12s;
+  }
+  .cta-pill:hover { transform: scale(1.03); }
+  .cta-pill .main { font-family: var(--font-display); font-size: 14px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+  .cta-pill .sub { font-size: 9px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: rgba(255,255,255,.5); }
+  .muted { color: var(--muted-2); font-size: 11px; font-weight: 500; }
+
+  /* ============= RECORD / CAMERA ============= */
+  .record { flex: 1; display:flex; flex-direction:column; }
+  .record-view {
+    flex:1; margin: 0 14px 14px; border-radius: 32px; overflow:hidden; position: relative;
+    background: linear-gradient(175deg, #1A1D26 0%, #0E1016 100%);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+  }
+  .record-view .topbar { position:absolute; top: 16px; left: 16px; right: 16px; display:flex; align-items:center; justify-content:center; z-index:2; padding: 0; }
+  .record-view .topbar .icon-btn:first-child { position:absolute; left: 0; }
+  .record-view .topbar .icon-btn:last-child { position:absolute; right: 0; }
+  .icon-btn { width: 36px; height: 36px; border-radius: 999px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.08); display:grid; place-items:center; color: rgba(255,255,255,.7); font-size: 13px; }
+  .record-chip { min-width: 78px; padding: 7px 14px; border-radius: 999px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.08); color: white; display:flex; align-items:center; justify-content:center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: -.01em; }
+  .record-chip .recdot { width: 8px; height: 8px; border-radius:50%; background: var(--coral); box-shadow: 0 0 0 3px rgba(232,80,58,.2); flex: 0 0 auto; animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+  .record-count { position:absolute; left: 18px; right: 18px; top: 68px; z-index:2; padding: 10px 14px; border-radius: var(--r-sm); background: rgba(0,0,0,.4); color: white; border: 1px solid rgba(255,255,255,.06); backdrop-filter: blur(12px); text-align:center; font-size: 13px; font-weight: 700; letter-spacing: -.01em; }
+  .record-bottom { position:absolute; left: 0; right: 0; bottom: 28px; z-index:2; display:flex; flex-direction:column; align-items:center; gap: 8px; }
+  .record-max { font-size: 9px; color: rgba(255,255,255,.35); font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+  .record-button { width: 68px; height: 68px; border-radius: 50%; border: 3px solid rgba(255,255,255,.85); display:flex; align-items:center; justify-content:center; background: transparent; }
+  .record-button-inner { width: 52px; height: 52px; border-radius: 50%; background: var(--coral); }
+  .record-hint { font-size: 9px; color: rgba(255,255,255,.45); font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+
+  /* ============= FEED ============= */
+  .feed { flex:1; display:flex; flex-direction:column; }
+  .feed-banner {
+    margin: 0 16px 12px; border-radius: var(--r-lg); overflow:hidden; position: relative;
+    background: var(--ink); color: white; padding: 22px 20px; min-height: 136px;
+  }
+  .feed-banner .small { font-size: 9px; text-transform: uppercase; letter-spacing: .16em; font-weight: 700; opacity: .4; }
+  .feed-banner .big { margin-top: 10px; font-family: var(--font-display); font-size: 32px; line-height: .96; letter-spacing: -.05em; font-weight: 800; }
+  .feed-banner .desc { margin-top: 10px; font-size: 12px; line-height: 1.5; font-weight: 400; opacity: .45; max-width: 22ch; }
+  .video {
+    flex:1; margin: 0 16px 16px; border-radius: 28px;
+    background: linear-gradient(165deg, #2A2D3A 0%, #3D4150 50%, #2A2D3A 100%);
+    position:relative; overflow:hidden;
+  }
+  .video::after { content:''; position:absolute; inset:0; background: linear-gradient(180deg, transparent 40%, rgba(0,0,0,.5) 100%); }
+  .video-badge { position:absolute; top: 14px; left: 14px; z-index:1; padding: 5px 10px; border-radius: 999px; background: rgba(255,255,255,.1); color: rgba(255,255,255,.8); border: 1px solid rgba(255,255,255,.08); font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+  .video-actions { position:absolute; right: 14px; bottom: 80px; z-index:1; display:flex; flex-direction:column; gap: 14px; align-items:center; color:white; }
+  .action { display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .action .ico { width: 40px; height: 40px; border-radius: 14px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.08); display:grid; place-items:center; font-size: 16px; }
+  .action .num { font-size: 12px; font-weight: 700; }
+  .action .lbl { font-size: 8px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; opacity:.5; }
+  .video-info { position:absolute; left: 16px; right: 78px; bottom: 16px; z-index:1; color: white; }
+  .video-user { font-size: 15px; font-weight: 700; letter-spacing: -.02em; }
+  .video-sub { font-size: 11px; opacity: .5; margin-top: 3px; font-weight: 400; }
+
+  /* ============= LEADERBOARD ============= */
+  .leader { flex:1; display:flex; flex-direction:column; }
+  .leader-head { padding: 12px 20px 10px; }
+  .leader-kicker { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .16em; color: var(--muted-2); }
+  .leader-title { margin-top: 8px; display:flex; align-items:flex-end; justify-content:space-between; gap: 6px; width:100%; font-family: var(--font-display); font-size: 19px; line-height: 1; letter-spacing: -.04em; font-weight: 800; color: var(--ink); }
+  .leader-title span { flex: 1 1 0; white-space: nowrap; }
+  .leader-title span:nth-child(2) { text-align:center; }
+  .leader-title span:nth-child(3) { text-align:right; }
+  .rank-card {
+    margin: 0 16px 10px; padding: 14px 16px; border-radius: var(--r-md);
+    background: var(--card); border: 1px solid var(--line); display:flex;
+    align-items:center; justify-content:space-between; gap: 12px;
+  }
+  .rank-block { display:flex; align-items:center; gap: 10px; }
+  .rank-bar { width: 10px; height: 56px; border-radius: 999px; background: var(--line-2); overflow:hidden; position:relative; }
+  .rank-fill { position:absolute; left:0; right:0; bottom:0; height: 54%; background: var(--ink); border-radius: inherit; }
+  .rank-meta .l { font-size: 9px; color: var(--muted-2); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+  .rank-meta .v { font-family: var(--font-display); font-size: 20px; font-weight: 800; letter-spacing: -.04em; margin-top: 2px; }
+  .rank-meta .s { font-size: 11px; color: var(--muted); font-weight: 500; }
+  .seg-tabs { margin: 0 16px 10px; display:flex; gap: 8px; }
+  .seg { flex:1; padding: 10px 12px; border-radius: var(--r-xs); background: var(--card); border: 1px solid var(--line); text-align:center; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-2); }
+  .seg.active { background: var(--ink); color: white; border-color: var(--ink); }
+  .leader-list { flex:1; padding: 0 16px 14px; overflow:hidden; }
+  .row { display:flex; align-items:center; gap: 12px; padding: 11px 14px; border-radius: 16px; background: white; border: 1px solid var(--line-2); margin-bottom: 6px; }
+  .rank-num { width: 22px; text-align:center; font-family: var(--font-display); font-size: 14px; font-weight: 800; color: var(--muted-2); }
+  .avatar { width: 36px; height: 36px; border-radius: 12px; display:grid; place-items:center; font-weight: 700; font-size: 13px; background: var(--line-2); border: 1px solid var(--line); color: var(--muted); }
+  .row:first-child .avatar { background: var(--coral-soft); color: var(--coral); border-color: rgba(232,80,58,.12); }
+  .user { flex:1; }
+  .user .name { font-size: 13px; font-weight: 700; color: var(--ink); }
+  .user .meta { font-size: 10px; color: var(--muted-2); margin-top: 2px; font-weight: 500; }
+  .inch { display:flex; align-items:center; gap: 8px; }
+  .inch-bar { width: 8px; height: 46px; border-radius: 999px; background: var(--line-2); overflow:hidden; position:relative; }
+  .inch-fill { position:absolute; left:0; right:0; bottom:0; background: var(--ink); border-radius: inherit; }
+  .row:first-child .inch-fill { background: var(--coral); }
+  .inch-val { text-align:right; min-width: 44px; }
+  .inch-val .n { font-family: var(--font-display); font-size: 17px; font-weight: 800; letter-spacing: -.03em; }
+  .inch-val .u { font-size: 9px; color: var(--muted-2); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+
+  /* ============= PROFILE ============= */
+  .profile { flex:1; display:flex; flex-direction:column; }
+  .signout { font-size: 11px; color: var(--muted-2); font-weight: 600; }
+  .profile-card { margin: 4px 16px 12px; padding: 20px; border-radius: var(--r-lg); background: var(--card); border: 1px solid var(--line); text-align:center; }
+  .pf-avatar {
+    width: 72px; height: 72px; border-radius: 22px; margin: 0 auto;
+    background: var(--warm); border: 1px solid var(--warm-2);
+    display:grid; place-items:center; font-family: var(--font-display); font-size: 26px; font-weight: 800; color: var(--ink-2);
+  }
+  .pf-name { margin-top: 12px; font-family: var(--font-display); font-size: 18px; font-weight: 800; letter-spacing: -.03em; }
+  .pf-handle { margin-top: 3px; font-size: 12px; color: var(--muted); font-weight: 500; }
+  .pf-campus { display:inline-flex; align-items:center; gap: 6px; margin-top: 10px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: #FAFBFC; font-size: 10px; font-weight: 600; color: var(--muted); }
+  .meter-card { margin: 0 16px 10px; padding: 16px; border-radius: var(--r-md); background: white; border: 1px solid var(--line-2); }
+  .meter-head { display:flex; align-items:flex-end; justify-content:space-between; gap: 12px; margin-bottom: 12px; }
+  .meter-head .lh { font-size: 9px; color: var(--muted-2); font-weight: 700; text-transform: uppercase; letter-spacing: .12em; }
+  .meter-head .lv { font-family: var(--font-display); font-size: 28px; font-weight: 800; letter-spacing: -.05em; }
+  .meter-row { display:flex; align-items:flex-end; gap: 14px; }
+  .vmeter { width: 16px; height: 140px; border-radius: 999px; background: var(--line-2); position:relative; overflow:hidden; }
+  .vmeter .fill { position:absolute; left:0; right:0; bottom:0; background: var(--ink); border-radius: inherit; }
+  .meter-copy { flex:1; }
+  .meter-copy .t { font-size: 15px; font-weight: 700; letter-spacing: -.02em; }
+  .meter-copy .d { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.5; font-weight: 400; }
+  .stats { margin: 0 16px 10px; display:grid; grid-template-columns: repeat(3,1fr); gap: 6px; }
+  .stat { background: white; border: 1px solid var(--line-2); border-radius: 16px; padding: 12px 8px; text-align:center; }
+  .stat .n { font-family: var(--font-display); font-size: 20px; font-weight: 800; letter-spacing: -.03em; }
+  .stat .l { margin-top: 3px; font-size: 8px; color: var(--muted-2); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; line-height: 1.3; }
+  .posts { margin: 0 16px 14px; }
+  .posts .head { font-size: 9px; font-weight: 700; color: var(--muted-2); text-transform: uppercase; letter-spacing: .16em; margin-bottom: 8px; }
+  .post { display:flex; align-items:center; justify-content:space-between; gap: 12px; padding: 11px 14px; border-radius: 14px; border: 1px solid var(--line-2); background: white; margin-bottom: 6px; }
+  .post .t { font-size: 13px; font-weight: 700; }
+  .post .s { font-size: 10px; color: var(--muted-2); margin-top: 2px; font-weight: 500; }
+  .post .c { font-size: 12px; font-weight: 700; color: var(--ink); }
+  .empty { color: var(--muted-2); font-size: 11px; font-weight: 500; line-height: 1.5; }
+
+  /* ============= TAB BAR ============= */
+  .tabbar { display:flex; align-items:center; justify-content:space-around; padding: 10px 10px 20px; border-top: 1px solid var(--line-2); background: rgba(255,255,255,.96); backdrop-filter: blur(8px); }
+  .tab { display:flex; flex-direction:column; align-items:center; gap: 4px; color: var(--muted-2); font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+  .tab.active { color: var(--ink); }
+  .tab .icon { width: 24px; height: 24px; border-radius: 8px; display:grid; place-items:center; font-size: 12px; }
+  .tab.active .icon { background: var(--coral-soft); color: var(--coral); border-radius: 8px; }
+
+  .hero { flex: 1; display:flex; flex-direction:column; }
+
+  @media (max-width: 760px) {
+    .wrap { padding: 14px; }
+    .phone { height: 720px; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div class="header-left">
+        <h1>Leap — UI System</h1>
+        <div class="sub">Auth, challenge, camera, feed, leaderboard, and profile screens.</div>
+      </div>
+      <div class="header-right">
+        <div class="tag"><span class="dot"></span> v1.0 — product shell</div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <!-- AUTH -->
+      <section class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="status"><span>9:41</span><span>5G ▦ 🔋</span></div>
+          <div class="auth">
+            <div class="auth-brand">
+              <div class="auth-badge"><svg class="brandmark" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect rx="26" width="120" height="120" fill="#0F1117"/><path d="M38 84V40" stroke="white" stroke-width="10" stroke-linecap="round"/><path d="M38 84H78" stroke="white" stroke-width="10" stroke-linecap="round"/><circle cx="78" cy="40" r="8" fill="#E8503A"/></svg></div>
+              <div class="auth-tagline">Stop overthinking.</div>
+            </div>
+            <div class="stack">
+              <div class="field">
+                <div class="label">Username</div>
+                <input class="input" placeholder="what should we call you?" />
+              </div>
+              <div class="field">
+                <div class="label">Email</div>
+                <input class="input" placeholder="your@email.com" />
+              </div>
+              <div class="field">
+                <div class="label">Password</div>
+                <input class="input" type="password" placeholder="make it strong" />
+              </div>
+              <button class="button">Continue</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TODAY / CHALLENGE -->
+      <section class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="status"><span>9:41</span><span>5G ▦ 🔋</span></div>
+          <div class="topbar">
+            <div class="logo-mini">
+              <svg class="brandmark" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect rx="26" width="120" height="120" fill="#0F1117"/><path d="M38 84V40" stroke="white" stroke-width="10" stroke-linecap="round"/><path d="M38 84H78" stroke="white" stroke-width="10" stroke-linecap="round"/><circle cx="78" cy="40" r="8" fill="#E8503A"/></svg>
+              <div>
+                <div class="logo-word">Leap</div>
+                <div class="logo-sub">Today</div>
+              </div>
+            </div>
+            <div class="pill"><span class="dot"></span> 06:42:18</div>
+          </div>
+          <div class="challenge">
+            <div class="challenge-hero">
+              <div class="challenge-chip"><span class="mini-dot"></span> Challenge</div>
+              <div class="challenge-title">TBD</div>
+              <div class="challenge-copy">New challenge dropping soon. Same prompt for everyone. No retakes. No filler.</div>
+              <div class="challenge-meta">
+                <div class="countdown">Next drop: soon</div>
+                <div class="meter-inline">
+                  <div class="meter-line"><div class="meter-fill"></div></div>
+                  <div class="muted">247 live</div>
+                </div>
+              </div>
+            </div>
+            <div class="challenge-footer">
+              <button class="cta-pill"><span class="main">Leap</span><span class="sub">Tap to record</span></button>
+              <div class="muted">Do it once. Post it fast.</div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab active"><div class="icon">◎</div>Today</div>
+            <div class="tab"><div class="icon">▣</div>Feed</div>
+            <div class="tab"><div class="icon">＋</div>Record</div>
+            <div class="tab"><div class="icon">↟</div>Top</div>
+            <div class="tab"><div class="icon">◉</div>Me</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RECORD / CAMERA -->
+      <section class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="status"><span>9:41</span><span>5G ▦ 🔋</span></div>
+          <div class="record">
+            <div class="record-view">
+              <div class="topbar">
+                <div class="icon-btn">✕</div>
+                <div class="record-chip"><span class="recdot"></span><span>0:14</span></div>
+                <div class="icon-btn">↺</div>
+              </div>
+              <div class="record-count">TBD</div>
+              <div class="record-bottom">
+                <div class="record-max">60s max</div>
+                <div class="record-button"><div class="record-button-inner"></div></div>
+                <div class="record-hint">Tap to stop</div>
+              </div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><div class="icon">◎</div>Today</div>
+            <div class="tab"><div class="icon">▣</div>Feed</div>
+            <div class="tab active"><div class="icon">＋</div>Record</div>
+            <div class="tab"><div class="icon">↟</div>Top</div>
+            <div class="tab"><div class="icon">◉</div>Me</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- FEED -->
+      <section class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="status"><span>9:41</span><span>5G ▦ 🔋</span></div>
+          <div class="feed">
+            <div class="topbar">
+              <div class="logo-mini">
+                <svg class="brandmark" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect rx="26" width="120" height="120" fill="#0F1117"/><path d="M38 84V40" stroke="white" stroke-width="10" stroke-linecap="round"/><path d="M38 84H78" stroke="white" stroke-width="10" stroke-linecap="round"/><circle cx="78" cy="40" r="8" fill="#E8503A"/></svg>
+                <div>
+                  <div class="logo-word">Leap</div>
+                  <div class="logo-sub">Feed</div>
+                </div>
+              </div>
+              <div class="pill"><span class="dot"></span> 247 live</div>
+            </div>
+            <div class="feed-banner">
+              <div class="small">Today's feed</div>
+              <div class="big">Jump<br>higher.</div>
+              <div class="desc">Short-form clips, reactions, and posts that feel alive.</div>
+            </div>
+            <div class="video">
+              <div class="video-badge">#1</div>
+              <div class="video-actions">
+                <div class="action"><div class="ico">▲</div><div class="num">342</div><div class="lbl">Likes</div></div>
+                <div class="action"><div class="ico">◌</div><div class="num">84</div><div class="lbl">Reply</div></div>
+                <div class="action"><div class="ico">↗</div><div class="num">19</div><div class="lbl">Share</div></div>
+              </div>
+              <div class="video-info">
+                <div class="video-user">@kevinthebold</div>
+                <div class="video-sub">TBD challenge · 14.8k views</div>
+              </div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><div class="icon">◎</div>Today</div>
+            <div class="tab active"><div class="icon">▣</div>Feed</div>
+            <div class="tab"><div class="icon">＋</div>Record</div>
+            <div class="tab"><div class="icon">↟</div>Top</div>
+            <div class="tab"><div class="icon">◉</div>Me</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- LEADERBOARD -->
+      <section class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="status"><span>9:41</span><span>5G ▦ 🔋</span></div>
+          <div class="leader">
+            <div class="topbar">
+              <div class="logo-mini">
+                <svg class="brandmark" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect rx="26" width="120" height="120" fill="#0F1117"/><path d="M38 84V40" stroke="white" stroke-width="10" stroke-linecap="round"/><path d="M38 84H78" stroke="white" stroke-width="10" stroke-linecap="round"/><circle cx="78" cy="40" r="8" fill="#E8503A"/></svg>
+                <div>
+                  <div class="logo-word">Leap</div>
+                  <div class="logo-sub">Leaderboard</div>
+                </div>
+              </div>
+              <div class="pill"><span class="dot"></span> 42&quot;</div>
+            </div>
+            <div class="leader-head">
+              <div class="leader-kicker">Leaderboard</div>
+              <div class="leader-title"><span>How</span><span>high can</span><span>you jump?</span></div>
+            </div>
+            <div class="rank-card">
+              <div class="rank-block">
+                <div class="rank-bar"><div class="rank-fill" style="height:62%"></div></div>
+                <div class="rank-meta">
+                  <div class="l">Your jump</div>
+                  <div class="v">42&quot;</div>
+                  <div class="s">rank #12 of 247</div>
+                </div>
+              </div>
+              <div class="pill"><span class="dot"></span> 42&quot;</div>
+            </div>
+            <div class="seg-tabs">
+              <div class="seg active">Top jumps</div>
+              <div class="seg">Top users</div>
+            </div>
+            <div class="leader-list">
+              <div class="row">
+                <div class="rank-num">1</div>
+                <div class="avatar">K</div>
+                <div class="user"><div class="name">kevinthebold</div><div class="meta">12 challenges · 7 day streak</div></div>
+                <div class="inch"><div class="inch-bar"><div class="inch-fill" style="height: 92%"></div></div><div class="inch-val"><div class="n">42</div><div class="u">in</div></div></div>
+              </div>
+              <div class="row">
+                <div class="rank-num">2</div>
+                <div class="avatar">S</div>
+                <div class="user"><div class="name">sarahleaps</div><div class="meta">10 challenges · 5 day streak</div></div>
+                <div class="inch"><div class="inch-bar"><div class="inch-fill" style="height: 85%"></div></div><div class="inch-val"><div class="n">39</div><div class="u">in</div></div></div>
+              </div>
+              <div class="row">
+                <div class="rank-num">3</div>
+                <div class="avatar">M</div>
+                <div class="user"><div class="name">mikejumps</div><div class="meta">9 challenges · 4 day streak</div></div>
+                <div class="inch"><div class="inch-bar"><div class="inch-fill" style="height: 77%"></div></div><div class="inch-val"><div class="n">35</div><div class="u">in</div></div></div>
+              </div>
+              <div class="row">
+                <div class="rank-num">4</div>
+                <div class="avatar">J</div>
+                <div class="user"><div class="name">jess_bold</div><div class="meta">8 challenges · 3 day streak</div></div>
+                <div class="inch"><div class="inch-bar"><div class="inch-fill" style="height: 68%"></div></div><div class="inch-val"><div class="n">31</div><div class="u">in</div></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><div class="icon">◎</div>Today</div>
+            <div class="tab"><div class="icon">▣</div>Feed</div>
+            <div class="tab"><div class="icon">＋</div>Record</div>
+            <div class="tab active"><div class="icon">↟</div>Top</div>
+            <div class="tab"><div class="icon">◉</div>Me</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PROFILE -->
+      <section class="phone">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="status"><span>9:41</span><span>5G ▦ 🔋</span></div>
+          <div class="profile">
+            <div class="topbar">
+              <div class="logo-mini">
+                <svg class="brandmark" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect rx="26" width="120" height="120" fill="#0F1117"/><path d="M38 84V40" stroke="white" stroke-width="10" stroke-linecap="round"/><path d="M38 84H78" stroke="white" stroke-width="10" stroke-linecap="round"/><circle cx="78" cy="40" r="8" fill="#E8503A"/></svg>
+                <div>
+                  <div class="logo-word">Leap</div>
+                  <div class="logo-sub">Profile</div>
+                </div>
+              </div>
+              <div class="signout">Sign out</div>
+            </div>
+            <div class="profile-card">
+              <div class="pf-avatar">IP</div>
+              <div class="pf-name">IP</div>
+              <div class="pf-handle">@ip_leaps</div>
+              <div class="pf-campus">Indiana University</div>
+            </div>
+            <div class="meter-card">
+              <div class="meter-head">
+                <div>
+                  <div class="lh">Jump height</div>
+                  <div class="lv">47&quot;</div>
+                </div>
+                <div class="pill"><span class="dot"></span> IN</div>
+              </div>
+              <div class="meter-row">
+                <div class="vmeter"><div class="fill" style="height: 47%"></div></div>
+                <div class="meter-copy">
+                  <div class="t">You are getting higher.</div>
+                  <div class="d">Track your best jump in inches. More reps means more lift and a higher ceiling.</div>
+                </div>
+              </div>
+            </div>
+            <div class="stats">
+              <div class="stat"><div class="n">8</div><div class="l">Challenges completed</div></div>
+              <div class="stat"><div class="n">5</div><div class="l">Day streak</div></div>
+              <div class="stat"><div class="n">89</div><div class="l">Likes received</div></div>
+            </div>
+            <div class="posts">
+              <div class="head">Your leaps</div>
+              <div class="post"><div><div class="t">TBD</div><div class="s">Today</div></div><div class="c">42&quot;</div></div>
+              <div class="post"><div><div class="t">20 pushups anywhere</div><div class="s">Yesterday</div></div><div class="c">35&quot;</div></div>
+              <div class="empty">Make the profile feel like a scoreboard, not a résumé.</div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab"><div class="icon">◎</div>Today</div>
+            <div class="tab"><div class="icon">▣</div>Feed</div>
+            <div class="tab"><div class="icon">＋</div>Record</div>
+            <div class="tab"><div class="icon">↟</div>Top</div>
+            <div class="tab active"><div class="icon">◉</div>Me</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</body>
+</html>
