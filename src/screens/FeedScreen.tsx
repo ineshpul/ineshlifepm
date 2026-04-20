@@ -117,6 +117,7 @@ function FeedPostVideo(props: {
   } = props;
   const videoRef = React.useRef<Video>(null);
   const [status, setStatus] = React.useState<AVPlaybackStatus | null>(null);
+  const [loaded, setLoaded] = React.useState(false);
   /** User tapped pause while this reel is still the active slot (feed scroll / focus unchanged). */
   const [userPaused, setUserPaused] = React.useState(false);
   const [pauseFlash, setPauseFlash] = React.useState(false);
@@ -127,6 +128,10 @@ function FeedPostVideo(props: {
   React.useEffect(() => {
     viewRecordedKeyRef.current = null;
   }, [analyticsVideoId]);
+
+  React.useEffect(() => {
+    setLoaded(false);
+  }, [url]);
 
   React.useEffect(() => {
     if (!shouldPlay) setUserPaused(false);
@@ -166,7 +171,7 @@ function FeedPostVideo(props: {
   React.useEffect(() => {
     const player = videoRef.current;
     if (!player) return;
-    if (effectivePlay) {
+    if (effectivePlay && loaded) {
       void (async () => {
         try {
           await player.setIsMutedAsync(false);
@@ -179,10 +184,11 @@ function FeedPostVideo(props: {
     } else {
       void player.pauseAsync?.();
     }
-  }, [effectivePlay, url]);
+  }, [effectivePlay, loaded, url]);
 
   const onPlaybackStatusUpdate = (s: AVPlaybackStatus) => {
     setStatus(s);
+    if (s.isLoaded) setLoaded(true);
   };
 
   const onReelTap = React.useCallback(() => {
@@ -267,6 +273,12 @@ function FeedPostVideo(props: {
         useNativeControls={nativeControls}
         progressUpdateIntervalMillis={dataSaver ? 1000 : 250}
         onPlaybackStatusUpdate={onPlaybackStatusUpdate}
+        onError={() => {
+          // If the first autoplay attempt races with load on some devices,
+          // the user can tap to retry; we also avoid keeping "paused" stuck.
+          setLoaded(false);
+          setUserPaused(false);
+        }}
       />
       {reelTapLayer}
       <View style={styles.timerBar} pointerEvents="none">

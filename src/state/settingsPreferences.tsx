@@ -6,7 +6,7 @@ import { useAuth } from './auth';
 import { useChallengeWindow } from './challenge';
 import { useHasPostedToday } from './posting';
 
-const STORAGE_KEY = 'leap.settings.v3';
+const STORAGE_KEY = 'leap.settings.v4';
 
 export type FeedType = 'mixed' | 'friends';
 export type CommentAudience = 'everyone' | 'friends';
@@ -25,7 +25,8 @@ export type SettingsPreferencesState = {
   showScorePublic: boolean;
   contentFiltering: boolean;
   streakReminders: boolean;
-  saveToCameraRoll: boolean;
+  /** Auto-save new posts to camera roll after a successful post. */
+  autoSavePosts: boolean;
   uploadOnCellular: boolean;
   profileDisplayName: string;
   profileUsername: string;
@@ -47,7 +48,7 @@ export const SETTINGS_DEFAULTS: SettingsPreferencesState = {
   showScorePublic: true,
   contentFiltering: true,
   streakReminders: true,
-  saveToCameraRoll: true,
+  autoSavePosts: false,
   uploadOnCellular: false,
   profileDisplayName: '',
   profileUsername: '',
@@ -68,11 +69,21 @@ const PrefsContext = React.createContext<Ctx | null>(null);
 
 function mergeLoaded(raw: unknown): SettingsPreferencesState {
   if (!raw || typeof raw !== 'object') return { ...SETTINGS_DEFAULTS };
-  const o = raw as Partial<SettingsPreferencesState> & { autoPlayVideos?: boolean };
+  const o = raw as Partial<SettingsPreferencesState> & {
+    autoPlayVideos?: boolean;
+    saveToCameraRoll?: boolean;
+  };
   const { autoPlayVideos: _removedAutoPlay, ...rest } = o;
+  const migratedAutoSave =
+    typeof o.autoSavePosts === 'boolean'
+      ? o.autoSavePosts
+      : typeof o.saveToCameraRoll === 'boolean'
+        ? o.saveToCameraRoll
+        : SETTINGS_DEFAULTS.autoSavePosts;
   return {
     ...SETTINGS_DEFAULTS,
     ...rest,
+    autoSavePosts: migratedAutoSave,
     whoCanMessage: 'everyone',
     blockedUsernames: Array.isArray(o.blockedUsernames)
       ? o.blockedUsernames.map(String)

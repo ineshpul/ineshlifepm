@@ -507,9 +507,10 @@ export function SettingsScreen() {
         <SectionHeader title="Camera / Upload" />
         <Card>
           <RowToggle
-            label="Save to camera roll"
-            value={preferences.saveToCameraRoll}
-            onValueChange={(v) => patch({ saveToCameraRoll: v })}
+            label="Auto-save my posts"
+            subtitle="Automatically save your posted videos to your camera roll."
+            value={preferences.autoSavePosts}
+            onValueChange={(v) => patch({ autoSavePosts: v })}
           />
           <Separator />
           <RowToggle

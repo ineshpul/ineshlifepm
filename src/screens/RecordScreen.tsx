@@ -89,18 +89,21 @@ export function RecordScreen() {
     setIsRecording(false);
   }, [postedToday]);
 
-  React.useEffect(() => {
-    if (!clipUri || clipSource !== 'recorded' || !preferences.saveToCameraRoll) return;
-    void (async () => {
-      try {
-        const p = await MediaLibrary.requestPermissionsAsync();
-        if (!p.granted) return;
-        await MediaLibrary.saveToLibraryAsync(clipUri);
-      } catch {
-        // ignore — device permission or format
+  const saveClipToCameraRoll = React.useCallback(async () => {
+    if (!clipUri || clipUri.startsWith('demo://')) return;
+    if (clipSource !== 'recorded') return;
+    try {
+      const p = await MediaLibrary.requestPermissionsAsync();
+      if (!p.granted) {
+        showInfo('Camera roll', 'Permission was not granted.');
+        return;
       }
-    })();
-  }, [clipUri, clipSource, preferences.saveToCameraRoll]);
+      await MediaLibrary.saveToLibraryAsync(clipUri);
+      showInfo('Saved', 'Saved to camera roll.');
+    } catch (e) {
+      showError('Could not save', e);
+    }
+  }, [clipUri, clipSource]);
 
   const startCountdownThenRecord = async () => {
     setClipUri(null);
@@ -288,6 +291,18 @@ export function RecordScreen() {
           // ignore cleanup failures
         }
         throw e;
+      }
+
+      // Successful post: optionally save a recorded clip.
+      if (clipSource === 'recorded') {
+        if (preferences.autoSavePosts) {
+          await saveClipToCameraRoll();
+        } else {
+          Alert.alert('Save to camera roll?', 'Save this post to your camera roll?', [
+            { text: 'Save', onPress: () => void saveClipToCameraRoll() },
+            { text: 'Not now', style: 'cancel' },
+          ]);
+        }
       }
 
       markPostedToday();

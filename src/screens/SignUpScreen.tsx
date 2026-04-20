@@ -8,6 +8,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { TextField } from '../components/TextField';
 import { colors } from '../theme/colors';
 import { useAuth } from '../state/auth';
+import { friendlySignInError } from '../utils/authErrors';
 import { isValidEmail, isValidPassword, PASSWORD_MIN_LENGTH } from '../utils/authValidation';
 
 export function SignUpScreen() {
@@ -41,6 +42,12 @@ export function SignUpScreen() {
             },
           ]
         );
+      }
+    } catch (e: unknown) {
+      Alert.alert('Sign up', friendlySignInError(e));
+      // After verification-required flow we sign out in `signUp()`, so send them to Sign In.
+      if (e instanceof Error && e.message === 'EMAIL_VERIFICATION_REQUIRED') {
+        nav.navigate('SignIn');
       }
     } finally {
       setBusy(false);

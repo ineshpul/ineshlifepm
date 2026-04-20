@@ -7,20 +7,20 @@ import {
   OAuthProvider,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  sendEmailVerification,
   signInWithCredential,
   signInWithEmailAndPassword,
   signOut as fbSignOut,
   updateProfile,
 } from 'firebase/auth';
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { unregisterPushDevice } from '../services/pushNotifications';
-import { isAdminUid } from '../config/admin';
 
 const BIO_EMAIL = 'leap.biometricEmail';
 const BIO_FLAG = 'leap.biometricEnabled';
-const BIO_PW = 'leap.biometricPassword';
+const BIO_KEY = 'leap.biometricKeyV1';
 
 export type AuthUser = {
   uid: string;
@@ -38,6 +38,7 @@ type AuthContextValue = {
   saveBiometricCredentials: (email: string, password: string) => Promise<void>;
   tryBiometricSignIn: () => Promise<void>;
   isBiometricSaved: () => Promise<boolean>;
+  resendEmailVerification: () => Promise<void>;
 };
 
 const AuthContext = React.createContext<AuthContextValue | null>(null);
@@ -53,28 +54,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
         return;
       }
+      const username = u.displayName ?? (u.email?.split('@')[0] ?? 'user');
+
+      // Public profile doc (no email; no admin trust from client).
       void setDoc(
         doc(firestore(), 'users', u.uid),
         {
           uid: u.uid,
-          email: u.email ?? '',
-          username: u.displayName ?? (u.email?.split('@')[0] ?? 'user'),
-          isAdmin: isAdminUid(u.uid),
+          username,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
-      ).catch(() => {
-        // Sign-in still succeeds; profile sync can retry on next launch.
-      });
+      ).catch(() => {});
+
+      // Private profile doc (owner-readable only via rules).
+      void setDoc(
+        doc(firestore(), 'users', u.uid, 'private', 'profile'),
+        {
+          email: u.email ?? '',
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      ).catch(() => {});
       setUser({
         uid: u.uid,
         email: u.email ?? '',
-        username: u.displayName ?? (u.email?.split('@')[0] ?? 'user'),
-        isAdmin: isAdminUid(u.uid),
+        username,
       });
     });
     return () => unsub();
   }, []);
+
+  // Keep `isAdmin` (and any server-managed profile fields) sourced from Firestore, not client config.
+  React.useEffect(() => {
+    if (!isFirebaseConfigured() || !user?.uid) return;
+    const ref = doc(firestore(), 'users', user.uid);
+    return onSnapshot(
+      ref,
+      (snap) => {
+        if (!snap.exists()) return;
+        const d = snap.data() as Record<string, unknown>;
+        const isAdmin = d.isAdmin === true;
+        const username = String(d.username ?? user.username ?? 'user');
+        setUser((prev) => (prev && prev.uid === user.uid ? { ...prev, isAdmin, username } : prev));
+      },
+      () => {
+        // ignore
+      }
+    );
+  }, [user?.uid]);
 
   const signUp = React.useCallback(
     async ({ email, password, username }: { email: string; password: string; username: string }) => {
@@ -85,6 +113,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const auth = firebaseAuth();
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       await updateProfile(cred.user, { displayName: username });
+
+      // Require email verification for email/password accounts.
+      await sendEmailVerification(cred.user);
+      await fbSignOut(auth);
+      throw new Error('EMAIL_VERIFICATION_REQUIRED');
     },
     []
   );
@@ -96,6 +129,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const auth = firebaseAuth();
     await signInWithEmailAndPassword(auth, email, password);
+    const cur = auth.currentUser;
+    if (cur && cur.emailVerified === false) {
+      await fbSignOut(auth);
+      throw new Error('EMAIL_NOT_VERIFIED');
+    }
   }, []);
 
   const signInWithApple = React.useCallback(async () => {
@@ -125,8 +163,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const saveBiometricCredentials = React.useCallback(async (email: string, password: string) => {
-    await SecureStore.setItemAsync(BIO_PW, password, {
+  const saveBiometricCredentials = React.useCallback(async (email: string, _password: string) => {
+    // Store only an app-specific secret protected by device biometrics.
+    // Never store the user's raw password on-device.
+    const key = Crypto.randomUUID();
+    await SecureStore.setItemAsync(BIO_KEY, key, {
       requireAuthentication: true,
       authenticationPrompt: 'Save your Leap sign-in',
     });
@@ -140,12 +181,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (enabled !== '1') throw new Error('Face ID sign-in is not enabled.');
     const email = await AsyncStorage.getItem(BIO_EMAIL);
     if (!email) throw new Error('No saved email.');
-    const password = await SecureStore.getItemAsync(BIO_PW);
-    if (!password) throw new Error('No saved password.');
-    await signInWithEmailAndPassword(firebaseAuth(), email, password);
+    const key = await SecureStore.getItemAsync(BIO_KEY);
+    if (!key) throw new Error('Biometric unlock is not available. Sign in again.');
+
+    // Safer behavior: biometrics unlock the app only if Firebase already has a valid session.
+    // This avoids storing primary credentials on-device.
+    const auth = firebaseAuth();
+    if (auth.currentUser) return;
+    throw new Error(`No active session for ${email}. Please sign in with your password.`);
   }, []);
 
   const isBiometricSaved = React.useCallback(async () => (await AsyncStorage.getItem(BIO_FLAG)) === '1', []);
+
+  const resendEmailVerificationCb = React.useCallback(async () => {
+    if (!isFirebaseConfigured()) return;
+    const cur = firebaseAuth().currentUser;
+    if (!cur) throw new Error('Not signed in.');
+    await sendEmailVerification(cur);
+  }, []);
 
   const signOut = React.useCallback(async () => {
     if (!isFirebaseConfigured()) {
@@ -161,7 +214,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     try {
-      await SecureStore.deleteItemAsync(BIO_PW);
+      await SecureStore.deleteItemAsync(BIO_KEY);
     } catch {
       // ignore
     }
@@ -179,6 +232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       saveBiometricCredentials,
       tryBiometricSignIn,
       isBiometricSaved,
+      resendEmailVerification: resendEmailVerificationCb,
     }),
     [
       user,
@@ -189,6 +243,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       saveBiometricCredentials,
       tryBiometricSignIn,
       isBiometricSaved,
+      resendEmailVerificationCb,
     ]
   );
 

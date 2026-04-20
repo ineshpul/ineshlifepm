@@ -74,9 +74,6 @@
         "messagingSenderId": "1047286135542",
         "appId": "1:1047286135542:web:d5a184e16b3f9ee8b20ad7"
       },
-      "adminUids": [
-        "is10Doy7zQYUeCi36P8gE1M3lZe2"
-      ],
       "requireLoginEmailOtp": false,
       "requirePostModeration": false
     }

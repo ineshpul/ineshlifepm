@@ -22,6 +22,7 @@ export function SignInScreen() {
     saveBiometricCredentials,
     tryBiometricSignIn,
     isBiometricSaved,
+    resendEmailVerification,
   } = useAuth();
 
   const [email, setEmail] = React.useState('');
@@ -111,7 +112,17 @@ export function SignInScreen() {
       }
       await finishEmailSignIn();
     } catch (e: unknown) {
-      Alert.alert('Could not continue', friendlySignInError(e));
+      if (e instanceof Error && e.message === 'EMAIL_NOT_VERIFIED') {
+        Alert.alert('Verify your email', friendlySignInError(e), [
+          { text: 'OK' },
+          {
+            text: 'Resend email',
+            onPress: () => void resendEmailVerification().catch(() => {}),
+          },
+        ]);
+      } else {
+        Alert.alert('Could not continue', friendlySignInError(e));
+      }
     } finally {
       setBusy(false);
     }

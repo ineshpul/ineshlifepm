@@ -2,6 +2,14 @@
  * Human-readable copy for Firebase Auth / Callable failures on sign-in screens.
  */
 export function friendlySignInError(e: unknown): string {
+  if (e instanceof Error) {
+    if (e.message === 'EMAIL_VERIFICATION_REQUIRED') {
+      return 'We sent you a verification email. Please verify your email address, then sign in.';
+    }
+    if (e.message === 'EMAIL_NOT_VERIFIED') {
+      return 'Please verify your email address before signing in. Check your inbox (and spam), then try again.';
+    }
+  }
   if (e && typeof e === 'object' && 'code' in e && 'message' in e) {
     const code = String((e as { code?: string }).code ?? '');
     const msg = String((e as { message?: string }).message ?? '');

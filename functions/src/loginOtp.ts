@@ -8,6 +8,11 @@ const OTP_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 8;
 const RATE_WINDOW_MS = 60 * 60 * 1000;
 const MAX_SENDS_PER_HOUR = 5;
+const GENERIC_SEND_RESPONSE_MS = 250;
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 function normEmail(s: unknown): string {
   const e = String(s ?? '').trim().toLowerCase();
@@ -53,19 +58,19 @@ async function sendResend(to: string, code: string) {
 export const sendLoginOtp = onCall({ region: REGION }, async (request) => {
   const email = normEmail(request.data?.email);
 
-  let userRecord: admin.auth.UserRecord;
+  // Do not leak whether an account exists (user enumeration).
+  let userExists = true;
   try {
-    userRecord = await admin.auth().getUserByEmail(email);
+    await admin.auth().getUserByEmail(email);
   } catch (e: unknown) {
     const code = (e as { code?: string })?.code;
     if (code === 'auth/user-not-found') {
-      throw new HttpsError('not-found', 'No account exists for that email.');
+      userExists = false;
+    } else {
+      logger.error('getUserByEmail failed', e);
+      // Keep response generic to avoid leaking details.
+      throw new HttpsError('internal', 'Could not send email. Try again later.');
     }
-    logger.error('getUserByEmail failed', e);
-    throw new HttpsError('internal', 'Could not verify email.');
-  }
-  if (!userRecord.email) {
-    throw new HttpsError('failed-precondition', 'This account has no email on file.');
   }
 
   const db = admin.firestore();
@@ -93,16 +98,22 @@ export const sendLoginOtp = onCall({ region: REGION }, async (request) => {
   const otpId = crypto.randomUUID();
   const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + OTP_TTL_MS);
 
-  await db.collection('loginOtps').doc(otpId).set({
-    email,
-    hash,
-    salt,
-    expiresAt,
-    attempts: 0,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
+  if (userExists) {
+    await db.collection('loginOtps').doc(otpId).set({
+      email,
+      hash,
+      salt,
+      expiresAt,
+      attempts: 0,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
 
-  await sendResend(email, code);
+    await sendResend(email, code);
+  } else {
+    // Account does not exist: return a plausible response anyway.
+    // Avoids leaking existence via errors; still rate-limited above.
+    await sleep(GENERIC_SEND_RESPONSE_MS);
+  }
 
   return { otpId };
 });
