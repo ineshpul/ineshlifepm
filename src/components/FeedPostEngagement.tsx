@@ -25,7 +25,7 @@ import {
 } from 'firebase/firestore';
 
 import { colors } from '../theme/colors';
-import { firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { firestore, firebaseAuth, isFirebaseConfigured } from '../firebase/firebase';
 import { createInAppNotification } from '../services/social';
 import { showError } from '../utils/ui';
 
@@ -60,69 +60,112 @@ export function FeedPostEngagement({
   const [deletingCommentId, setDeletingCommentId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured()) return;
-    const likesCol = collection(firestore(), 'videos', videoId, 'likes');
-    const unsub = onSnapshot(likesCol, (snap) => {
-      setLikeCount(snap.size);
-      setLiked(viewerUid ? snap.docs.some((d) => d.id === viewerUid) : false);
-    });
-    return () => unsub();
+    if (!isFirebaseConfigured() || !viewerUid) return;
+    let unsub: (() => void) | undefined;
+    let cancelled = false;
+
+    void firebaseAuth()
+      .authStateReady()
+      .then(() => {
+        if (cancelled || !firebaseAuth().currentUser) return;
+        const likesCol = collection(firestore(), 'videos', videoId, 'likes');
+        unsub = onSnapshot(
+          likesCol,
+          (snap) => {
+            setLikeCount(snap.size);
+            setLiked(snap.docs.some((d) => d.id === viewerUid));
+          },
+          () => {
+            setLikeCount(0);
+            setLiked(false);
+          }
+        );
+      });
+
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
   }, [videoId, viewerUid]);
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured()) return;
-    const vref = doc(firestore(), 'videos', videoId);
-    const unsub = onSnapshot(
-      vref,
-      (snap) => {
-        if (!snap.exists()) {
-          setDocLikeCount(null);
-          setDocCommentCount(null);
-          return;
-        }
-        const d: any = snap.data();
-        const lc = Number(d?.likesCount ?? 0);
-        const cc = Number(d?.commentsCount ?? 0);
-        setDocLikeCount(Number.isFinite(lc) ? lc : 0);
-        setDocCommentCount(Number.isFinite(cc) ? cc : 0);
-      },
-      () => {
-        setDocLikeCount(null);
-        setDocCommentCount(null);
-      }
-    );
-    return () => unsub();
-  }, [videoId]);
+    if (!isFirebaseConfigured() || !viewerUid) return;
+    let unsub: (() => void) | undefined;
+    let cancelled = false;
+
+    void firebaseAuth()
+      .authStateReady()
+      .then(() => {
+        if (cancelled || !firebaseAuth().currentUser) return;
+        const vref = doc(firestore(), 'videos', videoId);
+        unsub = onSnapshot(
+          vref,
+          (snap) => {
+            if (!snap.exists()) {
+              setDocLikeCount(null);
+              setDocCommentCount(null);
+              return;
+            }
+            const d: any = snap.data();
+            const lc = Number(d?.likesCount ?? 0);
+            const cc = Number(d?.commentsCount ?? 0);
+            setDocLikeCount(Number.isFinite(lc) ? lc : 0);
+            setDocCommentCount(Number.isFinite(cc) ? cc : 0);
+          },
+          () => {
+            setDocLikeCount(null);
+            setDocCommentCount(null);
+          }
+        );
+      });
+
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+  }, [videoId, viewerUid]);
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured()) return;
-    const q = query(
-      collection(firestore(), 'videos', videoId, 'comments'),
-      orderBy('createdAt', 'desc'),
-      limit(12)
-    );
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        setComments(
-          snap.docs.map((d) => {
-            const data: any = d.data();
-            const at =
-              typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
-            return {
-              id: d.id,
-              uid: String(data?.uid ?? ''),
-              username: String(data?.username ?? 'user'),
-              text: String(data?.text ?? ''),
-              at,
-            };
-          })
+    if (!isFirebaseConfigured() || !viewerUid) return;
+    let unsub: (() => void) | undefined;
+    let cancelled = false;
+
+    void firebaseAuth()
+      .authStateReady()
+      .then(() => {
+        if (cancelled || !firebaseAuth().currentUser) return;
+        const q = query(
+          collection(firestore(), 'videos', videoId, 'comments'),
+          orderBy('createdAt', 'desc'),
+          limit(12)
         );
-      },
-      () => setComments([])
-    );
-    return () => unsub();
-  }, [videoId]);
+        unsub = onSnapshot(
+          q,
+          (snap) => {
+            setComments(
+              snap.docs.map((d) => {
+                const data: any = d.data();
+                const at =
+                  typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+                return {
+                  id: d.id,
+                  uid: String(data?.uid ?? ''),
+                  username: String(data?.username ?? 'user'),
+                  text: String(data?.text ?? ''),
+                  at,
+                };
+              })
+            );
+          },
+          () => setComments([])
+        );
+      });
+
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+  }, [videoId, viewerUid]);
 
   const onToggleLike = async () => {
     if (!viewerUid) {
@@ -136,13 +179,15 @@ export function FeedPostEngagement({
         await deleteDoc(likeRef);
       } else {
         await setDoc(likeRef, { createdAt: serverTimestamp() });
-        await createInAppNotification({
-          recipientUid: videoOwnerUid,
-          type: 'like',
-          fromUid: viewerUid,
-          fromUsername: viewerUsername,
-          videoId,
-        });
+        if (viewerUid !== videoOwnerUid) {
+          await createInAppNotification({
+            recipientUid: videoOwnerUid,
+            type: 'like',
+            fromUid: viewerUid,
+            fromUsername: viewerUsername,
+            videoId,
+          });
+        }
       }
     } catch (e) {
       showError('Like failed', e);
@@ -179,14 +224,16 @@ export function FeedPostEngagement({
         createdAt: serverTimestamp(),
       });
       const snippet = text.length > 140 ? `${text.slice(0, 137)}…` : text;
-      await createInAppNotification({
-        recipientUid: videoOwnerUid,
-        type: 'comment',
-        fromUid: viewerUid,
-        fromUsername: viewerUsername,
-        videoId,
-        snippet,
-      });
+      if (viewerUid !== videoOwnerUid) {
+        await createInAppNotification({
+          recipientUid: videoOwnerUid,
+          type: 'comment',
+          fromUid: viewerUid,
+          fromUsername: viewerUsername,
+          videoId,
+          snippet,
+        });
+      }
       setDraft('');
     } catch (e) {
       showError('Comment failed', e);

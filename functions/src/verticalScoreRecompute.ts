@@ -20,6 +20,7 @@ function windowStartMs(nowMs: number): number {
   return nowMs - 14 * 86400000;
 }
 
+/** Self-likes / self-comments on your posts are allowed but excluded from Vertical Score (views already excluded in `recordVideoView`). */
 async function buildSnapshotsForOwner(ownerId: string, db: admin.firestore.Firestore): Promise<PostMetricsSnapshot[]> {
   const q = db
     .collection(POST_COLLECTION)
@@ -40,11 +41,20 @@ async function buildSnapshotsForOwner(ownerId: string, db: admin.firestore.Fires
     const effectiveCreated = createdAtMs > 0 ? createdAtMs : now;
     if (effectiveCreated < start) continue;
 
-    const likesAgg = await d.ref.collection('likes').count().get();
-    const commentsAgg = await d.ref.collection('comments').count().get();
+    const likesCol = d.ref.collection('likes');
+    const commentsCol = d.ref.collection('comments');
+    const [likesTotalAgg, selfLikeSnap, commentsTotalAgg, selfCommentsAgg] = await Promise.all([
+      likesCol.count().get(),
+      likesCol.doc(ownerId).get(),
+      commentsCol.count().get(),
+      commentsCol.where('uid', '==', ownerId).count().get(),
+    ]);
 
-    const likes = likesAgg.data().count;
-    const comments = commentsAgg.data().count;
+    let likes = likesTotalAgg.data().count;
+    if (selfLikeSnap.exists) likes = Math.max(0, likes - 1);
+
+    let comments = commentsTotalAgg.data().count - selfCommentsAgg.data().count;
+    comments = Math.max(0, comments);
 
     const views = Number(data.viewCount ?? data.views ?? 0);
     const shares = Number(data.shareCount ?? data.shares ?? 0);

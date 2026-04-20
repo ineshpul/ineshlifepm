@@ -24,11 +24,18 @@ export function friendlySignInError(e: unknown): string {
       return 'The sign-in service returned an error. If you use email codes, confirm Resend is configured on Cloud Functions.';
     }
 
-    if (code === 'auth/invalid-credential' || code === 'auth/wrong-password') {
-      return 'Wrong email or password.';
+    if (
+      code === 'auth/invalid-credential' ||
+      code === 'auth/wrong-password' ||
+      code === 'auth/invalid-login-credentials'
+    ) {
+      return 'Incorrect email or password.';
     }
     if (code === 'auth/user-not-found') {
       return 'No account found for that email. Create an account first.';
+    }
+    if (code === 'auth/email-already-in-use') {
+      return 'An account already exists for that email. Sign in instead.';
     }
     if (code === 'auth/invalid-email') {
       return 'That email address does not look valid.';

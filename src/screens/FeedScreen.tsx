@@ -3,7 +3,9 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  KeyboardAvoidingView,
   LayoutChangeEvent,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -47,9 +49,6 @@ type FeedVideo = {
   maxDurationSeconds: number;
 };
 
-/** One preview credit per challenge day (survives leaving/reopening the Feed tab). */
-let lastPreviewChargeDateKey: string | null = null;
-
 /** Bottom sheet height (instructions + engagement) per reel page — matches Tabs tab bar feel. */
 const REEL_BOTTOM_SHEET = 232;
 const TAB_BAR_HEIGHT = 58;
@@ -90,7 +89,6 @@ function FeedPostVideo(props: {
   isMuted: boolean;
   useNativeControls: boolean;
   maxDurationSeconds: number;
-  showPreviewBadge: boolean;
   dataSaver: boolean;
   /** Full-bleed vertical clip (Reels-style); hides native controls for a TikTok-like surface. */
   reel?: boolean;
@@ -107,7 +105,6 @@ function FeedPostVideo(props: {
     isMuted,
     useNativeControls,
     maxDurationSeconds,
-    showPreviewBadge,
     dataSaver,
     reel = false,
     onReelActivate,
@@ -284,7 +281,6 @@ function FeedPostVideo(props: {
       <View style={styles.timerBar} pointerEvents="none">
         <Text style={styles.timerText}>{formatTimeLeft(remainingSec)} left</Text>
       </View>
-      {showPreviewBadge ? <Text style={styles.previewBadge}>PREVIEW</Text> : null}
     </View>
   );
 }
@@ -293,7 +289,7 @@ export function FeedScreen() {
   const isFocused = useIsFocused();
   const nav = useNavigation<any>();
   const { preferences } = useSettingsPreferences();
-  const { hasPostedToday, previewViewsRemaining, markPreviewView, clearPostedOverride } = useAppState();
+  const { hasPostedToday, clearPostedOverride } = useAppState();
   const { user } = useAuth();
   const win = useChallengeWindow();
 
@@ -391,13 +387,6 @@ export function FeedScreen() {
     );
   }, [displayVideos]);
 
-  React.useEffect(() => {
-    if (hasPostedToday || !displayVideos.length || !activeVideoId) return;
-    if (lastPreviewChargeDateKey === win.dateKey) return;
-    lastPreviewChargeDateKey = win.dateKey;
-    markPreviewView();
-  }, [win.dateKey, hasPostedToday, displayVideos.length, activeVideoId, markPreviewView]);
-
   const confirmDelete = (item: FeedVideo) => {
     if (!user?.uid || item.ownerUid !== user.uid) return;
     Alert.alert(
@@ -426,7 +415,7 @@ export function FeedScreen() {
   };
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured() || !user?.uid) {
+    if (!isFirebaseConfigured() || !user?.uid || !hasPostedToday) {
       setVideos([]);
       setFeedHydrated(true);
       return;
@@ -548,9 +537,9 @@ export function FeedScreen() {
       approvedUnsub?.();
       mineUnsub?.();
     };
-  }, [win.dateKey, user?.uid]);
+  }, [win.dateKey, user?.uid, hasPostedToday]);
 
-  if (!hasPostedToday && previewViewsRemaining <= 0) {
+  if (!hasPostedToday) {
     return (
       <Screen style={styles.gateScreen}>
         <View style={styles.lockIcon}>
@@ -577,10 +566,7 @@ export function FeedScreen() {
           <View style={styles.headerLeft}>
             <Brandmark size={36} />
             <View>
-              <Text style={styles.headerTitle}>{hasPostedToday ? 'Daily Feed' : 'Preview'}</Text>
-              {!hasPostedToday && (
-                <Text style={styles.headerSub}>{previewViewsRemaining} previews left</Text>
-              )}
+              <Text style={styles.headerTitle}>Daily Feed</Text>
             </View>
           </View>
           {user?.uid ? (
@@ -665,9 +651,8 @@ export function FeedScreen() {
                   url={item.url}
                   shouldPlay={isFocused && activeVideoId === item.id}
                   isMuted={false}
-                  useNativeControls={hasPostedToday}
+                  useNativeControls
                   maxDurationSeconds={item.maxDurationSeconds}
-                  showPreviewBadge={!hasPostedToday}
                   dataSaver={preferences.dataSaver}
                   analyticsVideoId={item.id}
                   videoOwnerUid={item.ownerUid}
@@ -675,7 +660,11 @@ export function FeedScreen() {
                 />
               </View>
 
-              <View style={[styles.reelSheet, { height: REEL_BOTTOM_SHEET }]}>
+              <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={TAB_BAR_HEIGHT + Math.max(insets.bottom, 6)}
+                style={[styles.reelSheet, { height: REEL_BOTTOM_SHEET }]}
+              >
                 <View style={styles.reelSheetTop}>
                   <View style={styles.reelAvatar}>
                     <Text style={styles.reelAvatarText}>{item.username[0]?.toUpperCase()}</Text>
@@ -733,7 +722,7 @@ export function FeedScreen() {
                     />
                   </ScrollView>
                 ) : null}
-              </View>
+              </KeyboardAvoidingView>
             </View>
           )}
         />
@@ -905,11 +894,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: colors.text,
   },
-  headerSub: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: colors.muted,
-  },
   list: {
     paddingBottom: 10,
     gap: 8,
@@ -995,21 +979,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.4,
     textAlign: 'center',
-  },
-  previewBadge: {
-    position: 'absolute',
-    right: 10,
-    top: 10,
-    zIndex: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 14,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    color: colors.white,
-    fontSize: 10,
-    letterSpacing: 1.2,
-    fontWeight: '900',
   },
   empty: {
     paddingTop: 16,

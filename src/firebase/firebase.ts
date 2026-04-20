@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { initializeApp, getApp, getApps } from 'firebase/app';
+import type { Auth } from 'firebase/auth';
 import { getAuth, initializeAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getFunctions } from 'firebase/functions';
@@ -28,15 +30,34 @@ export function getFirebaseApp() {
   return initializeApp(cfg);
 }
 
-export function firebaseAuth() {
+let cachedAuth: Auth | null = null;
+
+function isExpoGoRuntime() {
+  return Constants.appOwnership === 'expo';
+}
+
+/**
+ * Single Auth instance for dev builds / production.
+ * Expo Go (especially iOS): always `getAuth(app)` — no module cache — so Metro hot reload cannot leave a
+ * stale `initializeAuth` instance, and we avoid AsyncStorage persistence quirks with the RN Firebase SDK.
+ * (Session resets when Expo Go fully restarts; that is fine for development.)
+ */
+export function firebaseAuth(): Auth {
   const app = getFirebaseApp();
+
+  if (isExpoGoRuntime()) {
+    return getAuth(app);
+  }
+
+  if (cachedAuth) return cachedAuth;
   try {
-    return initializeAuth(app, {
+    cachedAuth = initializeAuth(app, {
       persistence: getReactNativePersistence(AsyncStorage),
     });
   } catch {
-    return getAuth(app);
+    cachedAuth = getAuth(app);
   }
+  return cachedAuth;
 }
 
 export function firestore() {

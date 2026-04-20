@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-
 import { AuthHero } from '../components/AuthHero';
 import { KeyboardScreen } from '../components/KeyboardScreen';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -10,35 +9,23 @@ import { requireLoginEmailOtp } from '../config/requireLoginEmailOtp';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { sendLoginOtpEmail, verifyLoginOtpCode } from '../services/loginOtp';
 import { colors } from '../theme/colors';
-import { useAuth } from '../state/auth';
+import { useAuth, type EmailPasswordSignInResult } from '../state/auth';
 import { friendlySignInError } from '../utils/authErrors';
 import { isValidEmail, isValidPassword, PASSWORD_MIN_LENGTH } from '../utils/authValidation';
 
 export function SignInScreen() {
   const nav = useNavigation<any>();
-  const {
-    signIn,
-    signInWithApple,
-    saveBiometricCredentials,
-    tryBiometricSignIn,
-    isBiometricSaved,
-    resendEmailVerification,
-  } = useAuth();
+  const { signInWithEmailPassword, signInWithApple } = useAuth();
 
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [busy, setBusy] = React.useState(false);
-  const [bioSaved, setBioSaved] = React.useState(false);
   const [step, setStep] = React.useState<'credentials' | 'otp'>('credentials');
   const [otpId, setOtpId] = React.useState('');
   const [otpCode, setOtpCode] = React.useState('');
   const passwordRef = React.useRef('');
 
   const otpEnabled = requireLoginEmailOtp() && isFirebaseConfigured();
-
-  React.useEffect(() => {
-    void isBiometricSaved().then(setBioSaved);
-  }, [isBiometricSaved]);
 
   /** If OTP was turned off (or extra was stale), leave the code step so email/password works. */
   React.useEffect(() => {
@@ -49,42 +36,43 @@ export function SignInScreen() {
     passwordRef.current = '';
   }, [otpEnabled]);
 
+  /** If Firebase never settles, `busy` must not stay true forever (grey disabled Continue). */
+  React.useEffect(() => {
+    if (!busy) return;
+    const t = setTimeout(() => {
+      setBusy(false);
+      Alert.alert(
+        'Sign-in is slow',
+        'The request is taking a long time. Check your connection, then tap Continue again.'
+      );
+    }, 55_000);
+    return () => clearTimeout(t);
+  }, [busy]);
+
   const emailOk = isValidEmail(email);
   const pwOk = isValidPassword(password);
-  const canSubmit = emailOk && pwOk && !busy;
   const otpDigits = otpCode.replace(/\s/g, '');
-  const canVerifyOtp = otpDigits.length === 6 && !!otpId && !busy;
-
-  const promptSaveBiometric = (pw: string) => {
-    if (Platform.OS === 'web') return;
-    Alert.alert(
-      'Face ID / fingerprint',
-      'Save this sign-in so you can unlock Leap with biometrics next time?',
-      [
-        { text: 'Not now', style: 'cancel' },
-        {
-          text: 'Save',
-          onPress: () => void saveBiometricCredentials(email.trim(), pw).then(() => setBioSaved(true)),
-        },
-      ]
-    );
-  };
-
-  const onFaceId = async () => {
-    setBusy(true);
-    try {
-      await tryBiometricSignIn();
-    } catch (e: unknown) {
-      Alert.alert('Could not sign in', friendlySignInError(e));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const finishEmailSignIn = async () => {
     const pw = passwordRef.current || password;
-    await signIn({ email: email.trim(), password: pw });
-    promptSaveBiometric(pw);
+    let res: EmailPasswordSignInResult;
+    try {
+      res = await signInWithEmailPassword({ email: email.trim(), password: pw });
+    } catch (e: unknown) {
+      Alert.alert('Sign-in error', e instanceof Error ? e.message : 'Unknown error');
+      return;
+    }
+    if (!res.ok) {
+      if (res.reason === 'invalid_credential') {
+        Alert.alert(
+          'Sign in failed',
+          'Wrong email or password. Double-check your password, or create an account if you have not signed up yet.'
+        );
+      } else {
+        Alert.alert('Sign in failed', res.message);
+      }
+      return;
+    }
     setStep('credentials');
     setOtpId('');
     setOtpCode('');
@@ -92,7 +80,15 @@ export function SignInScreen() {
   };
 
   const onContinue = async () => {
-    if (!canSubmit) return;
+    if (busy) return;
+    if (!emailOk) {
+      Alert.alert('Check your email', 'Enter a valid email address.');
+      return;
+    }
+    if (!pwOk) {
+      Alert.alert('Check your password', `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`);
+      return;
+    }
     setBusy(true);
     try {
       if (requireLoginEmailOtp() && !isFirebaseConfigured()) {
@@ -112,24 +108,18 @@ export function SignInScreen() {
       }
       await finishEmailSignIn();
     } catch (e: unknown) {
-      if (e instanceof Error && e.message === 'EMAIL_NOT_VERIFIED') {
-        Alert.alert('Verify your email', friendlySignInError(e), [
-          { text: 'OK' },
-          {
-            text: 'Resend email',
-            onPress: () => void resendEmailVerification().catch(() => {}),
-          },
-        ]);
-      } else {
-        Alert.alert('Could not continue', friendlySignInError(e));
-      }
+      Alert.alert('Could not continue', friendlySignInError(e));
     } finally {
       setBusy(false);
     }
   };
 
   const onVerifyOtp = async () => {
-    if (!canVerifyOtp) return;
+    if (busy) return;
+    if (!otpId || otpDigits.length !== 6) {
+      Alert.alert('Enter the code', 'Enter the 6-digit code we emailed you, then try again.');
+      return;
+    }
     setBusy(true);
     try {
       await verifyLoginOtpCode(otpId, otpDigits);
@@ -188,16 +178,6 @@ export function SignInScreen() {
           </Text>
         )}
 
-        {step === 'credentials' && bioSaved ? (
-          <TouchableOpacity
-            style={[styles.bioBtn, busy && styles.bioBtnDisabled]}
-            onPress={onFaceId}
-            disabled={busy}
-          >
-            <Text style={styles.bioBtnText}>Use Face ID or fingerprint</Text>
-          </TouchableOpacity>
-        ) : null}
-
         {step === 'credentials' ? (
           <>
             <TextField
@@ -231,10 +211,22 @@ export function SignInScreen() {
               </Text>
             ) : null}
 
+            {isFirebaseConfigured() ? (
+              <TouchableOpacity
+                onPress={() =>
+                  nav.navigate('ForgotPassword', email.trim() ? { email: email.trim() } : {})
+                }
+                style={styles.forgotLink}
+                disabled={busy}
+              >
+                <Text style={styles.forgotText}>Forgot password?</Text>
+              </TouchableOpacity>
+            ) : null}
+
             <PrimaryButton
               title={busy ? 'PLEASE WAIT' : 'CONTINUE'}
               onPress={() => void onContinue()}
-              disabled={!canSubmit}
+              disabled={busy}
               variant="black"
               style={styles.cta}
             />
@@ -256,7 +248,7 @@ export function SignInScreen() {
             <PrimaryButton
               title={busy ? 'PLEASE WAIT' : 'VERIFY & SIGN IN'}
               onPress={() => void onVerifyOtp()}
-              disabled={!canVerifyOtp}
+              disabled={busy}
               variant="black"
               style={styles.cta}
             />
@@ -273,7 +265,7 @@ export function SignInScreen() {
 
         {Platform.OS === 'ios' ? (
           <TouchableOpacity
-            style={[styles.appleBtn, busy && styles.bioBtnDisabled]}
+            style={[styles.appleBtn, busy && styles.linkDisabled]}
             disabled={busy}
             onPress={() => void onApple()}
           >
@@ -316,17 +308,6 @@ const styles = StyleSheet.create({
     color: colors.coral,
     marginTop: -6,
   },
-  bioBtn: {
-    height: 44,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.cardTint,
-  },
-  bioBtnDisabled: { opacity: 0.5 },
-  bioBtnText: { fontSize: 13, fontWeight: '900', color: colors.text },
   cta: {
     marginTop: 4,
   },
@@ -359,5 +340,15 @@ const styles = StyleSheet.create({
   bottomTextStrong: {
     color: colors.text,
     fontWeight: '800',
+  },
+  forgotLink: {
+    alignSelf: 'flex-end',
+    marginTop: -4,
+    paddingVertical: 4,
+  },
+  forgotText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.moss,
   },
 });

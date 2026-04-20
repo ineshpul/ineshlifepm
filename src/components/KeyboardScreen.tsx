@@ -1,14 +1,5 @@
 import * as React from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  TouchableWithoutFeedback,
-  Keyboard,
-  View,
-  ViewProps,
-} from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View, ViewProps } from 'react-native';
 
 import { colors } from '../theme/colors';
 
@@ -24,15 +15,17 @@ export function KeyboardScreen({ style, contentContainerStyle, children, ...rest
       keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       {...rest}
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-        <ScrollView
-          contentContainerStyle={[styles.content, contentContainerStyle]}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-        >
-          {children}
-        </ScrollView>
-      </TouchableWithoutFeedback>
+      {/*
+        Do not wrap ScrollView in TouchableWithoutFeedback — it often steals taps from buttons
+        (Continue) on Android, especially with the New Architecture.
+      */}
+      <ScrollView
+        contentContainerStyle={[styles.content, contentContainerStyle]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      >
+        {children}
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }

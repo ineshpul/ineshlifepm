@@ -38,6 +38,8 @@ function TabIcon({
 
 export function AppTabs() {
   return (
+    <View style={styles.tabsRoot}>
+      <View style={styles.tabsFill}>
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
@@ -102,10 +104,14 @@ export function AppTabs() {
         }}
       />
     </Tab.Navigator>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  tabsRoot: { flex: 1 },
+  tabsFill: { flex: 1 },
   tabBar: {
     height: 58,
     paddingTop: 6,

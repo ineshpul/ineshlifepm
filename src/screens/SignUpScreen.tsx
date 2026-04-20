@@ -13,7 +13,7 @@ import { isValidEmail, isValidPassword, PASSWORD_MIN_LENGTH } from '../utils/aut
 
 export function SignUpScreen() {
   const nav = useNavigation<any>();
-  const { signUp, signInWithApple, saveBiometricCredentials } = useAuth();
+  const { signUp, signInWithApple } = useAuth();
 
   const [username, setUsername] = React.useState('');
   const [email, setEmail] = React.useState('');
@@ -29,25 +29,20 @@ export function SignUpScreen() {
     setBusy(true);
     try {
       await signUp({ username: username.trim(), email: email.trim(), password });
-      if (Platform.OS !== 'web') {
-        Alert.alert(
-          'Face ID / fingerprint',
-          'Save this sign-in so you can unlock Leap with biometrics next time?',
-          [
-            { text: 'Not now', style: 'cancel' },
-            {
-              text: 'Save',
-              onPress: () =>
-                void saveBiometricCredentials(email.trim(), password).catch(() => {}),
-            },
-          ]
-        );
-      }
+      Alert.alert(
+        'Check your email',
+        'We sent a verification link. You can use the app now; finish verifying when you are ready.'
+      );
     } catch (e: unknown) {
-      Alert.alert('Sign up', friendlySignInError(e));
-      // After verification-required flow we sign out in `signUp()`, so send them to Sign In.
-      if (e instanceof Error && e.message === 'EMAIL_VERIFICATION_REQUIRED') {
-        nav.navigate('SignIn');
+      const code =
+        e && typeof e === 'object' && 'code' in e ? String((e as { code?: string }).code ?? '') : '';
+      if (code === 'auth/email-already-in-use') {
+        Alert.alert('Account exists', 'An account already exists for that email. Sign in instead.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign in', onPress: () => nav.navigate('SignIn') },
+        ]);
+      } else {
+        Alert.alert('Sign up', friendlySignInError(e));
       }
     } finally {
       setBusy(false);

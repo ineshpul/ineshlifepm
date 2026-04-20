@@ -5,11 +5,11 @@
     "scheme": "leapmvp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/brandmark.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/brandmark.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -20,8 +20,7 @@
         "NSMicrophoneUsageDescription": "Leap needs microphone access to record audio with your video.",
         "NSPhotoLibraryUsageDescription": "Leap needs photo library access so you can attach a video to your challenge.",
         "NSPhotoLibraryAddUsageDescription": "Leap can save your completed takes to your photo library when you enable Save to camera roll.",
-        "NSUserNotificationsUsageDescription": "Leap uses notifications to remind you when todayâ€™s challenge is live and before time runs out.",
-        "NSFaceIDUsageDescription": "Leap uses Face ID to protect your saved sign-in."
+        "NSUserNotificationsUsageDescription": "Leap uses notifications to remind you when todayâ€™s challenge is live and before time runs out."
       }
     },
     "android": {
@@ -34,14 +33,14 @@
         "android.permission.POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/brandmark.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/brandmark.png"
     },
     "plugins": [
       [
@@ -49,12 +48,6 @@
         {
           "sounds": [],
           "enableBackgroundRemoteNotifications": true
-        }
-      ],
-      [
-        "expo-secure-store",
-        {
-          "faceIDPermission": "Leap uses Face ID to protect your saved sign-in."
         }
       ],
       "expo-apple-authentication",
