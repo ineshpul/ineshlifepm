@@ -6,3 +6,5 @@ export const TYPING = 'typing';
 export const USER_PRESENCE = 'userPresence';
 export const USER_BLOCKS = 'userBlocks';
 export const MESSAGE_REPORTS = 'messageReports';
+/** Per-user chat list rows (classic inbox); doc id = conversation id. */
+export const CHAT_CONVERSATIONS_INBOX = 'chatConversations';

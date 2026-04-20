@@ -336,6 +336,44 @@ service cloud.firestore {
         allow create, delete: if isOwner(userId) && userId != blockedUid;
         allow update: if false;
       }
+
+      // Chat inbox mirror (doc id = conversation id). Any conversation member may upsert rows for members
+      // so send/receive stays in sync; only the owner may read their list.
+      match /chatConversations/{convId} {
+        function inboxMirrorKeys() {
+          return request.resource.data.keys().hasOnly([
+            'conversationId',
+            'memberUid',
+            'convTitle',
+            'convAvatarUrl',
+            'convType',
+            'displayNameSnap',
+            'role',
+            'joinedAt',
+            'muted',
+            'archived',
+            'pinned',
+            'unreadCount',
+            'lastReadMessageId',
+            'lastReadAt',
+            'lastActivityAt',
+            'lastMessagePreview',
+            'chatNotificationsEnabled',
+          ]);
+        }
+
+        allow read: if isOwner(userId);
+
+        allow create, update: if signedIn()
+          && exists(/databases/$(database)/documents/conversations/$(convId))
+          && request.auth.uid in convDoc(convId).memberIds
+          && userId in convDoc(convId).memberIds
+          && request.resource.data.conversationId == convId
+          && request.resource.data.memberUid == userId
+          && inboxMirrorKeys();
+
+        allow delete: if false;
+      }
     }
 
     // Server-only (Cloud Functions admin SDK). Holds short-lived email sign-in OTPs + rate limits.

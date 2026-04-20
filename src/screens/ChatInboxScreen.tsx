@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -35,7 +36,7 @@ function formatTime(ts: { toMillis?: () => number } | null | undefined) {
 
 export function ChatInboxScreen({ navigation }: Props) {
   const { user } = useAuth();
-  const { rows, loading, error, totalUnread } = useConversations(user?.uid);
+  const { rows, loading, totalUnread } = useConversations(user?.uid);
   useChatNotifications();
 
   React.useLayoutEffect(() => {
@@ -63,13 +64,6 @@ export function ChatInboxScreen({ navigation }: Props) {
 
   return (
     <Screen style={styles.screen}>
-      {error ? (
-        <View style={styles.errorBanner}>
-          <Text style={styles.errorText}>
-            Chats are loading… (index still building). Pull to refresh in a minute.
-          </Text>
-        </View>
-      ) : null}
       {totalUnread > 0 ? (
         <View style={styles.unreadBanner}>
           <Text style={styles.unreadBannerText}>
@@ -99,8 +93,10 @@ export function ChatInboxScreen({ navigation }: Props) {
           refreshControl={<RefreshControl refreshing={loading} onRefresh={() => {}} />}
           contentContainerStyle={{ paddingBottom: 24 }}
           renderItem={({ item }) => {
-            const title = item.member.convTitle || 'Chat';
+            const title =
+              (item.member.convTitle || item.member.displayNameSnap || 'Chat').trim() || 'Chat';
             const muted = item.member.muted;
+            const avatarUri = (item.member.convAvatarUrl ?? '').trim();
             return (
               <TouchableOpacity
                 style={styles.row}
@@ -112,7 +108,11 @@ export function ChatInboxScreen({ navigation }: Props) {
                 }
               >
                 <View style={styles.avatar}>
-                  <Ionicons name="chatbubbles-outline" size={22} color={colors.moss} />
+                  {avatarUri ? (
+                    <Image source={{ uri: avatarUri }} style={styles.avatarImg} contentFit="cover" />
+                  ) : (
+                    <Text style={styles.avatarInitial}>{title.slice(0, 1).toUpperCase()}</Text>
+                  )}
                 </View>
                 <View style={styles.rowBody}>
                   <View style={styles.rowTop}>
@@ -143,21 +143,11 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   offline: { padding: 24, textAlign: 'center', color: colors.muted, fontWeight: '600' },
-  empty: { flex: 1, paddingHorizontal: 28, paddingTop: 18, gap: 14, justifyContent: 'center' },
+  empty: { flex: 1, paddingHorizontal: 28, paddingTop: 18, gap: 14 },
   emptyTitle: { fontSize: 24, fontWeight: '900', color: colors.text },
   emptySub: { fontSize: 15, lineHeight: 22, color: colors.muted, fontWeight: '600' },
   newGroup: { alignSelf: 'flex-start', paddingVertical: 8 },
   newGroupText: { fontSize: 15, fontWeight: '800', color: colors.moss },
-  errorBanner: {
-    marginHorizontal: 16,
-    marginTop: 10,
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.cardTint,
-  },
-  errorText: { fontSize: 12, fontWeight: '700', color: colors.muted, lineHeight: 16 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -176,7 +166,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: 'hidden',
   },
+  avatarImg: { width: 48, height: 48 },
+  avatarInitial: { fontSize: 18, fontWeight: '900', color: colors.moss },
   rowBody: { flex: 1, minWidth: 0 },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
   title: { flex: 1, fontSize: 16, fontWeight: '800', color: colors.text },

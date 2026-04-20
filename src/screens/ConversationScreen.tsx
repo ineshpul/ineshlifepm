@@ -37,6 +37,7 @@ import { CHAT_REACTION_EMOJIS } from '../chat/constants';
 import {
   addReaction,
   editMessage,
+  ensureMyInboxRow,
   reportMessage,
   setTyping,
   softDeleteForSelf,
@@ -71,7 +72,7 @@ export function ConversationScreen({ navigation, route }: Props) {
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { conversation, members } = useConversation(conversationId, user?.uid);
+  const { conversation, members, myMember } = useConversation(conversationId, user?.uid);
   const { messages, loading, loadOlder, hasMore, loadingOlder, send, markRead } = useMessages(
     conversationId,
     user?.uid
@@ -98,7 +99,14 @@ export function ConversationScreen({ navigation, route }: Props) {
   }, [conversationId]);
 
   React.useLayoutEffect(() => {
-    const title = conversation?.name || threadTitle || 'Chat';
+    // `conversation.name` is often stale or defaulted to "Chat" on older DM docs; `myMember.convTitle`
+    // is the per-user denormalized thread label (peer name for DMs). Prefer those over the conv doc.
+    const title =
+      (myMember?.convTitle?.trim() ||
+        threadTitle?.trim() ||
+        conversation?.name?.trim() ||
+        'Chat') ||
+      'Chat';
     navigation.setOptions({
       title,
       headerRight: () =>
@@ -108,13 +116,19 @@ export function ConversationScreen({ navigation, route }: Props) {
           </TouchableOpacity>
         ) : null,
     });
-  }, [navigation, conversation?.name, conversation?.type, threadTitle, conversationId]);
+  }, [navigation, conversation?.name, conversation?.type, threadTitle, conversationId, myMember?.convTitle]);
 
   useFocusEffect(
     React.useCallback(() => {
       void markRead();
     }, [markRead])
   );
+
+  React.useEffect(() => {
+    if (!user?.uid || !myMember) return;
+    void ensureMyInboxRow({ myUid: user.uid, conversationId });
+    // Intentionally not depending on `myMember` object identity (updates often); re-run when conv or user changes.
+  }, [conversationId, user?.uid, myMember != null]);
 
   React.useEffect(() => {
     if (!pendingShare || pendingShareHandled.current || !user?.uid) return;

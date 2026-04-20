@@ -2,7 +2,6 @@ import {
   addDoc,
   arrayUnion,
   collection,
-  collectionGroup,
   doc,
   getDoc,
   getDocs,
@@ -54,6 +53,38 @@ function convRef(id: string) {
 
 function membersCol(convId: string) {
   return collection(firestore(), P.CONVERSATIONS, convId, P.CONVERSATION_MEMBERS);
+}
+
+function inboxDoc(ownerUid: string, convId: string) {
+  return doc(firestore(), 'users', ownerUid, P.CHAT_CONVERSATIONS_INBOX, convId);
+}
+
+/** Fields mirrored to `users/{uid}/chatConversations/{convId}` for a reliable inbox query. */
+function inboxMirrorBootstrap(args: {
+  conversationId: string;
+  memberUid: string;
+  convTitle: string;
+  convAvatarUrl?: string | null;
+  convType: ConversationType;
+  role: 'owner' | 'member';
+  now: ReturnType<typeof serverTimestamp>;
+}): Record<string, unknown> {
+  return {
+    conversationId: args.conversationId,
+    memberUid: args.memberUid,
+    convTitle: args.convTitle,
+    convAvatarUrl: args.convAvatarUrl ?? null,
+    convType: args.convType,
+    role: args.role,
+    joinedAt: args.now,
+    muted: false,
+    archived: false,
+    pinned: false,
+    unreadCount: 0,
+    lastActivityAt: args.now,
+    lastMessagePreview: '',
+    chatNotificationsEnabled: true,
+  };
 }
 
 function messagesCol(convId: string) {
@@ -187,12 +218,13 @@ export async function createConversation(args: {
   });
   const batch = writeBatch(firestore());
   for (const uid of uniq) {
+    const role = uid === args.createdBy ? 'owner' : 'member';
     batch.set(doc(membersCol(id), uid), {
       memberUid: uid,
       convTitle: args.name,
       convAvatarUrl: args.avatarUrl ?? null,
       convType: args.type,
-      role: uid === args.createdBy ? 'owner' : 'member',
+      role,
       joinedAt: now,
       muted: false,
       archived: false,
@@ -202,6 +234,19 @@ export async function createConversation(args: {
       lastMessagePreview: '',
       chatNotificationsEnabled: true,
     });
+    batch.set(
+      inboxDoc(uid, id),
+      inboxMirrorBootstrap({
+        conversationId: id,
+        memberUid: uid,
+        convTitle: args.name,
+        convAvatarUrl: args.avatarUrl ?? null,
+        convType: args.type,
+        role,
+        now,
+      }),
+      { merge: true }
+    );
   }
   await batch.commit();
   return id;
@@ -238,13 +283,21 @@ export async function getOrCreateDm(args: {
   if (snap.exists()) return id;
   // Only check blocks we can read (our own). If they blocked us, rules will reject the conversation create.
   if (await userBlocks(args.currentUid, args.otherUid)) throw new Error('You cannot message this user.');
+  const [meDoc, themDoc] = await Promise.all([
+    getDoc(doc(firestore(), 'users', args.currentUid)),
+    getDoc(doc(firestore(), 'users', args.otherUid)),
+  ]);
+  const currentName = String(meDoc.data()?.username ?? 'Member').trim() || 'Member';
+  const currentPhoto = meDoc.data()?.photoUrl ? String(meDoc.data()!.photoUrl) : null;
+  const otherName = String(themDoc.data()?.username ?? args.otherDisplayName ?? 'Chat').trim() || 'Chat';
+  const otherPhoto = themDoc.data()?.photoUrl ? String(themDoc.data()!.photoUrl) : null;
   // Create the conversation with deterministic id.
   const uniq = Array.from(new Set([args.currentUid, args.otherUid]));
   const now = serverTimestamp();
   await setDoc(cref, {
     type: 'dm',
-    name: args.otherDisplayName,
-    avatarUrl: null,
+    name: otherName,
+    avatarUrl: otherPhoto,
     createdBy: args.currentUid,
     createdAt: now,
     updatedAt: now,
@@ -257,14 +310,17 @@ export async function getOrCreateDm(args: {
   // Best-effort bootstrap member rows (rules allow creator; each member can also create their own now).
   const batch = writeBatch(firestore());
   for (const uid of uniq) {
+    const role = uid === args.currentUid ? 'owner' : 'member';
+    const peerTitle = uid === args.currentUid ? otherName : currentName;
+    const peerPhoto = uid === args.currentUid ? otherPhoto : currentPhoto;
     batch.set(
       doc(membersCol(id), uid),
       {
         memberUid: uid,
-        convTitle: args.otherDisplayName,
-        convAvatarUrl: null,
+        convTitle: peerTitle,
+        convAvatarUrl: peerPhoto,
         convType: 'dm',
-        role: uid === args.currentUid ? 'owner' : 'member',
+        role,
         joinedAt: now,
         muted: false,
         archived: false,
@@ -274,6 +330,19 @@ export async function getOrCreateDm(args: {
         lastMessagePreview: '',
         chatNotificationsEnabled: true,
       },
+      { merge: true }
+    );
+    batch.set(
+      inboxDoc(uid, id),
+      inboxMirrorBootstrap({
+        conversationId: id,
+        memberUid: uid,
+        convTitle: peerTitle,
+        convAvatarUrl: peerPhoto,
+        convType: 'dm',
+        role,
+        now,
+      }),
       { merge: true }
     );
   }
@@ -291,22 +360,82 @@ export function subscribeMyInboxRows(
   onRows: (rows: InboxMemberSnapshot[]) => void,
   onError?: (e: Error) => void
 ): Unsubscribe {
-  const q = query(
-    collectionGroup(firestore(), P.CONVERSATION_MEMBERS),
-    where('memberUid', '==', myUid),
-    orderBy('lastActivityAt', 'desc'),
-    limit(80)
-  );
+  // Per-user mirror under `users/{uid}/chatConversations` — avoids collectionGroup + nested
+  // `conversationMembers` rules that often yield an empty inbox in client SDKs.
+  const q = query(collection(firestore(), 'users', myUid, P.CHAT_CONVERSATIONS_INBOX), limit(200));
   return onSnapshot(
     q,
     (snap) => {
-      const rows: InboxMemberSnapshot[] = snap.docs.map((d) => ({
-        conversationId: d.ref.parent.parent?.id ?? '',
-        member: mapMemberDoc(d.id, d.data() as Record<string, unknown>),
-      }));
+      const rows: InboxMemberSnapshot[] = snap.docs
+        .map((d) => ({
+          conversationId: d.id,
+          member: mapMemberDoc(myUid, d.data() as Record<string, unknown>),
+        }))
+        .filter((r) => Boolean(r.conversationId))
+        .sort((a, b) => {
+          const am = a.member.lastActivityAt?.toMillis?.() ?? 0;
+          const bm = b.member.lastActivityAt?.toMillis?.() ?? 0;
+          return bm - am;
+        })
+        .slice(0, 80);
       onRows(rows);
     },
     (e) => onError?.(e as Error)
+  );
+}
+
+/** Backfills `users/{myUid}/chatConversations/{conversationId}` from the canonical member row (legacy installs). */
+export async function ensureMyInboxRow(args: { myUid: string; conversationId: string }): Promise<void> {
+  const csnap = await getDoc(convRef(args.conversationId));
+  if (!csnap.exists()) return;
+  const conv = mapConversationDoc(csnap.id, csnap.data() as Record<string, unknown>);
+  const mref = doc(membersCol(args.conversationId), args.myUid);
+  const msnap = await getDoc(mref);
+  if (!msnap.exists()) return;
+  const member = mapMemberDoc(msnap.id, msnap.data() as Record<string, unknown>);
+
+  let resolvedTitle = member.convTitle?.trim() || conv.name || 'Chat';
+  let resolvedAvatar: string | null | undefined = member.convAvatarUrl ?? conv.avatarUrl ?? null;
+
+  if (conv.type === 'dm' && conv.memberIds.length === 2) {
+    const peerUid = conv.memberIds.find((id) => id !== args.myUid);
+    if (peerUid) {
+      const peerSnap = await getDoc(doc(firestore(), 'users', peerUid));
+      const peerName = String(peerSnap.data()?.username ?? conv.name ?? resolvedTitle).trim();
+      if (peerName) resolvedTitle = peerName;
+      const p = peerSnap.data()?.photoUrl;
+      resolvedAvatar = p ? String(p) : resolvedAvatar ?? null;
+    }
+  }
+
+  const prevAv = member.convAvatarUrl ?? null;
+  const nextAv = resolvedAvatar ?? null;
+  if (conv.type === 'dm' && (member.convTitle !== resolvedTitle || prevAv !== nextAv)) {
+    await updateDoc(mref, { convTitle: resolvedTitle, convAvatarUrl: nextAv });
+  }
+
+  await setDoc(
+    inboxDoc(args.myUid, args.conversationId),
+    {
+      conversationId: args.conversationId,
+      memberUid: args.myUid,
+      convTitle: resolvedTitle,
+      convAvatarUrl: resolvedAvatar ?? null,
+      convType: member.convType,
+      displayNameSnap: member.displayNameSnap,
+      role: member.role,
+      joinedAt: member.joinedAt,
+      muted: member.muted,
+      archived: member.archived,
+      pinned: member.pinned,
+      unreadCount: member.unreadCount,
+      lastReadMessageId: member.lastReadMessageId ?? null,
+      lastReadAt: member.lastReadAt ?? null,
+      lastActivityAt: member.lastActivityAt,
+      lastMessagePreview: member.lastMessagePreview ?? '',
+      chatNotificationsEnabled: member.chatNotificationsEnabled,
+    },
+    { merge: true }
   );
 }
 
@@ -436,13 +565,30 @@ export async function sendChatMessage(args: {
     if (!memberIds.includes(args.senderId)) throw new Error('Not a member.');
 
     /** Firestore requires every `tx.get` before any `tx.set` / `tx.update`. */
-    const memberUnread: { uid: string; curUnread: number }[] = [];
+    const convName = String(cdata.name ?? 'Chat');
+    const convAvatar = (cdata.avatarUrl as string | null | undefined) ?? null;
+    const convType = (cdata.type as ConversationType) ?? 'group';
+    const memberUnread: {
+      uid: string;
+      curUnread: number;
+      convTitle: string;
+      convAvatarUrl: string | null;
+      convType: ConversationType;
+    }[] = [];
     for (const uid of memberIds) {
       const mdoc = doc(membersCol(args.conversationId), uid);
       const msnap = await tx.get(mdoc);
+      const md = msnap.data() as Record<string, unknown> | undefined;
+      const rawTitle = md?.convTitle != null ? String(md.convTitle).trim() : '';
+      const cav = md?.convAvatarUrl;
+      const rowAvatar: string | null =
+        cav === undefined ? convAvatar : cav === null ? null : String(cav);
       memberUnread.push({
         uid,
-        curUnread: Number(msnap.data()?.unreadCount ?? 0),
+        curUnread: Number(md?.unreadCount ?? 0),
+        convTitle: rawTitle || convName,
+        convAvatarUrl: rowAvatar,
+        convType: (md?.convType as ConversationType) || convType,
       });
     }
 
@@ -479,12 +625,26 @@ export async function sendChatMessage(args: {
       },
     });
 
-    for (const { uid, curUnread } of memberUnread) {
+    for (const { uid, curUnread, convTitle, convAvatarUrl, convType: rowConvType } of memberUnread) {
       const mdoc = doc(membersCol(args.conversationId), uid);
       const nextUnread = uid === args.senderId ? 0 : curUnread + 1;
       tx.set(
         mdoc,
         {
+          lastActivityAt: now,
+          lastMessagePreview: preview,
+          unreadCount: nextUnread,
+        },
+        { merge: true }
+      );
+      tx.set(
+        inboxDoc(uid, args.conversationId),
+        {
+          conversationId: args.conversationId,
+          memberUid: uid,
+          convTitle,
+          convAvatarUrl,
+          convType: rowConvType,
           lastActivityAt: now,
           lastMessagePreview: preview,
           unreadCount: nextUnread,
@@ -498,11 +658,23 @@ export async function sendChatMessage(args: {
 
 export async function markConversationRead(conversationId: string, uid: string, lastMessageId: string) {
   const mref = doc(membersCol(conversationId), uid);
+  const readAt = serverTimestamp();
   await updateDoc(mref, {
     unreadCount: 0,
     lastReadMessageId: lastMessageId,
-    lastReadAt: serverTimestamp(),
+    lastReadAt: readAt,
   });
+  await setDoc(
+    inboxDoc(uid, conversationId),
+    {
+      conversationId,
+      memberUid: uid,
+      unreadCount: 0,
+      lastReadMessageId: lastMessageId,
+      lastReadAt: readAt,
+    },
+    { merge: true }
+  );
 }
 
 export async function patchMemberRow(
@@ -511,6 +683,11 @@ export async function patchMemberRow(
   patch: Partial<Pick<ConversationMemberRow, 'muted' | 'archived' | 'pinned' | 'chatNotificationsEnabled'>>
 ) {
   await updateDoc(doc(membersCol(conversationId), uid), patch as Record<string, unknown>);
+  await setDoc(
+    inboxDoc(uid, conversationId),
+    { conversationId, memberUid: uid, ...(patch as Record<string, unknown>) },
+    { merge: true }
+  );
 }
 
 export async function editMessage(conversationId: string, messageId: string, uid: string, nextText: string) {
