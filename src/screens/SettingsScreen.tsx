@@ -17,7 +17,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { deleteUser } from 'firebase/auth';
-import { doc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -28,13 +28,13 @@ import {
   useSettingsPreferences,
   type FeedType,
   type CommentAudience,
-  type MessageAudience,
 } from '../state/settingsPreferences';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { LEAP_SUPPORT_EMAIL } from '../constants/support';
 import type { LegalDocId } from '../content/settingsLegal';
 import { showError, showInfo } from '../utils/ui';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
+import { saveUserPublicProfile } from '../services/userProfile';
 
 function SectionHeader({ title }: { title: string }) {
   return (
@@ -151,6 +151,7 @@ export function SettingsScreen() {
   >(null);
 
   const [profileBioFs, setProfileBioFs] = React.useState('');
+  const [serverPhotoUrl, setServerPhotoUrl] = React.useState('');
   const [providers, setProviders] = React.useState<string[]>([]);
 
   React.useEffect(() => {
@@ -163,8 +164,10 @@ export function SettingsScreen() {
     if (!isFirebaseConfigured() || !user?.uid) return;
     const ref = doc(firestore(), 'users', user.uid);
     return onSnapshot(ref, (snap) => {
-      const bio = snap.exists() ? String((snap.data() as any)?.bio ?? '') : '';
+      const d = snap.exists() ? (snap.data() as any) : null;
+      const bio = d ? String(d.bio ?? '') : '';
       setProfileBioFs(bio);
+      setServerPhotoUrl(d?.photoUrl ? String(d.photoUrl) : '');
     });
   }, [user?.uid]);
 
@@ -174,18 +177,24 @@ export function SettingsScreen() {
       return;
     }
     try {
-      await updateDoc(doc(firestore(), 'users', user.uid), {
-        bio: (preferences.profileBio || profileBioFs).trim(),
-        displayName: (preferences.profileDisplayName || user.username).trim(),
-        updatedAt: serverTimestamp(),
+      const username = (
+        preferences.profileUsername ||
+        preferences.profileDisplayName ||
+        user.username
+      ).trim();
+      const bio = (preferences.profileBio ?? profileBioFs).trim();
+      const uri = preferences.profilePhotoUri?.trim() ?? '';
+      const newPhotoLocal =
+        uri && (uri.startsWith('file:') || uri.startsWith('content:') || uri.startsWith('ph://'))
+          ? uri
+          : undefined;
+      const { photoUrl } = await saveUserPublicProfile({
+        uid: user.uid,
+        username,
+        bio,
+        newPhotoLocalUri: newPhotoLocal,
       });
-      const cur = firebaseAuth().currentUser;
-      if (cur) {
-        const { updateProfile } = await import('firebase/auth');
-        await updateProfile(cur, {
-          displayName: (preferences.profileDisplayName || user.username).trim(),
-        });
-      }
+      if (photoUrl) patch({ profilePhotoUri: photoUrl });
       showInfo('Saved', 'Your profile was updated.');
     } catch (e) {
       showError('Could not save profile', e);
@@ -302,8 +311,11 @@ export function SettingsScreen() {
         <Card>
           <TouchableOpacity style={styles.photoRow} onPress={pickPhoto}>
             <View style={styles.avatarRing}>
-              {preferences.profilePhotoUri ? (
-                <Image source={{ uri: preferences.profilePhotoUri }} style={styles.avatarImg} />
+              {preferences.profilePhotoUri || serverPhotoUrl ? (
+                <Image
+                  source={{ uri: preferences.profilePhotoUri || serverPhotoUrl }}
+                  style={styles.avatarImg}
+                />
               ) : (
                 <Ionicons name="person" size={36} color={colors.muted} />
               )}
@@ -430,14 +442,7 @@ export function SettingsScreen() {
           <Separator />
           <RowChevron
             label="Who can message"
-            value={
-              preferences.whoCanMessage === 'everyone'
-                ? 'Everyone'
-                : preferences.whoCanMessage === 'friends'
-                  ? 'Friends'
-                  : 'No one'
-            }
-            onPress={() => setPicker('message')}
+            value="Everyone"
           />
           <Separator />
           <RowToggle
@@ -565,18 +570,6 @@ export function SettingsScreen() {
           { key: 'friends', label: 'Friends' },
         ]}
         onSelect={(k) => patch({ whoCanComment: k })}
-        onClose={() => setPicker(null)}
-      />
-      <PickerModal<MessageAudience>
-        visible={picker === 'message'}
-        title="Who can message"
-        selected={preferences.whoCanMessage}
-        options={[
-          { key: 'everyone', label: 'Everyone' },
-          { key: 'friends', label: 'Friends' },
-          { key: 'none', label: 'No one' },
-        ]}
-        onSelect={(k) => patch({ whoCanMessage: k })}
         onClose={() => setPicker(null)}
       />
     </Screen>

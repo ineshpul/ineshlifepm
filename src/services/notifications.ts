@@ -56,6 +56,7 @@ let syncInFlight: Promise<void> | null = null;
 export async function syncLeapScheduledNotifications(opts: {
   masterEnabled: boolean;
   streakReminders: boolean;
+  hasPostedToday?: boolean;
 }) {
   if (syncInFlight) {
     await syncInFlight;
@@ -70,6 +71,9 @@ export async function syncLeapScheduledNotifications(opts: {
     if (!opts.masterEnabled || !opts.streakReminders) {
       return;
     }
+    // If you already posted today, do not schedule “still time to post” reminders.
+    // We'll resync automatically when a new day starts / posting state changes.
+    if (opts.hasPostedToday) return;
 
     let perms = await Notifications.getPermissionsAsync();
     if (!isGranted(perms)) {
@@ -116,5 +120,5 @@ export async function syncLeapScheduledNotifications(opts: {
 
 /** First app install / legacy: enable reminders with defaults. */
 export async function setupLeapNotifications() {
-  await syncLeapScheduledNotifications({ masterEnabled: true, streakReminders: true });
+  await syncLeapScheduledNotifications({ masterEnabled: true, streakReminders: true, hasPostedToday: false });
 }

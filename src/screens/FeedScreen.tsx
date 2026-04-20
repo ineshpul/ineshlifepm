@@ -13,7 +13,7 @@ import {
   useWindowDimensions,
   type ViewToken,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio, Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
@@ -26,6 +26,7 @@ import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
 import { deleteOwnedVideo } from '../services/deleteVideo';
+import { recordVideoView } from '../services/recordVideoView';
 import { useAppState } from '../state/appState';
 import { normalizeTaskDurationSeconds, useChallengeWindow } from '../state/challenge';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
@@ -95,6 +96,10 @@ function FeedPostVideo(props: {
   reel?: boolean;
   /** When autoplay is off: tap the inactive reel to start this clip. */
   onReelActivate?: () => void;
+  /** Firestore `videos/{id}` — used for coarse view analytics (callable, throttled). */
+  analyticsVideoId?: string;
+  videoOwnerUid?: string;
+  viewerUid?: string;
 }) {
   const {
     url,
@@ -106,6 +111,9 @@ function FeedPostVideo(props: {
     dataSaver,
     reel = false,
     onReelActivate,
+    analyticsVideoId,
+    videoOwnerUid,
+    viewerUid,
   } = props;
   const videoRef = React.useRef<Video>(null);
   const [status, setStatus] = React.useState<AVPlaybackStatus | null>(null);
@@ -113,6 +121,12 @@ function FeedPostVideo(props: {
   const [userPaused, setUserPaused] = React.useState(false);
   const [pauseFlash, setPauseFlash] = React.useState(false);
   const pauseFlashTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const viewTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const viewRecordedKeyRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    viewRecordedKeyRef.current = null;
+  }, [analyticsVideoId]);
 
   React.useEffect(() => {
     if (!shouldPlay) setUserPaused(false);
@@ -121,11 +135,33 @@ function FeedPostVideo(props: {
   React.useEffect(
     () => () => {
       if (pauseFlashTimerRef.current) clearTimeout(pauseFlashTimerRef.current);
+      if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
     },
     []
   );
 
   const effectivePlay = shouldPlay && !userPaused;
+
+  React.useEffect(() => {
+    if (viewTimerRef.current) {
+      clearTimeout(viewTimerRef.current);
+      viewTimerRef.current = null;
+    }
+    if (!effectivePlay || !analyticsVideoId || !viewerUid || !videoOwnerUid || viewerUid === videoOwnerUid) {
+      return;
+    }
+    const key = `${analyticsVideoId}:${viewerUid}`;
+    if (viewRecordedKeyRef.current === key) return;
+    viewTimerRef.current = setTimeout(() => {
+      viewTimerRef.current = null;
+      viewRecordedKeyRef.current = key;
+      void recordVideoView(analyticsVideoId);
+    }, 2500);
+    return () => {
+      if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
+      viewTimerRef.current = null;
+    };
+  }, [effectivePlay, analyticsVideoId, viewerUid, videoOwnerUid]);
 
   React.useEffect(() => {
     const player = videoRef.current;
@@ -242,6 +278,7 @@ function FeedPostVideo(props: {
 }
 
 export function FeedScreen() {
+  const isFocused = useIsFocused();
   const nav = useNavigation<any>();
   const { preferences } = useSettingsPreferences();
   const { hasPostedToday, previewViewsRemaining, markPreviewView, clearPostedOverride } = useAppState();
@@ -614,12 +651,15 @@ export function FeedScreen() {
                 <FeedPostVideo
                   reel
                   url={item.url}
-                  shouldPlay={activeVideoId === item.id}
+                  shouldPlay={isFocused && activeVideoId === item.id}
                   isMuted={false}
                   useNativeControls={hasPostedToday}
                   maxDurationSeconds={item.maxDurationSeconds}
                   showPreviewBadge={!hasPostedToday}
                   dataSaver={preferences.dataSaver}
+                  analyticsVideoId={item.id}
+                  videoOwnerUid={item.ownerUid}
+                  viewerUid={user?.uid}
                 />
               </View>
 
@@ -629,7 +669,16 @@ export function FeedScreen() {
                     <Text style={styles.reelAvatarText}>{item.username[0]?.toUpperCase()}</Text>
                   </View>
                   <View style={styles.reelTextCol}>
-                    <Text style={styles.reelUser}>@{item.username}</Text>
+                    <TouchableOpacity
+                      onPress={() =>
+                        nav.navigate('UserProfile', { uid: item.ownerUid, username: item.username })
+                      }
+                      activeOpacity={0.75}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open @${item.username} profile`}
+                    >
+                      <Text style={styles.reelUser}>@{item.username}</Text>
+                    </TouchableOpacity>
                     <Text style={styles.reelPrompt} numberOfLines={2}>
                       {item.prompt}
                     </Text>

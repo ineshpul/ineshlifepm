@@ -44,9 +44,14 @@ export function TodayScreen() {
         </View>
         <View style={styles.headerRight}>
           {user?.isAdmin && (
-            <TouchableOpacity onPress={() => nav.navigate('ChallengeAdmin')} style={styles.adminBtn}>
-              <Text style={styles.adminBtnText}>SET</Text>
-            </TouchableOpacity>
+            <View style={styles.adminBtns}>
+              <TouchableOpacity onPress={() => nav.navigate('ChallengeAdmin')} style={styles.adminBtn}>
+                <Text style={styles.adminBtnText}>SET</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => nav.navigate('AdminVideoModeration')} style={styles.adminBtn}>
+                <Text style={styles.adminBtnText}>MOD</Text>
+              </TouchableOpacity>
+            </View>
           )}
           <View style={styles.pill}>
             <View style={styles.redDot} />
@@ -114,6 +119,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  adminBtns: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   adminBtn: {
     height: 34,
     paddingHorizontal: 12,

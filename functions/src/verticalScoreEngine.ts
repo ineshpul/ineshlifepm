@@ -58,6 +58,46 @@ function rawEngagementUnits(p: PostMetricsSnapshot): number {
   );
 }
 
+export function marginalVerticalGainToDisplayInches(gainPoints: number): number {
+  const g = Math.max(0, gainPoints);
+  return Math.max(0, Math.min(48, Math.round(g * 0.45 + 2)));
+}
+
+export function computeBestPostVerticalMarginal(
+  posts: PostMetricsSnapshot[],
+  nowMs: number
+): { postId: string | null; gainPoints: number; displayInches: number } {
+  const activeCandidates = posts.filter((p) => {
+    if (p.deleted) return false;
+    const ageDays = (nowMs - p.createdAtMs) / MS_PER_DAY;
+    return ageDays >= 0 && ageDays <= SCORE_WINDOW_DAYS;
+  });
+  if (activeCandidates.length === 0) {
+    return { postId: null, gainPoints: 0, displayInches: 0 };
+  }
+
+  const fullScore = computeVerticalScoreFromPosts(posts, nowMs).verticalScore;
+  let bestId: string | null = null;
+  let bestGain = 0;
+
+  for (const p of activeCandidates) {
+    const without = posts.filter((x) => x.postId !== p.postId);
+    const withoutScore = computeVerticalScoreFromPosts(without, nowMs).verticalScore;
+    const gain = fullScore - withoutScore;
+    if (gain > bestGain) {
+      bestGain = gain;
+      bestId = p.postId;
+    }
+  }
+
+  const gainPoints = Math.max(0, Math.round(bestGain));
+  return {
+    postId: bestId,
+    gainPoints,
+    displayInches: marginalVerticalGainToDisplayInches(bestGain),
+  };
+}
+
 export function computeVerticalScoreFromPosts(
   posts: PostMetricsSnapshot[],
   nowMs: number

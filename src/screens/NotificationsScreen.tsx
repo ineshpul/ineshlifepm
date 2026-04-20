@@ -1,17 +1,20 @@
 import * as React from 'react';
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { Screen } from '../components/Screen';
 import { colors } from '../theme/colors';
 import { useAuth } from '../state/auth';
 import { markNotificationRead, subscribeNotifications, type InAppNotification } from '../services/social';
 
 function bodyFor(n: InAppNotification) {
+  if (n.type === 'admin_alert') return n.snippet ? String(n.snippet) : 'Admin alert';
   if (n.type === 'like') return 'liked your leap';
   if (n.type === 'follow') return 'started following you';
   return n.snippet ? `commented: ${n.snippet}` : 'commented on your leap';
 }
 
 export function NotificationsScreen() {
+  const nav = useNavigation<any>();
   const { user } = useAuth();
   const [items, setItems] = React.useState<InAppNotification[]>([]);
 
@@ -45,9 +48,27 @@ export function NotificationsScreen() {
           >
             <View style={styles.dotWrap}>{!item.read ? <View style={styles.dot} /> : null}</View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.line}>
-                <Text style={styles.name}>@{item.fromUsername}</Text> {bodyFor(item)}
-              </Text>
+              {item.type === 'admin_alert' ? (
+                <Text style={styles.line}>
+                  <Text style={styles.name}>Leap</Text> · {bodyFor(item)}
+                </Text>
+              ) : (
+                <Text style={styles.line}>
+                  <Text
+                    style={styles.name}
+                    onPress={() =>
+                      nav.navigate('UserProfile', {
+                        uid: item.fromUid,
+                        username: item.fromUsername,
+                      })
+                    }
+                    suppressHighlighting
+                  >
+                    @{item.fromUsername}
+                  </Text>{' '}
+                  {bodyFor(item)}
+                </Text>
+              )}
             </View>
           </TouchableOpacity>
         )}

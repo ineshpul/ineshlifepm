@@ -3,7 +3,7 @@ import { doc, onSnapshot, runTransaction, serverTimestamp, setDoc } from 'fireba
 
 import { firestore } from '../firebase/firebase';
 
-const MAX_TRIES = 1;
+const MAX_TRIES = 3;
 
 export type PostedVideoPayload = {
   uid: string;
@@ -35,6 +35,8 @@ export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
       ...payload,
       createdAt: serverTimestamp(),
       viewCount: 0,
+      likesCount: 0,
+      commentsCount: 0,
       shareCount: 0,
       saveCount: 0,
       reportCount: 0,

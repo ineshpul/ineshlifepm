@@ -22,7 +22,8 @@ service cloud.firestore {
       return signedIn()
         && exists(/databases/$(database)/documents/videos/$(videoId))
         && (
-          videoDoc(videoId).moderationStatus == 'approved'
+          isAdmin()
+          || videoDoc(videoId).moderationStatus == 'approved'
           || videoDoc(videoId).uid == request.auth.uid
         );
     }
@@ -42,21 +43,10 @@ service cloud.firestore {
       return exists(/databases/$(database)/documents/users/$(a)/following/$(b));
     }
 
-    function mutualFollow(a, b) {
-      return follows(a, b) && follows(b, a);
-    }
-
-    function chatAudience(u) {
-      let d = get(/databases/$(database)/documents/users/$(u)).data;
-      return d.chatMessageAudience != null ? d.chatMessageAudience : 'friends';
-    }
-
     function canDm(sender, recipient) {
-      return chatAudience(recipient) != 'none'
-        && (
-          chatAudience(recipient) == 'everyone'
-          || (chatAudience(recipient) == 'friends' && mutualFollow(sender, recipient))
-        );
+      // Beta behavior: anyone can DM anyone unless blocked.
+      // Block enforcement happens in `isBlockedPair()` inside conversation create.
+      return signedIn();
     }
 
     function dmOtherUid(mids) {
@@ -78,7 +68,13 @@ service cloud.firestore {
     }
 
     match /conversations/{convId} {
-      allow read: if signedIn() && isConvMember(convId);
+      // Allow read when missing so `getDoc()` can safely check existence before create.
+      // Without this, clients cannot "get or create" a deterministic DM id.
+      allow read: if signedIn()
+        && (
+          !exists(/databases/$(database)/documents/conversations/$(convId))
+          || isConvMember(convId)
+        );
 
       allow create: if signedIn()
         && request.resource.data.createdBy == request.auth.uid
@@ -105,7 +101,16 @@ service cloud.firestore {
           || (request.resource.data.type == 'group')
         );
 
-      allow update: if signedIn() && isConvMember(convId);
+      allow update: if signedIn()
+        && isConvMember(convId)
+        // Members may only update activity metadata; never membership or creator fields.
+        && request.resource.data.memberIds == resource.data.memberIds
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.type == resource.data.type
+        && request.resource.data.dmPairKey == resource.data.dmPairKey
+        && request.resource.data.memberCount == resource.data.memberCount
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['updatedAt', 'lastActivityAt', 'lastMessage']);
 
       allow delete: if false;
 
@@ -114,9 +119,12 @@ service cloud.firestore {
 
         allow create: if signedIn()
           && exists(/databases/$(database)/documents/conversations/$(convId))
+          && request.auth.uid in convDoc(convId).memberIds
           && (
-            get(/databases/$(database)/documents/conversations/$(convId)).data.createdBy
-              == request.auth.uid
+            // Creator can bootstrap all member rows.
+            convDoc(convId).createdBy == request.auth.uid
+            // Any member can (re)create their own member row if missing.
+            || request.auth.uid == userId
           )
           && request.resource.data.memberUid == userId;
 
@@ -201,17 +209,27 @@ service cloud.firestore {
           !exists(/databases/$(database)/documents/videos/$(videoId))
           || resource.data.moderationStatus == 'approved'
           || resource.data.uid == request.auth.uid
+          || isAdmin()
         );
 
       allow create: if signedIn()
         && request.resource.data.uid == request.auth.uid
+        // Beta: allow immediate posting (no moderation gate).
         && (
           request.resource.data.moderationStatus == 'pending'
           || request.resource.data.moderationStatus == 'approved'
         );
 
-      allow update: if false;
-      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+      allow update: if isAdmin()
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['moderationStatus'])
+        && request.resource.data.moderationStatus in ['approved', 'pending', 'rejected'];
+      allow delete: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+
+      // Server-managed throttling ledger for view counting (callable uses Admin SDK).
+      match /viewMarks/{viewerId} {
+        allow read, write: if false;
+      }
 
       match /likes/{likerId} {
         allow read: if canReadVideoDoc(videoId);
@@ -239,7 +257,8 @@ service cloud.firestore {
         allow delete: if signedIn()
           && exists(/databases/$(database)/documents/videos/$(videoId))
           && (
-            get(/databases/$(database)/documents/videos/$(videoId)).data.uid == request.auth.uid
+            isAdmin()
+            || get(/databases/$(database)/documents/videos/$(videoId)).data.uid == request.auth.uid
             || resource.data.uid == request.auth.uid
           );
         allow update: if false;
@@ -257,15 +276,25 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if isOwner(userId)
         && !request.resource.data.keys().hasAny([
+          'isAdmin',
+          'email',
           'verticalScore',
           'verticalScoreBreakdown',
           'verticalScoreUpdatedAt',
+          'bestVerticalGainPostId',
+          'bestVerticalGainPoints',
+          'highestJumpDisplayInches',
         ]);
       allow update: if isOwner(userId)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'isAdmin',
+          'email',
           'verticalScore',
           'verticalScoreBreakdown',
           'verticalScoreUpdatedAt',
+          'bestVerticalGainPostId',
+          'bestVerticalGainPoints',
+          'highestJumpDisplayInches',
         ]);
       allow delete: if false;
 

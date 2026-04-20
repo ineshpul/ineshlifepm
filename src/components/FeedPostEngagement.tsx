@@ -1,6 +1,7 @@
 import * as React from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Share,
   StyleSheet,
   Text,
@@ -48,12 +49,15 @@ export function FeedPostEngagement({
   const navigation = useNavigation<any>();
   const [likeCount, setLikeCount] = React.useState(0);
   const [liked, setLiked] = React.useState(false);
+  const [docLikeCount, setDocLikeCount] = React.useState<number | null>(null);
+  const [docCommentCount, setDocCommentCount] = React.useState<number | null>(null);
   const [comments, setComments] = React.useState<
-    { id: string; username: string; text: string; at: number }[]
+    { id: string; uid: string; username: string; text: string; at: number }[]
   >([]);
   const [draft, setDraft] = React.useState('');
   const [sending, setSending] = React.useState(false);
   const [likeBusy, setLikeBusy] = React.useState(false);
+  const [deletingCommentId, setDeletingCommentId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured()) return;
@@ -64,6 +68,31 @@ export function FeedPostEngagement({
     });
     return () => unsub();
   }, [videoId, viewerUid]);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured()) return;
+    const vref = doc(firestore(), 'videos', videoId);
+    const unsub = onSnapshot(
+      vref,
+      (snap) => {
+        if (!snap.exists()) {
+          setDocLikeCount(null);
+          setDocCommentCount(null);
+          return;
+        }
+        const d: any = snap.data();
+        const lc = Number(d?.likesCount ?? 0);
+        const cc = Number(d?.commentsCount ?? 0);
+        setDocLikeCount(Number.isFinite(lc) ? lc : 0);
+        setDocCommentCount(Number.isFinite(cc) ? cc : 0);
+      },
+      () => {
+        setDocLikeCount(null);
+        setDocCommentCount(null);
+      }
+    );
+    return () => unsub();
+  }, [videoId]);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured()) return;
@@ -82,6 +111,7 @@ export function FeedPostEngagement({
               typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
             return {
               id: d.id,
+              uid: String(data?.uid ?? ''),
               username: String(data?.username ?? 'user'),
               text: String(data?.text ?? ''),
               at,
@@ -165,6 +195,37 @@ export function FeedPostEngagement({
     }
   };
 
+  const canDeleteComment = React.useCallback(
+    (c: { uid: string }) => Boolean(viewerUid && (viewerUid === c.uid || viewerUid === videoOwnerUid)),
+    [viewerUid, videoOwnerUid]
+  );
+
+  const confirmDeleteComment = (commentId: string) => {
+    if (!viewerUid) return;
+    Alert.alert('Delete comment?', 'This removes the comment from this video.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () =>
+          void (async () => {
+            if (!isFirebaseConfigured()) return;
+            setDeletingCommentId(commentId);
+            try {
+              await deleteDoc(doc(firestore(), 'videos', videoId, 'comments', commentId));
+            } catch (e) {
+              showError('Delete failed', e);
+            } finally {
+              setDeletingCommentId(null);
+            }
+          })(),
+      },
+    ]);
+  };
+
+  const displayLikes = Math.max(likeCount, docLikeCount ?? 0);
+  const displayComments = Math.max(comments.length, docCommentCount ?? 0);
+
   return (
     <View style={styles.wrap}>
       <View style={styles.actions}>
@@ -180,12 +241,12 @@ export function FeedPostEngagement({
           ) : (
             <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={colors.coral} />
           )}
-          <Text style={styles.actionLabel}>{likeCount}</Text>
+          <Text style={styles.actionLabel}>{displayLikes}</Text>
         </TouchableOpacity>
 
         <View style={styles.actionBtn}>
           <Ionicons name="chatbubble-outline" size={20} color={colors.text} />
-          <Text style={styles.actionLabel}>{comments.length}</Text>
+          <Text style={styles.actionLabel}>{displayComments}</Text>
         </View>
 
         <TouchableOpacity
@@ -231,9 +292,33 @@ export function FeedPostEngagement({
             .slice()
             .reverse()
             .map((c) => (
-              <Text key={c.id} style={styles.commentLine}>
-                <Text style={styles.commentUser}>{c.username}</Text> {c.text}
-              </Text>
+              <View key={c.id} style={styles.commentRow}>
+                <Text style={styles.commentLine}>
+                  <Text
+                    style={styles.commentUser}
+                    onPress={() =>
+                      c.uid ? navigation.navigate('UserProfile', { uid: c.uid, username: c.username }) : undefined
+                    }
+                    suppressHighlighting
+                  >
+                    {c.username}
+                  </Text>{' '}
+                  {c.text}
+                </Text>
+                {canDeleteComment(c) ? (
+                  <TouchableOpacity
+                    onPress={() => confirmDeleteComment(c.id)}
+                    disabled={deletingCommentId === c.id}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete comment"
+                  >
+                    <Text style={styles.commentDelete}>
+                      {deletingCommentId === c.id ? '…' : 'Delete'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
             ))}
         </View>
       )}
@@ -290,7 +375,14 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingTop: 4,
   },
+  commentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
   commentLine: {
+    flex: 1,
     fontSize: 13,
     color: colors.muted,
     fontWeight: '600',
@@ -299,6 +391,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: colors.text,
   },
+  commentDelete: { fontSize: 12, fontWeight: '900', color: colors.coral },
   compose: {
     flexDirection: 'row',
     alignItems: 'center',

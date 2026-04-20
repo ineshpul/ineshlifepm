@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { Ionicons } from '@expo/vector-icons';
 
 import { Screen } from '../components/Screen';
 import { colors } from '../theme/colors';
@@ -27,6 +28,10 @@ export function NewChatScreen({ navigation, route }: Props) {
   const [q, setQ] = React.useState('');
   const [busy, setBusy] = React.useState<string | null>(null);
   const sharePost = route.params?.sharePost;
+  const cancelShare = React.useCallback(() => {
+    // When sharing, back should land on the inbox (not pop back to wherever the share originated).
+    navigation.replace('ChatInbox');
+  }, [navigation]);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !user?.uid) return;
@@ -63,6 +68,21 @@ export function NewChatScreen({ navigation, route }: Props) {
   return (
     <Screen style={styles.screen}>
       {sharePost ? (
+        <View style={styles.topBar}>
+          <TouchableOpacity
+            onPress={cancelShare}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel sharing"
+            hitSlop={10}
+            style={styles.closeBtn}
+          >
+            <Ionicons name="close" size={22} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.topTitle}>Share</Text>
+          <View style={styles.topRightSpacer} />
+        </View>
+      ) : null}
+      {sharePost ? (
         <View style={styles.shareBanner}>
           <Text style={styles.shareTxt}>Sharing: {sharePost.title || 'Leap clip'}</Text>
         </View>
@@ -97,6 +117,26 @@ export function NewChatScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
+  topBar: {
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  closeBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topTitle: { fontSize: 15, fontWeight: '900', color: colors.text },
+  topRightSpacer: { width: 40, height: 40 },
   shareBanner: { padding: 14, backgroundColor: colors.cardTint, borderBottomWidth: 1, borderBottomColor: colors.border },
   shareTxt: { fontWeight: '800', color: colors.text },
   search: {

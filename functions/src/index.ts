@@ -10,6 +10,7 @@ import {
   onVerticalScoreVideoDeleted,
 } from './verticalScoreRecompute';
 import { recomputeVerticalScoreCallable } from './verticalScoreCallable';
+import { recordVideoViewCallable } from './recordVideoView';
 
 admin.initializeApp();
 
@@ -20,6 +21,7 @@ export {
   onVerticalScoreVideoCreated,
   onVerticalScoreVideoDeleted,
   recomputeVerticalScoreCallable,
+  recordVideoViewCallable,
 };
 
 type ChatMessagePayload = {

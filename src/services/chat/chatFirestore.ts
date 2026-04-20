@@ -145,8 +145,14 @@ export async function findDmConversation(pairKey: string): Promise<string | null
 }
 
 export async function userBlocks(uid: string, targetUid: string): Promise<boolean> {
-  const b = await getDoc(doc(firestore(), 'users', uid, P.USER_BLOCKS, targetUid));
-  return b.exists();
+  try {
+    const b = await getDoc(doc(firestore(), 'users', uid, P.USER_BLOCKS, targetUid));
+    return b.exists();
+  } catch {
+    // Most callers are not allowed to read other users' `userBlocks` docs (rules: owner-only).
+    // The authoritative check still happens in Firestore rules via `isBlockedPair()` during conversation create.
+    return false;
+  }
 }
 
 export async function createConversation(args: {
@@ -161,10 +167,12 @@ export async function createConversation(args: {
   if (uniq.length < 2) throw new Error('Need at least two members.');
   if (uniq.length > CHAT_MAX_GROUP_MEMBERS) throw new Error('Group is too large.');
   const id = doc(collection(firestore(), P.CONVERSATIONS)).id;
-  const batch = writeBatch(firestore());
   const cref = convRef(id);
   const now = serverTimestamp();
-  batch.set(cref, {
+  // IMPORTANT: Firestore rules for `conversationMembers` require the parent conversation doc to exist.
+  // Batched writes do not make `exists(/conversations/{id})` true for other writes in the same batch,
+  // so we create the conversation first, then write member rows.
+  await setDoc(cref, {
     type: args.type,
     name: args.name,
     avatarUrl: args.avatarUrl ?? null,
@@ -177,6 +185,7 @@ export async function createConversation(args: {
     lastActivityAt: now,
     lastMessage: null,
   });
+  const batch = writeBatch(firestore());
   for (const uid of uniq) {
     batch.set(doc(membersCol(id), uid), {
       memberUid: uid,
@@ -219,18 +228,57 @@ export async function getOrCreateDm(args: {
 }): Promise<string> {
   if (args.currentUid === args.otherUid) throw new Error('Cannot DM yourself.');
   const pair = dmPairKey(args.currentUid, args.otherUid);
-  const existing = await findDmConversation(pair);
-  if (existing) return existing;
-  if (await userBlocks(args.currentUid, args.otherUid) || await userBlocks(args.otherUid, args.currentUid)) {
-    throw new Error('You cannot message this user.');
-  }
-  return createConversation({
+  // We cannot query `conversations` by `dmPairKey` because rules only allow reading conversations
+  // you are already a member of (Firestore rejects the whole query).
+  // Use a deterministic doc id so we can get-or-create without any query.
+  const id = `dm_${pair}`;
+
+  const cref = convRef(id);
+  const snap = await getDoc(cref);
+  if (snap.exists()) return id;
+  // Only check blocks we can read (our own). If they blocked us, rules will reject the conversation create.
+  if (await userBlocks(args.currentUid, args.otherUid)) throw new Error('You cannot message this user.');
+  // Create the conversation with deterministic id.
+  const uniq = Array.from(new Set([args.currentUid, args.otherUid]));
+  const now = serverTimestamp();
+  await setDoc(cref, {
     type: 'dm',
     name: args.otherDisplayName,
+    avatarUrl: null,
     createdBy: args.currentUid,
-    memberIds: [args.currentUid, args.otherUid],
+    createdAt: now,
+    updatedAt: now,
+    memberIds: uniq,
     dmPairKey: pair,
+    memberCount: uniq.length,
+    lastActivityAt: now,
+    lastMessage: null,
   });
+  // Best-effort bootstrap member rows (rules allow creator; each member can also create their own now).
+  const batch = writeBatch(firestore());
+  for (const uid of uniq) {
+    batch.set(
+      doc(membersCol(id), uid),
+      {
+        memberUid: uid,
+        convTitle: args.otherDisplayName,
+        convAvatarUrl: null,
+        convType: 'dm',
+        role: uid === args.currentUid ? 'owner' : 'member',
+        joinedAt: now,
+        muted: false,
+        archived: false,
+        pinned: false,
+        unreadCount: 0,
+        lastActivityAt: now,
+        lastMessagePreview: '',
+        chatNotificationsEnabled: true,
+      },
+      { merge: true }
+    );
+  }
+  await batch.commit();
+  return id;
 }
 
 export type InboxMemberSnapshot = {

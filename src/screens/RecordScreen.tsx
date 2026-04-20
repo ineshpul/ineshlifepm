@@ -26,6 +26,7 @@ import { CHALLENGE_INSTRUCTIONS } from '../content/challengeCopy';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import * as MediaLibrary from 'expo-media-library';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
+import { getExpoExtra } from '../config/expoExtra';
 
 async function clipUriToBlob(uri: string): Promise<Blob> {
   const res = await fetch(uri);
@@ -227,6 +228,7 @@ export function RecordScreen() {
       const downloadUrl = await getDownloadURL(rref);
 
       try {
+        const requireMod = Boolean(getExpoExtra().requirePostModeration);
         await commitPostedVideo({
           payload: {
             uid: user.uid,
@@ -239,7 +241,7 @@ export function RecordScreen() {
             source: clipSource ?? 'unknown',
             url: downloadUrl,
             storagePath: path,
-            moderationStatus: 'approved',
+            moderationStatus: requireMod ? 'pending' : 'approved',
           },
         });
         try {
@@ -319,6 +321,11 @@ export function RecordScreen() {
           <Text style={styles.topBtnText}>↺</Text>
         </TouchableOpacity>
       </View>
+      {postedToday ? (
+        <View style={styles.postedPill}>
+          <Text style={styles.postedText}>POSTED TODAY</Text>
+        </View>
+      ) : null}
 
       <View style={styles.cameraWrap}>
         {clipUri && !clipUri.startsWith('demo://') ? (
@@ -482,6 +489,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
+  postedPill: {
+    alignSelf: 'center',
+    marginTop: 10,
+    paddingHorizontal: 12,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(34, 197, 94, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  postedText: { color: colors.white, fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
   cameraWrap: {
     flex: 1,
     marginTop: 18,

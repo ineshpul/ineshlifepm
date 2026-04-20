@@ -2,7 +2,7 @@ import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import { onDocumentCreated, onDocumentDeleted, onDocumentWritten } from 'firebase-functions/v2/firestore';
 
-import { computeVerticalScoreFromPosts } from './verticalScoreEngine';
+import { computeBestPostVerticalMarginal, computeVerticalScoreFromPosts } from './verticalScoreEngine';
 import type { PostMetricsSnapshot } from './verticalScoreTypes';
 
 const REGION = 'us-central1';
@@ -75,16 +75,21 @@ export async function recomputeVerticalScoreAdmin(ownerId: string): Promise<void
   if (!ownerId) return;
   const db = admin.firestore();
   const posts = await buildSnapshotsForOwner(ownerId, db);
-  const { verticalScore, breakdown } = computeVerticalScoreFromPosts(posts, Date.now());
+  const now = Date.now();
+  const { verticalScore, breakdown } = computeVerticalScoreFromPosts(posts, now);
+  const best = computeBestPostVerticalMarginal(posts, now);
 
-  await db.doc(`users/${ownerId}`).set(
-    {
-      verticalScore,
-      verticalScoreBreakdown: breakdown,
-      verticalScoreUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
+  const patch: Record<string, unknown> = {
+    verticalScore,
+    verticalScoreBreakdown: breakdown,
+    verticalScoreUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    bestVerticalGainPoints: best.gainPoints,
+    highestJumpDisplayInches: best.displayInches,
+  };
+  if (best.postId) patch.bestVerticalGainPostId = best.postId;
+  else patch.bestVerticalGainPostId = admin.firestore.FieldValue.delete();
+
+  await db.doc(`users/${ownerId}`).set(patch, { merge: true });
 }
 
 async function ownerUidFromVideoId(videoId: string): Promise<string | null> {
@@ -124,6 +129,20 @@ export const onVerticalScoreLikeWrite = onDocumentWritten(
   { document: `${POST_COLLECTION}/{videoId}/likes/{likerId}`, region: REGION },
   async (event) => {
     const videoId = event.params.videoId as string;
+    const before = event.data?.before?.exists ?? false;
+    const after = event.data?.after?.exists ?? false;
+    let delta = 0;
+    if (!before && after) delta = 1;
+    else if (before && !after) delta = -1;
+    if (delta !== 0) {
+      try {
+        await admin.firestore().doc(`${POST_COLLECTION}/${videoId}`).update({
+          likesCount: admin.firestore.FieldValue.increment(delta),
+        });
+      } catch (e) {
+        logger.warn('likesCount sync failed', { videoId, e });
+      }
+    }
     const owner = await ownerUidFromVideoId(videoId);
     if (!owner) return;
     try {
@@ -138,6 +157,20 @@ export const onVerticalScoreCommentWrite = onDocumentWritten(
   { document: `${POST_COLLECTION}/{videoId}/comments/{commentId}`, region: REGION },
   async (event) => {
     const videoId = event.params.videoId as string;
+    const before = event.data?.before?.exists ?? false;
+    const after = event.data?.after?.exists ?? false;
+    let delta = 0;
+    if (!before && after) delta = 1;
+    else if (before && !after) delta = -1;
+    if (delta !== 0) {
+      try {
+        await admin.firestore().doc(`${POST_COLLECTION}/${videoId}`).update({
+          commentsCount: admin.firestore.FieldValue.increment(delta),
+        });
+      } catch (e) {
+        logger.warn('commentsCount sync failed', { videoId, e });
+      }
+    }
     const owner = await ownerUidFromVideoId(videoId);
     if (!owner) return;
     try {

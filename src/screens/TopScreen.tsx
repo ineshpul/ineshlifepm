@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 
 import { Brandmark } from '../components/Brandmark';
@@ -11,6 +12,7 @@ import { useAuth } from '../state/auth';
 type Row = { id: string; username: string; verticalScore: number };
 
 export function TopScreen() {
+  const nav = useNavigation<any>();
   const { user } = useAuth();
   const [rows, setRows] = React.useState<Row[]>([]);
   const [leaderboardHydrated, setLeaderboardHydrated] = React.useState(false);
@@ -108,8 +110,18 @@ export function TopScreen() {
           <View style={styles.row}>
             <Text style={styles.rank}>{index + 1}</Text>
             <View style={styles.rowBody}>
-              <Text style={styles.name}>{item.username}</Text>
-              <Text style={styles.score}>{item.verticalScore}</Text>
+              <TouchableOpacity
+                onPress={() =>
+                  nav.navigate('UserProfile', {
+                    uid: item.id,
+                    username: item.username,
+                  })
+                }
+                activeOpacity={0.75}
+              >
+                <Text style={styles.name}>{item.username}</Text>
+              </TouchableOpacity>
+              <Text style={styles.score}>{item.verticalScore} in</Text>
             </View>
           </View>
         )}

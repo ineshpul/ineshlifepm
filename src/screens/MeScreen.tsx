@@ -1,8 +1,23 @@
 import * as React from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { collection, doc, limit, onSnapshot, query, where } from 'firebase/firestore';
 
 import { Brandmark } from '../components/Brandmark';
@@ -16,6 +31,7 @@ import { showError } from '../utils/ui';
 import { subscribeFollowing, type FollowingRow } from '../services/social';
 import { verticalScoreTier } from '../lib/verticalScore';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
+import { saveUserPublicProfile } from '../services/userProfile';
 import type { VerticalScoreBreakdownFirestore } from '../types/verticalScore';
 
 function ScoreBar({ label, value }: { label: string; value: number }) {
@@ -53,9 +69,12 @@ type MyVideo = {
   url: string;
   createdAtMs: number;
   moderationStatus: string;
+  likesCount: number;
+  commentsCount: number;
 };
 
 export function MeScreen() {
+  const isFocused = useIsFocused();
   const nav = useNavigation<any>();
   const { user, signOut } = useAuth();
   const { clearPostedOverride } = useAppState();
@@ -64,6 +83,15 @@ export function MeScreen() {
   const [following, setFollowing] = React.useState<FollowingRow[]>([]);
   const [playingId, setPlayingId] = React.useState<string | null>(null);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
+  const [editProfileOpen, setEditProfileOpen] = React.useState(false);
+  const [editSaving, setEditSaving] = React.useState(false);
+  const [draftUsername, setDraftUsername] = React.useState('');
+  const [draftBio, setDraftBio] = React.useState('');
+  const [draftPhotoUri, setDraftPhotoUri] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!isFocused) setPlayingId(null);
+  }, [isFocused]);
 
   const confirmDelete = (v: MyVideo) => {
     if (!user?.uid) return;
@@ -107,24 +135,28 @@ export function MeScreen() {
       setMyVideos([]);
       return;
     }
-    const q = query(collection(firestore(), 'videos'), where('uid', '==', user.uid), limit(50));
+    const q = query(collection(firestore(), 'videos'), where('uid', '==', user.uid), limit(120));
     return onSnapshot(
       q,
       (snap) => {
-        const rows = snap.docs.map((d) => {
-          const data: any = d.data();
-          const createdAtMs =
-            typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
-          return {
-            id: d.id,
-            challengeDate: String(data?.challengeDate ?? ''),
-            prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
-            url: String(data?.url ?? ''),
-            createdAtMs,
-            moderationStatus: String(data?.moderationStatus ?? ''),
-          } satisfies MyVideo;
-        });
-        rows.sort((a, b) => b.createdAtMs - a.createdAtMs);
+        const rows = snap.docs
+          .map((d) => {
+            const data: any = d.data();
+            const createdAtMs =
+              typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+            return {
+              id: d.id,
+              challengeDate: String(data?.challengeDate ?? ''),
+              prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
+              url: String(data?.url ?? ''),
+              createdAtMs,
+              moderationStatus: String(data?.moderationStatus ?? ''),
+              likesCount: Number(data?.likesCount ?? 0),
+              commentsCount: Number(data?.commentsCount ?? 0),
+            } satisfies MyVideo;
+          })
+          .sort((a, b) => b.createdAtMs - a.createdAtMs)
+          .slice(0, 50);
         setMyVideos(rows);
       },
       () => setMyVideos([])
@@ -132,9 +164,16 @@ export function MeScreen() {
   }, [user?.uid]);
 
   const username = String(profile?.username ?? user?.username ?? 'user');
+  const bio = String(profile?.bio ?? '').trim();
+  const photoUrl = String(profile?.photoUrl ?? '').trim();
   const schoolRaw =
     profile?.school != null && String(profile.school).trim() !== '' ? String(profile.school).trim() : '';
-  const verticalInches = Number(profile?.verticalInches ?? 0);
+  const highestJumpDisplayInches = Math.round(
+    Number(profile?.highestJumpDisplayInches ?? 0)
+  );
+  const bestVerticalGainPoints = Math.round(Number(profile?.bestVerticalGainPoints ?? 0));
+  const bestVerticalGainPostId = String(profile?.bestVerticalGainPostId ?? '').trim();
+  const canOpenBestLeap = Boolean(bestVerticalGainPostId);
   const streakDays = Number(profile?.streakDays ?? 0);
   const challengesCompleted = Number(profile?.challengesCompleted ?? 0);
   const likesReceived = Number(profile?.likesReceived ?? 0);
@@ -156,6 +195,54 @@ export function MeScreen() {
       void recomputeVerticalScoreForUser(user.uid);
     }, [user?.uid])
   );
+
+  const openEditProfile = () => {
+    setDraftUsername(username);
+    setDraftBio(String(profile?.bio ?? ''));
+    setDraftPhotoUri(photoUrl || null);
+    setEditProfileOpen(true);
+  };
+
+  const pickEditPhoto = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      showError('Permission needed', new Error('Photo library access is required.'));
+      return;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+    if (res.canceled) return;
+    const uri = res.assets?.[0]?.uri;
+    if (uri) setDraftPhotoUri(uri);
+  };
+
+  const saveEditProfile = async () => {
+    if (!user?.uid || !isFirebaseConfigured()) return;
+    setEditSaving(true);
+    try {
+      const uri = draftPhotoUri?.trim() ?? '';
+      const newPhotoLocal =
+        uri && (uri.startsWith('file:') || uri.startsWith('content:') || uri.startsWith('ph://'))
+          ? uri
+          : undefined;
+      const { photoUrl: uploaded } = await saveUserPublicProfile({
+        uid: user.uid,
+        username: draftUsername,
+        bio: draftBio,
+        newPhotoLocalUri: newPhotoLocal,
+      });
+      if (uploaded) setDraftPhotoUri(uploaded);
+      setEditProfileOpen(false);
+    } catch (e) {
+      showError('Could not save profile', e);
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
   return (
     <Screen style={styles.screen}>
@@ -185,15 +272,24 @@ export function MeScreen() {
 
         <View style={styles.card}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{initials || 'U'}</Text>
+            {photoUrl ? (
+              <Image source={{ uri: photoUrl }} style={styles.avatarImg} />
+            ) : (
+              <Text style={styles.avatarText}>{initials || 'U'}</Text>
+            )}
           </View>
           <Text style={styles.name}>{username}</Text>
           <Text style={styles.handle}>@{username}</Text>
+          {bio ? <Text style={styles.profileBio}>{bio}</Text> : null}
           {schoolRaw ? (
             <View style={styles.schoolPill}>
               <Text style={styles.schoolText}>{schoolRaw}</Text>
             </View>
           ) : null}
+          <TouchableOpacity style={styles.editProfileBtn} onPress={openEditProfile} activeOpacity={0.75}>
+            <Text style={styles.editProfileBtnText}>Edit profile</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.coral} />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.scoreCard}>
@@ -211,30 +307,47 @@ export function MeScreen() {
           <View style={styles.breakdownBlock}>
             <ScoreBar label="Consistency" value={breakdown.consistency} />
             <ScoreBar label="Engagement" value={breakdown.engagement} />
-            <ScoreBar label="Reliability" value={breakdown.reliability} />
             <ScoreBar label="Bonus" value={breakdown.bonus} />
           </View>
         </View>
 
-        <View style={styles.jumpCard}>
+        <Pressable
+          disabled={!canOpenBestLeap}
+          onPress={() => {
+            if (canOpenBestLeap) nav.navigate('VideoPost', { videoId: bestVerticalGainPostId });
+          }}
+          style={({ pressed }) => [
+            styles.jumpCard,
+            canOpenBestLeap && (pressed ? styles.jumpCardPressed : styles.jumpCardTappable),
+          ]}
+          accessibilityRole={canOpenBestLeap ? 'button' : undefined}
+          accessibilityLabel={canOpenBestLeap ? 'Watch the leap for Highest Leap' : undefined}
+        >
           <View style={styles.jumpHeader}>
-            <Text style={styles.jumpLabel}>JUMP HEIGHT</Text>
+            <Text style={styles.jumpLabel}>HIGHEST LEAP</Text>
             <View style={styles.inPill}>
               <View style={styles.redDot} />
               <Text style={styles.inText}>IN</Text>
             </View>
           </View>
-          <Text style={styles.jumpHeight}>{verticalInches}"</Text>
+          <Text style={styles.jumpHeight}>{highestJumpDisplayInches} in</Text>
           <View style={styles.jumpBody}>
             <View style={styles.jumpBar} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.jumpTitle}>You are getting higher.</Text>
-              <Text style={styles.jumpDesc}>
-                Track your best jump in inches. More reps means more lift and a higher ceiling.
+              <Text style={styles.jumpTitle}>
+                {bestVerticalGainPoints > 0
+                  ? `+${bestVerticalGainPoints} pts from one leap`
+                  : 'Post leaps to build impact'}
               </Text>
             </View>
           </View>
-        </View>
+          {canOpenBestLeap ? (
+            <View style={styles.jumpWatchRow}>
+              <Text style={styles.jumpWatchText}>Watch this leap</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.coral} />
+            </View>
+          ) : null}
+        </Pressable>
 
         <View style={styles.statsRow}>
           <View style={styles.stat}>
@@ -261,9 +374,18 @@ export function MeScreen() {
           ) : (
             <View style={styles.followingList}>
               {following.map((f) => (
-                <View key={f.targetUid} style={styles.followingRow}>
+                <Pressable
+                  key={f.targetUid}
+                  style={({ pressed }) => [styles.followingRow, pressed && styles.followingRowPressed]}
+                  onPress={() =>
+                    nav.navigate('UserProfile', { uid: f.targetUid, username: f.targetUsername })
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open @${f.targetUsername} profile`}
+                >
                   <Text style={styles.followingName}>@{f.targetUsername}</Text>
-                </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.muted2} />
+                </Pressable>
               ))}
             </View>
           )}
@@ -304,6 +426,9 @@ export function MeScreen() {
                 <Text style={styles.leapPrompt} numberOfLines={2}>
                   {v.prompt}
                 </Text>
+                <Text style={styles.leapEngagement}>
+                  {v.likesCount} likes · {v.commentsCount} comments
+                </Text>
                 {v.url ? (
                   <Pressable
                     onPress={() => setPlayingId((id) => (id === v.id ? null : v.id))}
@@ -314,7 +439,7 @@ export function MeScreen() {
                       style={styles.leapVideo}
                       resizeMode={ResizeMode.COVER}
                       useNativeControls
-                      shouldPlay={playingId === v.id}
+                      shouldPlay={isFocused && playingId === v.id}
                     />
                     {playingId !== v.id ? (
                       <View style={styles.playHint}>
@@ -328,6 +453,67 @@ export function MeScreen() {
           )}
         </View>
       </ScrollView>
+
+      <Modal visible={editProfileOpen} animationType="slide" transparent>
+        <KeyboardAvoidingView
+          style={styles.modalRoot}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <Pressable style={styles.modalBackdrop} onPress={() => !editSaving && setEditProfileOpen(false)} />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Edit profile</Text>
+            <TouchableOpacity style={styles.modalPhotoRow} onPress={() => void pickEditPhoto()}>
+              <View style={styles.modalAvatar}>
+                {draftPhotoUri ? (
+                  <Image source={{ uri: draftPhotoUri }} style={styles.avatarImg} />
+                ) : (
+                  <Ionicons name="person" size={32} color={colors.muted} />
+                )}
+              </View>
+              <Text style={styles.modalPhotoHint}>Tap to change photo</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalFieldLabel}>Username</Text>
+            <TextInput
+              value={draftUsername}
+              onChangeText={setDraftUsername}
+              placeholder="Username"
+              placeholderTextColor={colors.muted2}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={styles.modalInput}
+            />
+            <Text style={styles.modalFieldLabel}>Bio</Text>
+            <TextInput
+              value={draftBio}
+              onChangeText={setDraftBio}
+              placeholder="Short bio"
+              placeholderTextColor={colors.muted2}
+              multiline
+              style={[styles.modalInput, styles.modalBioInput]}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancel}
+                onPress={() => !editSaving && setEditProfileOpen(false)}
+                disabled={editSaving}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSave}
+                onPress={() => void saveEditProfile()}
+                disabled={editSaving}
+              >
+                {editSaving ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <Text style={styles.modalSaveText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </Screen>
   );
 }
@@ -388,10 +574,35 @@ const styles = StyleSheet.create({
     borderColor: '#E6F4D7',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
+  avatarImg: { width: '100%', height: '100%' },
   avatarText: { fontSize: 22, fontWeight: '900', color: colors.text },
   name: { fontSize: 18, fontWeight: '900', color: colors.text },
   handle: { fontSize: 13, fontWeight: '700', color: colors.muted, marginTop: -2 },
+  profileBio: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+    color: colors.text,
+    textAlign: 'center',
+    paddingHorizontal: 8,
+  },
+  editProfileBtn: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 84, 0.35)',
+    backgroundColor: colors.white,
+  },
+  editProfileBtnText: { fontSize: 14, fontWeight: '900', color: colors.coral },
   schoolPill: {
     marginTop: 6,
     paddingHorizontal: 12,
@@ -439,6 +650,18 @@ const styles = StyleSheet.create({
     padding: 18,
     gap: 10,
   },
+  jumpCardTappable: { borderColor: 'rgba(255, 107, 84, 0.35)' },
+  jumpCardPressed: { opacity: 0.92 },
+  jumpWatchRow: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  jumpWatchText: { fontSize: 13, fontWeight: '900', color: colors.coral },
   jumpHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   jumpLabel: { fontSize: 11, letterSpacing: 2.2, fontWeight: '900', color: colors.muted },
   inPill: {
@@ -458,7 +681,6 @@ const styles = StyleSheet.create({
   jumpBody: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   jumpBar: { width: 6, height: 56, borderRadius: 3, backgroundColor: '#D1FAE5' },
   jumpTitle: { fontSize: 14, fontWeight: '900', color: colors.text },
-  jumpDesc: { marginTop: 4, fontSize: 12, lineHeight: 17, color: colors.muted, fontWeight: '600' },
   statsRow: { flexDirection: 'row', gap: 12, marginTop: 14 },
   stat: {
     flex: 1,
@@ -492,6 +714,9 @@ const styles = StyleSheet.create({
   followingEmpty: { fontSize: 14, fontWeight: '700', color: colors.text, marginTop: 2 },
   followingList: { gap: 6, marginTop: 4 },
   followingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 12,
@@ -499,7 +724,63 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E6F4D7',
   },
+  followingRowPressed: { opacity: 0.88 },
   followingName: { fontSize: 14, fontWeight: '900', color: colors.text },
+  modalRoot: { flex: 1, justifyContent: 'flex-end' },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+  modalCard: {
+    backgroundColor: colors.white,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    padding: 20,
+    paddingBottom: 28,
+    gap: 10,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '900', color: colors.text },
+  modalPhotoRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 4 },
+  modalAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: colors.cardTint,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalPhotoHint: { flex: 1, fontSize: 13, fontWeight: '700', color: colors.muted },
+  modalFieldLabel: { marginTop: 6, fontSize: 11, fontWeight: '900', color: colors.muted, letterSpacing: 1 },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  modalBioInput: { minHeight: 88, textAlignVertical: 'top' },
+  modalActions: { flexDirection: 'row', gap: 12, marginTop: 16 },
+  modalCancel: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  modalCancelText: { fontSize: 15, fontWeight: '800', color: colors.text },
+  modalSave: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: colors.moss,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalSaveText: { fontSize: 15, fontWeight: '900', color: colors.white },
   leapsSection: { marginTop: 20, gap: 10 },
   leapsTitle: { fontSize: 11, letterSpacing: 2.2, fontWeight: '900', color: colors.muted },
   leapsHint: { fontSize: 13, lineHeight: 19, color: colors.muted, fontWeight: '600' },
@@ -525,6 +806,7 @@ const styles = StyleSheet.create({
     paddingLeft: 8,
   },
   leapPrompt: { fontSize: 13, fontWeight: '600', color: colors.muted },
+  leapEngagement: { marginTop: 6, fontSize: 12, fontWeight: '800', color: colors.text },
   leapVideoWrap: {
     borderRadius: 14,
     overflow: 'hidden',

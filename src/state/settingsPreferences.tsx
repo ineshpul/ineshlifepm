@@ -2,12 +2,16 @@ import * as React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { syncLeapScheduledNotifications } from '../services/notifications';
+import { useAuth } from './auth';
+import { useChallengeWindow } from './challenge';
+import { useHasPostedToday } from './posting';
 
 const STORAGE_KEY = 'leap.settings.v3';
 
 export type FeedType = 'mixed' | 'friends';
 export type CommentAudience = 'everyone' | 'friends';
-export type MessageAudience = 'everyone' | 'friends' | 'none';
+// Beta: messaging is open (blocked users excluded) so this is fixed.
+export type MessageAudience = 'everyone';
 
 export type SettingsPreferencesState = {
   notificationsEnabled: boolean;
@@ -69,6 +73,7 @@ function mergeLoaded(raw: unknown): SettingsPreferencesState {
   return {
     ...SETTINGS_DEFAULTS,
     ...rest,
+    whoCanMessage: 'everyone',
     blockedUsernames: Array.isArray(o.blockedUsernames)
       ? o.blockedUsernames.map(String)
       : SETTINGS_DEFAULTS.blockedUsernames,
@@ -85,6 +90,9 @@ async function persist(state: SettingsPreferencesState) {
 export function SettingsPreferencesProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = React.useState(false);
   const [preferences, setPreferences] = React.useState<SettingsPreferencesState>(SETTINGS_DEFAULTS);
+  const { user } = useAuth();
+  const win = useChallengeWindow();
+  const hasPostedToday = useHasPostedToday(user?.uid, win.dateKey);
 
   React.useEffect(() => {
     let alive = true;
@@ -111,8 +119,9 @@ export function SettingsPreferencesProvider({ children }: { children: React.Reac
     void syncLeapScheduledNotifications({
       masterEnabled: preferences.notificationsEnabled,
       streakReminders: preferences.streakReminders,
+      hasPostedToday,
     });
-  }, [ready, preferences.notificationsEnabled, preferences.streakReminders]);
+  }, [ready, preferences.notificationsEnabled, preferences.streakReminders, hasPostedToday]);
 
   const patch = React.useCallback((partial: Partial<SettingsPreferencesState>) => {
     setPreferences((prev) => {

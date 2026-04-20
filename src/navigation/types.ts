@@ -10,4 +10,8 @@ export type RootStackParamList = {
   BlockedUsers: undefined;
   MutedUsers: undefined;
   LegalDocument: { docId: LegalDocId };
+  UserProfile: { uid: string; username?: string };
+  /** Opens a single leap by Firestore `videos/{videoId}` (e.g. profile “best vertical gain” post). */
+  VideoPost: { videoId: string };
+  AdminVideoModeration: undefined;
 };

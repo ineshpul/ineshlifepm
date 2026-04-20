@@ -35,7 +35,7 @@ function formatTime(ts: { toMillis?: () => number } | null | undefined) {
 
 export function ChatInboxScreen({ navigation }: Props) {
   const { user } = useAuth();
-  const { rows, loading, totalUnread } = useConversations(user?.uid);
+  const { rows, loading, error, totalUnread } = useConversations(user?.uid);
   useChatNotifications();
 
   React.useLayoutEffect(() => {
@@ -63,6 +63,13 @@ export function ChatInboxScreen({ navigation }: Props) {
 
   return (
     <Screen style={styles.screen}>
+      {error ? (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>
+            Chats are loading… (index still building). Pull to refresh in a minute.
+          </Text>
+        </View>
+      ) : null}
       {totalUnread > 0 ? (
         <View style={styles.unreadBanner}>
           <Text style={styles.unreadBannerText}>
@@ -136,11 +143,21 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   offline: { padding: 24, textAlign: 'center', color: colors.muted, fontWeight: '600' },
-  empty: { flex: 1, paddingHorizontal: 28, paddingTop: 48, gap: 14 },
+  empty: { flex: 1, paddingHorizontal: 28, paddingTop: 18, gap: 14, justifyContent: 'center' },
   emptyTitle: { fontSize: 24, fontWeight: '900', color: colors.text },
   emptySub: { fontSize: 15, lineHeight: 22, color: colors.muted, fontWeight: '600' },
   newGroup: { alignSelf: 'flex-start', paddingVertical: 8 },
   newGroupText: { fontSize: 15, fontWeight: '800', color: colors.moss },
+  errorBanner: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.cardTint,
+  },
+  errorText: { fontSize: 12, fontWeight: '700', color: colors.muted, lineHeight: 16 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

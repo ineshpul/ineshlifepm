@@ -11,6 +11,9 @@ import { SettingsScreen } from '../screens/SettingsScreen';
 import { BlockedUsersScreen } from '../screens/BlockedUsersScreen';
 import { MutedUsersScreen } from '../screens/MutedUsersScreen';
 import { LegalDocumentScreen } from '../screens/LegalDocumentScreen';
+import { UserProfileScreen } from '../screens/UserProfileScreen';
+import { VideoPostScreen } from '../screens/VideoPostScreen';
+import { AdminVideoModerationScreen } from '../screens/AdminVideoModerationScreen';
 import { LEGAL_DOCS } from '../content/settingsLegal';
 import type { RootStackParamList } from './types';
 import { AppTabs } from './Tabs';
@@ -60,6 +63,24 @@ export function RootNavigator() {
                 headerShown: true,
                 title: LEGAL_DOCS[route.params.docId].title,
               })}
+            />
+            <Stack.Screen
+              name="UserProfile"
+              component={UserProfileScreen}
+              options={({ route }) => ({
+                headerShown: true,
+                title: route.params.username ? `@${route.params.username}` : 'Profile',
+              })}
+            />
+            <Stack.Screen
+              name="VideoPost"
+              component={VideoPostScreen}
+              options={{ headerShown: true, title: 'Highest Leap' }}
+            />
+            <Stack.Screen
+              name="AdminVideoModeration"
+              component={AdminVideoModerationScreen}
+              options={{ headerShown: true, title: 'Moderate video' }}
             />
           </>
         ) : (
