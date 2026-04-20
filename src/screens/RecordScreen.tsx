@@ -6,13 +6,14 @@ import { launchImageLibraryAsync, MediaTypeOptions } from 'expo-image-picker';
 import { doc, increment, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
+import { LeapLoadingFrog } from '../components/LeapLoadingFrog';
 import { RecordClipPreview } from '../components/RecordClipPreview';
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
 import { useAppState } from '../state/appState';
 import { useAuth } from '../state/auth';
-import { useTodayChallenge } from '../state/challenge';
+import { getPlayerFacingChallenge, useTodayChallenge } from '../state/challenge';
 import { firestore, isFirebaseConfigured, storage } from '../firebase/firebase';
 import {
   commitPostedVideo,
@@ -21,7 +22,7 @@ import {
   useAttemptsRemaining,
 } from '../state/postAttempts';
 import { useHasPostedToday } from '../state/posting';
-import { showError } from '../utils/ui';
+import { showError, showInfo } from '../utils/ui';
 import { CHALLENGE_INSTRUCTIONS } from '../content/challengeCopy';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import * as MediaLibrary from 'expo-media-library';
@@ -48,6 +49,7 @@ export function RecordScreen() {
   const { markPostedToday } = useAppState();
   const { user } = useAuth();
   const { challenge, window } = useTodayChallenge();
+  const facing = getPlayerFacingChallenge(challenge, window);
   const maxSec = challenge.maxDurationSeconds;
   const postedToday = useHasPostedToday(user?.uid, window.dateKey);
   const attemptsRemaining = useAttemptsRemaining(user?.uid, window.dateKey);
@@ -153,6 +155,13 @@ export function RecordScreen() {
 
   const onAttachVideo = async () => {
     if (postedToday) return;
+    if (!facing.canRecord) {
+      showInfo(
+        'Not yet',
+        'Today’s leap drops at 12:00 PM Eastern. Come back after the prompt goes live.'
+      );
+      return;
+    }
     if (attemptsLeft <= 0 || uploading || isRecording || countdown != null) return;
     const picked = await launchImageLibraryAsync({
       mediaTypes: MediaTypeOptions.Videos,
@@ -176,6 +185,13 @@ export function RecordScreen() {
 
   const onTapRecord = async () => {
     if (postedToday) return;
+    if (!facing.canRecord) {
+      showInfo(
+        'Not yet',
+        'Today’s leap drops at 12:00 PM Eastern. Come back after the prompt goes live.'
+      );
+      return;
+    }
     if (attemptsLeft <= 0 || uploading) return;
     if (!permission) return;
     if (!permission.granted) {
@@ -200,6 +216,10 @@ export function RecordScreen() {
   const onPost = async () => {
     if (postedToday) return;
     if (uploading) return;
+    if (!facing.canRecord) {
+      showInfo('Not yet', 'Today’s leap is not live yet.');
+      return;
+    }
 
     const runUpload = async () => {
       setUploading(true);
@@ -313,14 +333,19 @@ export function RecordScreen() {
           <Text style={styles.topBtnText}>✕</Text>
         </TouchableOpacity>
         <View style={styles.promptPill}>
-          <Text style={styles.promptText} numberOfLines={1}>
-            {challenge.title}
+          <Text style={styles.promptText} numberOfLines={2}>
+            {facing.title}
           </Text>
         </View>
         <TouchableOpacity onPress={clearPreview} style={styles.topBtn}>
           <Text style={styles.topBtnText}>↺</Text>
         </TouchableOpacity>
       </View>
+      {!facing.canRecord ? (
+        <View style={styles.frogStrip}>
+          <LeapLoadingFrog active dark />
+        </View>
+      ) : null}
       {postedToday ? (
         <View style={styles.postedPill}>
           <Text style={styles.postedText}>POSTED TODAY</Text>
@@ -372,9 +397,11 @@ export function RecordScreen() {
 
       <View style={styles.bottomBar}>
         <Text style={styles.meta}>
-          {attemptsLeft <= 1
-            ? `${maxSec}S MAX • 1 TAKE`
-            : `${maxSec}S MAX • ${attemptsLeft} ATTEMPTS LEFT`}
+          {facing.canRecord
+            ? attemptsLeft <= 1
+              ? `${maxSec}S MAX • 1 TAKE`
+              : `${maxSec}S MAX • ${attemptsLeft} ATTEMPTS LEFT`
+            : facing.instructionsLine}
         </Text>
 
         {clipUri ? (
@@ -411,13 +438,15 @@ export function RecordScreen() {
               onPress={onTapRecord}
               style={[
                 styles.recordBtn,
-                (attemptsLeft <= 0 || uploading || countdown != null) && styles.recordBtnDisabled,
+                (attemptsLeft <= 0 || uploading || countdown != null || !facing.canRecord) &&
+                  styles.recordBtnDisabled,
               ]}
             >
               <View
                 style={[
                   styles.recordOuter,
-                  (attemptsLeft <= 0 || uploading || countdown != null) && styles.recordOuterDisabled,
+                  (attemptsLeft <= 0 || uploading || countdown != null || !facing.canRecord) &&
+                    styles.recordOuterDisabled,
                 ]}
               >
                 <View
@@ -428,11 +457,13 @@ export function RecordScreen() {
                 />
               </View>
               <Text style={styles.recordHint}>
-                {!permission?.granted
-                  ? 'TAP TO ENABLE CAMERA'
-                  : isRecording
-                    ? 'TAP TO STOP'
-                    : 'TAP TO RECORD'}
+                {!facing.canRecord
+                  ? 'DROPS NOON ET'
+                  : !permission?.granted
+                    ? 'TAP TO ENABLE CAMERA'
+                    : isRecording
+                      ? 'TAP TO STOP'
+                      : 'TAP TO RECORD'}
               </Text>
             </TouchableOpacity>
 
@@ -440,7 +471,7 @@ export function RecordScreen() {
               title="ATTACH VIDEO"
               variant="outline"
               onPress={onAttachVideo}
-              disabled={attemptsLeft <= 0 || uploading || countdown != null}
+              disabled={attemptsLeft <= 0 || uploading || countdown != null || !facing.canRecord}
               style={styles.attachBtn}
             />
           </>
@@ -461,6 +492,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
+  },
+  frogStrip: {
+    marginTop: 8,
+    marginHorizontal: 16,
   },
   topBtn: {
     width: 40,

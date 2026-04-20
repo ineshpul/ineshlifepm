@@ -2,6 +2,11 @@ import * as React from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
+import {
+  CHALLENGE_INSTRUCTIONS,
+  CHALLENGE_PRE_DROP_INSTRUCTIONS,
+  CHALLENGE_PRE_DROP_TITLE,
+} from '../content/challengeCopy';
 import { computeChallengeWindowFromNow } from '../utils/nyTime';
 
 /** Allowed task lengths (seconds). Posts use the same value for recording and display. */
@@ -27,6 +32,29 @@ export type ChallengeWindow = {
   msUntilDrop: number;
   msUntilExpire: number;
 };
+
+/** Title + instruction line shown to players; hides admin-set challenge until noon Eastern. */
+export type PlayerFacingChallenge = {
+  title: string;
+  instructionsLine: string;
+  /** False from midnight–noon America/New_York (challenge “drops” at noon). */
+  canRecord: boolean;
+};
+
+export function getPlayerFacingChallenge(challenge: Challenge, window: ChallengeWindow): PlayerFacingChallenge {
+  if (window.isLive) {
+    return {
+      title: challenge.title,
+      instructionsLine: `${CHALLENGE_INSTRUCTIONS} · Up to ${challenge.maxDurationSeconds}s`,
+      canRecord: true,
+    };
+  }
+  return {
+    title: CHALLENGE_PRE_DROP_TITLE,
+    instructionsLine: CHALLENGE_PRE_DROP_INSTRUCTIONS,
+    canRecord: false,
+  };
+}
 
 export function useChallengeWindow(): ChallengeWindow {
   const [tick, setTick] = React.useState(0);

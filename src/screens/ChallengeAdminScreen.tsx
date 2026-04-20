@@ -86,7 +86,8 @@ export function ChallengeAdminScreen() {
       </View>
 
       <Text style={styles.helper}>
-        Only the title is editable for players. Instructions on Today are fixed (one take, post it fast) plus the time limit.
+        Players only see this title and length after 12:00 PM Eastern. Before noon they see “Today’s leap is loading…”;
+        your edits here stay hidden until the drop.
       </Text>
 
       <View style={styles.field}>

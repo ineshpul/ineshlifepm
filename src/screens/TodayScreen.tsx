@@ -3,13 +3,15 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
 import { Brandmark } from '../components/Brandmark';
+import { LeapLoadingFrog } from '../components/LeapLoadingFrog';
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
-import { useTodayChallenge } from '../state/challenge';
+import { getPlayerFacingChallenge, useTodayChallenge } from '../state/challenge';
 import { useLiveCount } from '../state/live';
-import { CHALLENGE_INSTRUCTIONS, LEAP_BOTTOM_TAGLINE } from '../content/challengeCopy';
+import { LEAP_BOTTOM_TAGLINE } from '../content/challengeCopy';
 import { useAuth } from '../state/auth';
+import { showInfo } from '../utils/ui';
 
 function formatHMS(ms: number) {
   if (!Number.isFinite(ms)) return '—';
@@ -27,6 +29,7 @@ export function TodayScreen() {
   const nav = useNavigation<any>();
   const { user } = useAuth();
   const { challenge, window } = useTodayChallenge();
+  const facing = getPlayerFacingChallenge(challenge, window);
   const headerCountdown = window.isLive ? window.msUntilExpire : window.msUntilDrop;
   const liveCount = useLiveCount(window.dateKey);
 
@@ -66,10 +69,9 @@ export function TodayScreen() {
           <Text style={styles.badgeText}>TODAY&apos;S LEAP</Text>
         </View>
 
-        <Text style={styles.title}>{challenge.title}</Text>
-        <Text style={styles.instructions}>
-          {CHALLENGE_INSTRUCTIONS} · Up to {challenge.maxDurationSeconds}s
-        </Text>
+        <Text style={styles.title}>{facing.title}</Text>
+        <Text style={styles.instructions}>{facing.instructionsLine}</Text>
+        <LeapLoadingFrog active={!facing.canRecord} />
 
         <View style={styles.cardFooter}>
           <View style={styles.expirePill}>
@@ -94,7 +96,16 @@ export function TodayScreen() {
         <PrimaryButton
           title="Leap"
           variant="green"
-          onPress={() => nav.navigate('Record')}
+          onPress={() => {
+            if (!facing.canRecord) {
+              showInfo(
+                'Not yet',
+                'Today’s leap drops at 12:00 PM Eastern. The prompt stays hidden until then.'
+              );
+              return;
+            }
+            nav.navigate('Record');
+          }}
           style={styles.leapBtn}
         />
         <Text style={styles.bottomHint}>TAP TO RECORD</Text>
