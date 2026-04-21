@@ -2,6 +2,16 @@
  * Human-readable copy for Firebase Auth / Callable failures on sign-in screens.
  */
 export function friendlySignInError(e: unknown): string {
+  if (e && typeof e === 'object' && 'code' in e) {
+    const code = String((e as { code?: string }).code ?? '');
+    if (code === 'ERR_REQUEST_CANCELED') {
+      return '';
+    }
+    if (code === 'ERR_REQUEST_FAILED') {
+      return 'Apple did not return a complete sign-in. Try again, or use email and password.';
+    }
+  }
+
   if (e instanceof Error) {
     if (e.message === 'EMAIL_VERIFICATION_REQUIRED') {
       return 'We sent you a verification email. Please verify your email address, then sign in.';
@@ -48,6 +58,12 @@ export function friendlySignInError(e: unknown): string {
     }
     if (code === 'auth/network-request-failed') {
       return 'Network error. Check your connection and try again.';
+    }
+    if (code === 'auth/operation-not-allowed') {
+      return 'That sign-in method is not enabled for this app yet. Ask the team to turn on Apple in Firebase Authentication.';
+    }
+    if (code === 'auth/invalid-oauth-response' || code === 'auth/invalid-oath-response') {
+      return 'Apple sign-in could not be completed. In Firebase Console → Authentication → Apple, set the Services ID to your iOS bundle ID (same as app.json ios.bundleIdentifier), then try again.';
     }
 
     if (msg) return msg;

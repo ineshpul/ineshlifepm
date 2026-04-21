@@ -3,7 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  KeyboardAvoidingView,
+  Keyboard,
   LayoutChangeEvent,
   Platform,
   Pressable,
@@ -15,7 +15,7 @@ import {
   useWindowDimensions,
   type ViewToken,
 } from 'react-native';
-import { useIsFocused, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio, Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
@@ -303,6 +303,10 @@ export function FeedScreen() {
   const [activeVideoId, setActiveVideoId] = React.useState<string | null>(null);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [unreadNotifications, setUnreadNotifications] = React.useState(0);
+  /** Lifts the reel bottom sheet above the keyboard (fixed-height KAV was ineffective here). */
+  const [keyboardSheetBottom, setKeyboardSheetBottom] = React.useState(0);
+  const engagementScrollRefs = React.useRef<Record<string, ScrollView | null>>({});
+  const flatListRef = React.useRef<FlatList<FeedVideo>>(null);
 
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -333,6 +337,27 @@ export function FeedScreen() {
     user?.uid,
     followingRows,
   ]);
+
+  /** FlatList is PureComponent-ish: include focus in `extraData` so rows re-render when `shouldPlay` should flip. */
+  useFocusEffect(
+    React.useCallback(() => {
+      const id = requestAnimationFrame(() => {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+      });
+      return () => cancelAnimationFrame(id);
+    }, [])
+  );
+
+  React.useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvent, (e) => setKeyboardSheetBottom(e.endCoordinates.height));
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardSheetBottom(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   React.useEffect(() => {
     return subscribeFollowing(user?.uid, setFollowingRows);
@@ -601,10 +626,11 @@ export function FeedScreen() {
 
       <View style={styles.feedSlot} onLayout={onSlotLayout}>
         <FlatList
+          ref={flatListRef}
           style={styles.reelList}
           data={displayVideos}
           keyExtractor={(x) => x.id}
-          extraData={`${pageHeight}-${activeVideoId}-${feedHydrated}`}
+          extraData={`${pageHeight}-${activeVideoId}-${feedHydrated}-${isFocused ? 1 : 0}`}
           viewabilityConfigCallbackPairs={viewabilityConfigCallbackPairs}
           contentContainerStyle={displayVideos.length === 0 ? { flexGrow: 1 } : undefined}
           pagingEnabled
@@ -657,13 +683,16 @@ export function FeedScreen() {
                   analyticsVideoId={item.id}
                   videoOwnerUid={item.ownerUid}
                   viewerUid={user?.uid}
+                  onReelActivate={() => setActiveVideoId(item.id)}
                 />
               </View>
 
-              <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                keyboardVerticalOffset={TAB_BAR_HEIGHT + Math.max(insets.bottom, 6)}
-                style={[styles.reelSheet, { height: REEL_BOTTOM_SHEET }]}
+              <View
+                style={[
+                  styles.reelSheet,
+                  { height: REEL_BOTTOM_SHEET },
+                  keyboardSheetBottom > 0 ? { bottom: keyboardSheetBottom } : undefined,
+                ]}
               >
                 <View style={styles.reelSheetTop}>
                   <View style={styles.reelAvatar}>
@@ -708,6 +737,9 @@ export function FeedScreen() {
                 </View>
                 {user?.uid ? (
                   <ScrollView
+                    ref={(r) => {
+                      engagementScrollRefs.current[item.id] = r;
+                    }}
                     style={styles.reelEngagementScroll}
                     nestedScrollEnabled
                     keyboardShouldPersistTaps="handled"
@@ -719,10 +751,15 @@ export function FeedScreen() {
                       shareUrl={item.url}
                       viewerUid={user.uid}
                       viewerUsername={user.username}
+                      onCommentComposerFocus={() => {
+                        requestAnimationFrame(() => {
+                          engagementScrollRefs.current[item.id]?.scrollToEnd({ animated: true });
+                        });
+                      }}
                     />
                   </ScrollView>
                 ) : null}
-              </KeyboardAvoidingView>
+              </View>
             </View>
           )}
         />

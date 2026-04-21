@@ -36,6 +36,8 @@ type Props = {
   shareUrl: string;
   viewerUid: string | undefined;
   viewerUsername: string;
+  /** Feed / parent can scroll so the composer stays visible when the keyboard opens. */
+  onCommentComposerFocus?: () => void;
 };
 
 export function FeedPostEngagement({
@@ -45,6 +47,7 @@ export function FeedPostEngagement({
   shareUrl,
   viewerUid,
   viewerUsername,
+  onCommentComposerFocus,
 }: Props) {
   const navigation = useNavigation<any>();
   const [likeCount, setLikeCount] = React.useState(0);
@@ -380,6 +383,7 @@ export function FeedPostEngagement({
             style={styles.input}
             editable={!sending}
             maxLength={500}
+            onFocus={() => onCommentComposerFocus?.()}
           />
           <TouchableOpacity
             style={[styles.sendBtn, (!draft.trim() || sending) && styles.sendBtnDisabled]}

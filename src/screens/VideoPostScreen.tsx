@@ -1,7 +1,7 @@
 import * as React from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   ScrollView,
   StyleSheet,
@@ -91,6 +91,20 @@ export function VideoPostScreen({ route }: Props) {
     void recordVideoView(videoId);
   }, [isFocused, loadState, videoId]);
 
+  const [keyboardPad, setKeyboardPad] = React.useState(0);
+  React.useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvent, (e) => setKeyboardPad(e.endCoordinates.height));
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardPad(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
+  const scrollRef = React.useRef<ScrollView>(null);
+
   return (
     <Screen style={styles.screen}>
       {loadState === 'loading' ? (
@@ -115,14 +129,14 @@ export function VideoPostScreen({ route }: Props) {
       ) : null}
 
       {loadState === 'ready' && row ? (
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={88}
-        >
+        <View style={styles.flex}>
           <ScrollView
+            ref={scrollRef}
             style={styles.flex}
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: 32 + keyboardPad },
+            ]}
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.videoWrap}>
@@ -158,10 +172,15 @@ export function VideoPostScreen({ route }: Props) {
                 shareUrl={row.url}
                 viewerUid={user.uid}
                 viewerUsername={user.username}
+                onCommentComposerFocus={() => {
+                  requestAnimationFrame(() => {
+                    scrollRef.current?.scrollToEnd({ animated: true });
+                  });
+                }}
               />
             ) : null}
           </ScrollView>
-        </KeyboardAvoidingView>
+        </View>
       ) : null}
     </Screen>
   );

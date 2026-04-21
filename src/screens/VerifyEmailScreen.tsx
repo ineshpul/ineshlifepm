@@ -49,6 +49,18 @@ export function VerifyEmailScreen() {
     }
   };
 
+  const onSignOut = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await signOut();
+    } catch (e) {
+      Alert.alert('Could not sign out', friendlySignInError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onVerified = async () => {
     if (busy) return;
     setBusy(true);
@@ -87,7 +99,13 @@ export function VerifyEmailScreen() {
             <Text style={styles.btnText}>I’ve verified</Text>
           </TouchableOpacity>
         </View>
-        <PrimaryButton title="Sign out" variant="outline" onPress={() => void signOut()} style={styles.signOut} />
+        <PrimaryButton
+          title="Sign out"
+          variant="outline"
+          onPress={() => void onSignOut()}
+          disabled={busy}
+          style={styles.signOut}
+        />
       </View>
     </Screen>
   );

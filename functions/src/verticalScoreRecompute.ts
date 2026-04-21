@@ -139,6 +139,7 @@ export const onVerticalScoreLikeWrite = onDocumentWritten(
   { document: `${POST_COLLECTION}/{videoId}/likes/{likerId}`, region: REGION },
   async (event) => {
     const videoId = event.params.videoId as string;
+    const likerId = String(event.params.likerId ?? '');
     const before = event.data?.before?.exists ?? false;
     const after = event.data?.after?.exists ?? false;
     let delta = 0;
@@ -152,9 +153,14 @@ export const onVerticalScoreLikeWrite = onDocumentWritten(
       } catch (e) {
         logger.warn('likesCount sync failed', { videoId, e });
       }
+    } else {
+      return;
     }
     const owner = await ownerUidFromVideoId(videoId);
     if (!owner) return;
+    // Self-likes are allowed (UI) but never affect Vertical Score — buildSnapshotsForOwner excludes them;
+    // skip recompute to avoid redundant work and any risk of stale aggregate edge cases.
+    if (likerId && likerId === owner) return;
     try {
       await recomputeVerticalScoreAdmin(owner);
     } catch (e) {
@@ -167,8 +173,10 @@ export const onVerticalScoreCommentWrite = onDocumentWritten(
   { document: `${POST_COLLECTION}/{videoId}/comments/{commentId}`, region: REGION },
   async (event) => {
     const videoId = event.params.videoId as string;
-    const before = event.data?.before?.exists ?? false;
-    const after = event.data?.after?.exists ?? false;
+    const snapBefore = event.data?.before;
+    const snapAfter = event.data?.after;
+    const before = snapBefore?.exists ?? false;
+    const after = snapAfter?.exists ?? false;
     let delta = 0;
     if (!before && after) delta = 1;
     else if (before && !after) delta = -1;
@@ -180,9 +188,15 @@ export const onVerticalScoreCommentWrite = onDocumentWritten(
       } catch (e) {
         logger.warn('commentsCount sync failed', { videoId, e });
       }
+    } else {
+      return;
     }
     const owner = await ownerUidFromVideoId(videoId);
     if (!owner) return;
+    let commenterUid = '';
+    if (!before && after) commenterUid = String(snapAfter?.data()?.uid ?? '');
+    else if (before && !after) commenterUid = String(snapBefore?.data()?.uid ?? '');
+    if (commenterUid && commenterUid === owner) return;
     try {
       await recomputeVerticalScoreAdmin(owner);
     } catch (e) {

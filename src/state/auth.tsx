@@ -90,7 +90,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    const commit = (user: User, needsEmailVerification: boolean) => {
+    /** Firebase session may end or switch while reload loops run — never resurrect a stale user after sign-out. */
+    const sessionUid = raw.uid;
+    const commitIfCurrent = (user: User, needsEmailVerification: boolean) => {
+      const cur = firebaseAuth().currentUser;
+      if (cur == null) {
+        setUser(null);
+        return;
+      }
+      if (cur.uid !== sessionUid) {
+        return;
+      }
       const username = user.displayName ?? (user.email?.split('@')[0] ?? 'user');
       setUser({
         uid: user.uid,
@@ -108,11 +118,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // ignore
       }
       u = firebaseAuth().currentUser ?? u;
+      {
+        const cur = firebaseAuth().currentUser;
+        if (cur == null || cur.uid !== sessionUid) {
+          if (cur == null) setUser(null);
+          return false;
+        }
+      }
 
       // Let Tabs render immediately — do not wait for long reload / token loops.
       {
         const pwd0 = hasPasswordProvider(u);
-        commit(u, pwd0 && !u.emailVerified);
+        commitIfCurrent(u, pwd0 && !u.emailVerified);
       }
 
       for (let i = 0; i < 20; i++) {
@@ -121,7 +138,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch {
           // ignore
         }
-        u = firebaseAuth().currentUser ?? u;
+        const curLoop = firebaseAuth().currentUser;
+        if (curLoop == null || curLoop.uid !== sessionUid) {
+          if (curLoop == null) setUser(null);
+          return false;
+        }
+        u = curLoop;
         if (u.providerData?.length) break;
         await new Promise((r) => setTimeout(r, 100));
       }
@@ -136,7 +158,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } catch {
             // ignore
           }
-          u = firebaseAuth().currentUser ?? u;
+          const curEv = firebaseAuth().currentUser;
+          if (curEv == null || curEv.uid !== sessionUid) {
+            if (curEv == null) setUser(null);
+            return false;
+          }
+          u = curEv;
           if (u.emailVerified) {
             effectiveVerified = true;
             break;
@@ -175,16 +202,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // `doc` / `firestore()` can throw synchronously; still keep auth session in React.
       }
 
-      commit(u, needsEmailVerification);
+      commitIfCurrent(u, needsEmailVerification);
       return true;
     } catch {
       try {
         const live = firebaseAuth().currentUser;
         if (live && live.uid === raw.uid) {
-          commit(live, hasPasswordProvider(live) && !live.emailVerified);
+          commitIfCurrent(live, hasPasswordProvider(live) && !live.emailVerified);
           return true;
         }
-        commit(raw, hasPasswordProvider(raw) && !raw.emailVerified);
+        commitIfCurrent(raw, hasPasswordProvider(raw) && !raw.emailVerified);
         return true;
       } catch {
         return false;
@@ -334,6 +361,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithApple = React.useCallback(async () => {
     if (!isFirebaseConfigured()) return;
+    if (!(await AppleAuthentication.isAvailableAsync())) {
+      throw new Error('Sign in with Apple is not available on this device or OS version.');
+    }
     const rawNonce = Crypto.randomUUID();
     const nonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
     const apple = await AppleAuthentication.signInAsync({
@@ -432,6 +462,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await fbSignOut(firebaseAuth());
     } finally {
       signOutInProgressRef.current = false;
+    }
+    // Auth listener can race with in-flight `applyFirebaseSession`; keep UI in sync immediately.
+    if (firebaseAuth().currentUser == null) {
+      setUser(null);
     }
   }, []);
 

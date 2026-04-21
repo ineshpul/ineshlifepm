@@ -157,6 +157,9 @@ export function SignInScreen() {
     setBusy(true);
     try {
       await signInWithApple();
+    } catch (e: unknown) {
+      const msg = friendlySignInError(e);
+      if (msg) Alert.alert('Apple sign-in', msg);
     } finally {
       setBusy(false);
     }
