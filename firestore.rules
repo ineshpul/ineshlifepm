@@ -128,7 +128,54 @@ service cloud.firestore {
           )
           && request.resource.data.memberUid == userId;
 
-        allow update: if signedIn() && isConvMember(convId);
+        // Self: prefs, read receipts, DM title/avatar refresh, or own row after send (unread -> 0).
+        // Others: only inbox bump fields from sendMessage (+1 unread), never arbitrary edits.
+        function memberPrevUnread() {
+          return resource.data.unreadCount is int ? resource.data.unreadCount : 0;
+        }
+
+        function memberSelfPrefsDelta() {
+          return request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['muted', 'archived', 'pinned', 'chatNotificationsEnabled']);
+        }
+
+        function memberMarkReadDelta() {
+          return request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['unreadCount', 'lastReadMessageId', 'lastReadAt']);
+        }
+
+        function memberDmTitlesDelta() {
+          return request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['convTitle', 'convAvatarUrl']);
+        }
+
+        function memberOwnSendRowDelta() {
+          return request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['lastActivityAt', 'lastMessagePreview', 'unreadCount'])
+            && request.resource.data.unreadCount == 0;
+        }
+
+        function memberPeerInboxBumpDelta() {
+          return request.auth.uid != userId
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['lastActivityAt', 'lastMessagePreview', 'unreadCount'])
+            && request.resource.data.unreadCount is int
+            && request.resource.data.unreadCount == memberPrevUnread() + 1;
+        }
+
+        allow update: if signedIn() && isConvMember(convId)
+          && (
+            (
+              request.auth.uid == userId
+              && (
+                memberSelfPrefsDelta()
+                || memberMarkReadDelta()
+                || memberDmTitlesDelta()
+                || memberOwnSendRowDelta()
+              )
+            )
+            || memberPeerInboxBumpDelta()
+          );
 
         allow delete: if false;
       }
@@ -214,11 +261,67 @@ service cloud.firestore {
 
       allow create: if signedIn()
         && request.resource.data.uid == request.auth.uid
-        // Beta: allow immediate posting (no moderation gate).
+        && videoId == request.resource.data.uid + '_' + request.resource.data.challengeDate
+        // Instant approve is allowed (product policy); still validate shape + storage ownership.
         && (
           request.resource.data.moderationStatus == 'pending'
           || request.resource.data.moderationStatus == 'approved'
-        );
+        )
+        && request.resource.data.keys().hasOnly([
+          'uid',
+          'username',
+          'challengeDate',
+          'challengeTitle',
+          'challengeSubtitle',
+          'prompt',
+          'maxDurationSeconds',
+          'source',
+          'url',
+          'storagePath',
+          'moderationStatus',
+          'createdAt',
+          'viewCount',
+          'likesCount',
+          'commentsCount',
+          'shareCount',
+          'saveCount',
+          'reportCount',
+          'deleted',
+          'challengeCompleted',
+        ])
+        && request.resource.data.username is string
+        && request.resource.data.username.size() > 0
+        && request.resource.data.username.size() < 64
+        && request.resource.data.challengeDate is string
+        && request.resource.data.challengeDate.size() > 0
+        && request.resource.data.challengeDate.size() < 40
+        && request.resource.data.challengeTitle is string
+        && request.resource.data.challengeTitle.size() < 500
+        && request.resource.data.challengeSubtitle is string
+        && request.resource.data.challengeSubtitle.size() < 2000
+        && request.resource.data.prompt is string
+        && request.resource.data.prompt.size() < 500
+        && request.resource.data.source is string
+        && request.resource.data.source.size() < 64
+        && request.resource.data.url is string
+        && request.resource.data.url.size() > 0
+        && request.resource.data.url.size() < 2048
+        && request.resource.data.storagePath is string
+        && request.resource.data.storagePath.matches(
+          '^videos/' + request.auth.uid + '/' + request.resource.data.challengeDate + '/[^/]+$'
+        )
+        && request.resource.data.maxDurationSeconds is int
+        && request.resource.data.maxDurationSeconds > 0
+        && request.resource.data.maxDurationSeconds < 600
+        && request.resource.data.viewCount == 0
+        && request.resource.data.likesCount == 0
+        && request.resource.data.commentsCount == 0
+        && request.resource.data.shareCount == 0
+        && request.resource.data.saveCount == 0
+        && request.resource.data.reportCount == 0
+        && request.resource.data.deleted == false
+        && request.resource.data.challengeCompleted == true
+        && request.resource.data.createdAt is timestamp;
 
       allow update: if isAdmin()
         && request.resource.data.uid == resource.data.uid
@@ -268,8 +371,54 @@ service cloud.firestore {
     // Attempt ledger for enforcing max tries + coordinating with unique video doc id.
     match /postAttempts/{attemptId} {
       allow read: if signedIn() && attemptId.matches('^' + request.auth.uid + '_.+');
-      allow create, update: if signedIn() && attemptId.matches('^' + request.auth.uid + '_.+');
-      allow delete: if signedIn() && attemptId.matches('^' + request.auth.uid + '_.+');
+
+      function attemptDocIdMatchesFields() {
+        return attemptId == request.resource.data.uid + '_' + request.resource.data.challengeDate;
+      }
+
+      function postAttemptLedgerKeys() {
+        return request.resource.data.keys().hasOnly(['uid', 'challengeDate', 'used', 'max', 'updatedAt']);
+      }
+
+      function prevUsedCount() {
+        return resource.data.used is int ? resource.data.used : 0;
+      }
+
+      allow create: if signedIn()
+        && attemptId.matches('^' + request.auth.uid + '_.+')
+        && attemptDocIdMatchesFields()
+        && request.resource.data.uid == request.auth.uid
+        && postAttemptLedgerKeys()
+        && request.resource.data.challengeDate is string
+        && request.resource.data.used is int
+        && request.resource.data.used >= 0
+        && request.resource.data.used <= 3
+        && request.resource.data.max == 3
+        && request.resource.data.updatedAt is timestamp;
+
+      allow update: if signedIn()
+        && attemptId.matches('^' + request.auth.uid + '_.+')
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.challengeDate == resource.data.challengeDate
+        && request.resource.data.max == resource.data.max
+        && request.resource.data.max == 3
+        && postAttemptLedgerKeys()
+        && request.resource.data.used is int
+        && request.resource.data.used >= 0
+        && request.resource.data.used <= 3
+        && (
+          request.resource.data.used == prevUsedCount() + 1
+          || (
+            request.resource.data.used == prevUsedCount() - 1
+            && !exists(/databases/$(database)/documents/videos/$(attemptId))
+          )
+          || (request.resource.data.used == 3 && prevUsedCount() < 3)
+        );
+
+      // Only after the daily video doc is gone (delete flow), so users cannot wipe the ledger while a post exists.
+      allow delete: if signedIn()
+        && attemptId.matches('^' + request.auth.uid + '_.+')
+        && !exists(/databases/$(database)/documents/videos/$(attemptId));
     }
 
     match /users/{userId} {

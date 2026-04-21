@@ -1,8 +1,19 @@
 import * as React from 'react';
-import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import {
+  ActivityIndicator,
+  Alert,
+  AppState,
+  type AppStateStatus,
+  InteractionManager,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
-import { launchImageLibraryAsync, MediaTypeOptions } from 'expo-image-picker';
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { doc, increment, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
@@ -29,6 +40,30 @@ import * as MediaLibrary from 'expo-media-library';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { getExpoExtra } from '../config/expoExtra';
 
+async function setAudioSessionForRecording() {
+  await Audio.setAudioModeAsync({
+    allowsRecordingIOS: true,
+    playsInSilentModeIOS: true,
+    interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+    interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+    shouldDuckAndroid: true,
+    playThroughEarpieceAndroid: false,
+    staysActiveInBackground: false,
+  });
+}
+
+async function setAudioSessionForPlayback() {
+  await Audio.setAudioModeAsync({
+    allowsRecordingIOS: false,
+    playsInSilentModeIOS: true,
+    interruptionModeIOS: InterruptionModeIOS.MixWithOthers,
+    interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+    shouldDuckAndroid: true,
+    playThroughEarpieceAndroid: false,
+    staysActiveInBackground: false,
+  });
+}
+
 async function clipUriToBlob(uri: string): Promise<Blob> {
   const res = await fetch(uri);
   if (!res.ok) {
@@ -45,11 +80,12 @@ async function clipUriToBlob(uri: string): Promise<Blob> {
 
 export function RecordScreen() {
   const nav = useNavigation<any>();
+  const isFocused = useIsFocused();
   const { preferences } = useSettingsPreferences();
   const { markPostedToday } = useAppState();
   const { user } = useAuth();
   const { challenge, window } = useTodayChallenge();
-  const facing = getPlayerFacingChallenge(challenge, window);
+  const playerFacing = getPlayerFacingChallenge(challenge, window);
   const maxSec = challenge.maxDurationSeconds;
   const postedToday = useHasPostedToday(user?.uid, window.dateKey);
   const attemptsRemaining = useAttemptsRemaining(user?.uid, window.dateKey);
@@ -60,17 +96,27 @@ export function RecordScreen() {
   const [isRecording, setIsRecording] = React.useState(false);
   const [countdown, setCountdown] = React.useState<number | null>(null);
   const [clipUri, setClipUri] = React.useState<string | null>(null);
-  const [clipSource, setClipSource] = React.useState<'recorded' | 'library' | 'demo' | null>(null);
+  const [clipSource, setClipSource] = React.useState<'recorded' | 'demo' | null>(null);
+  const [cameraFacing, setCameraFacing] = React.useState<'front' | 'back'>('front');
   const [uploading, setUploading] = React.useState(false);
   const cameraReadyRef = React.useRef(false);
   const cameraRef = React.useRef<CameraView>(null);
+  const countdownAbortRef = React.useRef(false);
+  const isRecordingRef = React.useRef(false);
 
-  const canUseCamera = permission?.granted;
+  React.useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
+
+  const cameraPermissionPending = permission == null;
+  const canUseCamera = permission?.granted === true;
 
   const clearPreview = React.useCallback(() => {
     setClipUri(null);
     setClipSource(null);
     setCountdown(null);
+    setCameraFacing('front');
+    cameraReadyRef.current = false;
   }, []);
 
   React.useEffect(() => {
@@ -78,6 +124,7 @@ export function RecordScreen() {
     setClipSource(null);
     setCountdown(null);
     setIsRecording(false);
+    setCameraFacing('front');
     cameraReadyRef.current = false;
   }, [challenge.dateKey, challenge.maxDurationSeconds]);
 
@@ -87,7 +134,53 @@ export function RecordScreen() {
     setClipSource(null);
     setCountdown(null);
     setIsRecording(false);
+    cameraReadyRef.current = false;
   }, [postedToday]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      cameraReadyRef.current = false;
+      void setAudioSessionForRecording().catch(() => {});
+
+      if (permission?.status === 'undetermined') {
+        void requestPermission();
+      }
+
+      const task = InteractionManager.runAfterInteractions(() => {
+        requestAnimationFrame(() => {
+          void cameraRef.current?.resumePreview?.().catch(() => {});
+        });
+      });
+
+      return () => {
+        task.cancel?.();
+        countdownAbortRef.current = true;
+        setCountdown(null);
+        cameraReadyRef.current = false;
+        if (isRecordingRef.current) {
+          try {
+            cameraRef.current?.stopRecording();
+          } catch {
+            /* noop */
+          }
+        }
+        void cameraRef.current?.pausePreview?.().catch(() => {});
+        void setAudioSessionForPlayback().catch(() => {});
+      };
+    }, [permission?.status, requestPermission])
+  );
+
+  React.useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next !== 'active') return;
+      if (!isFocused || postedToday || clipUri || !canUseCamera) return;
+      cameraReadyRef.current = false;
+      requestAnimationFrame(() => {
+        void cameraRef.current?.resumePreview?.().catch(() => {});
+      });
+    });
+    return () => sub.remove();
+  }, [isFocused, postedToday, clipUri, canUseCamera]);
 
   const saveClipToCameraRoll = React.useCallback(async () => {
     if (!clipUri || clipUri.startsWith('demo://')) return;
@@ -106,24 +199,35 @@ export function RecordScreen() {
   }, [clipUri, clipSource]);
 
   const startCountdownThenRecord = async () => {
+    countdownAbortRef.current = false;
     setClipUri(null);
     setClipSource(null);
     setCountdown(3);
     for (let t = 3; t >= 1; t--) {
       // eslint-disable-next-line no-await-in-loop
       await new Promise((r) => setTimeout(r, 800));
+      if (countdownAbortRef.current) {
+        setCountdown(null);
+        return;
+      }
       setCountdown(t - 1);
+    }
+    if (countdownAbortRef.current) {
+      setCountdown(null);
+      return;
     }
     setCountdown(null);
 
     setIsRecording(true);
     try {
+      await setAudioSessionForRecording().catch(() => {});
+
       if (!cameraRef.current) {
         showError('Camera not ready', new Error('Try again in a moment.'));
         return;
       }
       let waited = 0;
-      while (!cameraReadyRef.current && waited < 6000) {
+      while (!cameraReadyRef.current && waited < 8000) {
         // eslint-disable-next-line no-await-in-loop
         await new Promise((r) => setTimeout(r, 120));
         waited += 120;
@@ -133,11 +237,7 @@ export function RecordScreen() {
         return;
       }
 
-      const recordingOptions =
-        Platform.OS === 'ios'
-          ? { maxDuration: maxSec, codec: 'avc1' as const }
-          : { maxDuration: maxSec };
-
+      const recordingOptions = { maxDuration: maxSec };
       const result = await cameraRef.current.recordAsync(recordingOptions);
       const fileUri = result?.uri ?? null;
       setClipUri(fileUri);
@@ -153,42 +253,24 @@ export function RecordScreen() {
       showError('Recording failed', e);
     } finally {
       setIsRecording(false);
+      void setAudioSessionForPlayback().catch(() => {});
     }
   };
 
-  const onAttachVideo = async () => {
-    if (postedToday) return;
-    if (!facing.canRecord) {
-      showInfo(
-        'Not yet',
-        'Today’s leap drops at 12:00 PM Eastern. Come back after the prompt goes live.'
-      );
-      return;
-    }
-    if (attemptsLeft <= 0 || uploading || isRecording || countdown != null) return;
-    const picked = await launchImageLibraryAsync({
-      mediaTypes: MediaTypeOptions.Videos,
-      allowsMultipleSelection: false,
-      quality: 1,
+  const onFlipCamera = React.useCallback(() => {
+    if (postedToday || !playerFacing.canRecord || isRecording || countdown != null || !canUseCamera) return;
+    cameraReadyRef.current = false;
+    InteractionManager.runAfterInteractions(() => {
+      setCameraFacing((prev) => (prev === 'front' ? 'back' : 'front'));
+      requestAnimationFrame(() => {
+        void cameraRef.current?.resumePreview?.().catch(() => {});
+      });
     });
-    if (picked.canceled) return;
-    const asset = picked.assets?.[0];
-    if (!asset?.uri) return;
-    const pickedDur = asset.duration;
-    if (typeof pickedDur === 'number' && pickedDur > maxSec + 0.25) {
-      showError(
-        'Video too long',
-        new Error(`Choose a clip up to ${maxSec} seconds for today’s task.`)
-      );
-      return;
-    }
-    setClipUri(asset.uri);
-    setClipSource('library');
-  };
+  }, [postedToday, playerFacing.canRecord, isRecording, countdown, canUseCamera]);
 
   const onTapRecord = async () => {
     if (postedToday) return;
-    if (!facing.canRecord) {
+    if (!playerFacing.canRecord) {
       showInfo(
         'Not yet',
         'Today’s leap drops at 12:00 PM Eastern. Come back after the prompt goes live.'
@@ -206,7 +288,14 @@ export function RecordScreen() {
       }
     }
     if (!micPermission?.granted) {
-      await requestMicPermission();
+      const mic = await requestMicPermission();
+      if (!mic.granted) {
+        showError(
+          'Microphone needed',
+          new Error('Allow the microphone to record video with sound, or change this in Settings.')
+        );
+        return;
+      }
     }
     if (isRecording) {
       (cameraRef.current as any)?.stopRecording?.();
@@ -219,7 +308,7 @@ export function RecordScreen() {
   const onPost = async () => {
     if (postedToday) return;
     if (uploading) return;
-    if (!facing.canRecord) {
+    if (!playerFacing.canRecord) {
       showInfo('Not yet', 'Today’s leap is not live yet.');
       return;
     }
@@ -238,13 +327,8 @@ export function RecordScreen() {
       }
 
       const blob = await clipUriToBlob(clipUri);
-      const ext =
-        clipSource === 'library'
-          ? clipUri.toLowerCase().endsWith('.mov')
-            ? 'mov'
-            : 'mp4'
-          : 'mp4';
-      const contentType = ext === 'mov' ? 'video/quicktime' : 'video/mp4';
+      const ext = 'mp4';
+      const contentType = 'video/mp4';
       const path = `videos/${user.uid}/${window.dateKey}/${Date.now()}.${ext}`;
       const rref = ref(storage(), path);
       await uploadBytes(rref, blob, { contentType });
@@ -349,14 +433,14 @@ export function RecordScreen() {
         </TouchableOpacity>
         <View style={styles.promptPill}>
           <Text style={styles.promptText} numberOfLines={2}>
-            {facing.title}
+            {playerFacing.title}
           </Text>
         </View>
         <TouchableOpacity onPress={clearPreview} style={styles.topBtn}>
           <Text style={styles.topBtnText}>↺</Text>
         </TouchableOpacity>
       </View>
-      {!facing.canRecord ? (
+      {!playerFacing.canRecord ? (
         <View style={styles.frogStrip}>
           <LeapLoadingFrog active dark />
         </View>
@@ -377,23 +461,43 @@ export function RecordScreen() {
               No camera file — post to try the rest of the app, or tap ↺ to reset.
             </Text>
           </View>
+        ) : cameraPermissionPending ? (
+          <View style={styles.cameraLoading}>
+            <ActivityIndicator size="large" color={colors.white} />
+            <Text style={styles.cameraLoadingText}>Opening camera…</Text>
+          </View>
         ) : canUseCamera ? (
           <>
             <CameraView
               key={`camera-${challenge.dateKey}-${challenge.maxDurationSeconds}`}
               ref={cameraRef}
               style={StyleSheet.absoluteFill}
-              facing="front"
+              facing={cameraFacing}
+              mirror={cameraFacing === 'front'}
               mode="video"
               onCameraReady={() => {
                 cameraReadyRef.current = true;
+                requestAnimationFrame(() => {
+                  void cameraRef.current?.resumePreview?.().catch(() => {});
+                });
               }}
               onMountError={({ message }) => {
                 cameraReadyRef.current = false;
                 showError('Camera error', new Error(message));
               }}
             />
-            <View style={styles.overlayFade} />
+            <View style={styles.overlayFade} pointerEvents="none" />
+            {!isRecording && countdown == null && playerFacing.canRecord && !postedToday ? (
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={cameraFacing === 'front' ? 'Use back camera' : 'Use front camera'}
+                onPress={onFlipCamera}
+                style={styles.flipFab}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="camera-reverse-outline" size={26} color={colors.white} />
+              </TouchableOpacity>
+            ) : null}
           </>
         ) : (
           <View style={styles.demo}>
@@ -412,19 +516,17 @@ export function RecordScreen() {
 
       <View style={styles.bottomBar}>
         <Text style={styles.meta}>
-          {facing.canRecord
+          {playerFacing.canRecord
             ? attemptsLeft <= 1
               ? `${maxSec}S MAX • 1 TAKE`
               : `${maxSec}S MAX • ${attemptsLeft} ATTEMPTS LEFT`
-            : facing.instructionsLine}
+            : playerFacing.instructionsLine}
         </Text>
 
         {clipUri ? (
           <>
             <View style={styles.doneCard}>
-              <Text style={styles.doneTitle}>
-                {clipSource === 'library' ? 'Clip ready' : 'Recording complete'}
-              </Text>
+              <Text style={styles.doneTitle}>Recording complete</Text>
               <Text style={styles.doneBody}>
                 {clipUri.startsWith('demo://')
                   ? 'Demo mode — post to continue, or record again.'
@@ -453,14 +555,14 @@ export function RecordScreen() {
               onPress={onTapRecord}
               style={[
                 styles.recordBtn,
-                (attemptsLeft <= 0 || uploading || countdown != null || !facing.canRecord) &&
+                (attemptsLeft <= 0 || uploading || countdown != null || !playerFacing.canRecord) &&
                   styles.recordBtnDisabled,
               ]}
             >
               <View
                 style={[
                   styles.recordOuter,
-                  (attemptsLeft <= 0 || uploading || countdown != null || !facing.canRecord) &&
+                  (attemptsLeft <= 0 || uploading || countdown != null || !playerFacing.canRecord) &&
                     styles.recordOuterDisabled,
                 ]}
               >
@@ -472,7 +574,7 @@ export function RecordScreen() {
                 />
               </View>
               <Text style={styles.recordHint}>
-                {!facing.canRecord
+                {!playerFacing.canRecord
                   ? 'DROPS NOON ET'
                   : !permission?.granted
                     ? 'TAP TO ENABLE CAMERA'
@@ -481,14 +583,6 @@ export function RecordScreen() {
                       : 'TAP TO RECORD'}
               </Text>
             </TouchableOpacity>
-
-            <PrimaryButton
-              title="ATTACH VIDEO"
-              variant="outline"
-              onPress={onAttachVideo}
-              disabled={attemptsLeft <= 0 || uploading || countdown != null || !facing.canRecord}
-              style={styles.attachBtn}
-            />
           </>
         )}
       </View>
@@ -560,9 +654,35 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#0F172A',
   },
+  cameraLoading: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  cameraLoadingText: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   overlayFade: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.18)',
+  },
+  flipFab: {
+    position: 'absolute',
+    right: 14,
+    bottom: 14,
+    zIndex: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   countdownOverlay: {
     ...StyleSheet.absoluteFillObject,

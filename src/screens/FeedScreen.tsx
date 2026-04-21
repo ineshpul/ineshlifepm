@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  InteractionManager,
   Keyboard,
   LayoutChangeEvent,
   Platform,
@@ -178,7 +179,9 @@ function FeedPostVideo(props: {
           /* native race or unload */
         }
       })();
-    } else {
+    } else if (!effectivePlay) {
+      // Do not pause while we're waiting to load with shouldPlay true — pauseAsync can stall
+      // buffering/autoplay and matches the "videos never start until background" symptom.
       void player.pauseAsync?.();
     }
   }, [effectivePlay, loaded, url]);
@@ -412,6 +415,35 @@ export function FeedScreen() {
     );
   }, [displayVideos]);
 
+  /** After posting (or first load), reel rows can mount before viewability runs; sync scroll + active id once. */
+  const prevFeedNonEmptyCountRef = React.useRef(0);
+  React.useEffect(() => {
+    if (!hasPostedToday) {
+      prevFeedNonEmptyCountRef.current = 0;
+      return;
+    }
+    if (!feedHydrated || pageHeight <= 40) return;
+
+    const n = displayVideos.length;
+    if (n === 0) {
+      prevFeedNonEmptyCountRef.current = 0;
+      return;
+    }
+
+    const wasEmpty = prevFeedNonEmptyCountRef.current === 0;
+    prevFeedNonEmptyCountRef.current = n;
+    if (!wasEmpty) return;
+
+    const firstId = displayVideos[0]?.id;
+    const handle = InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+        if (firstId) setActiveVideoId(firstId);
+      });
+    });
+    return () => handle.cancel?.();
+  }, [hasPostedToday, feedHydrated, pageHeight, displayVideos]);
+
   const confirmDelete = (item: FeedVideo) => {
     if (!user?.uid || item.ownerUid !== user.uid) return;
     Alert.alert(
@@ -570,7 +602,7 @@ export function FeedScreen() {
         <View style={styles.lockIcon}>
           <Text style={styles.lockEmoji}>🔒</Text>
         </View>
-        <Text style={styles.gateTitle}>Post to continue</Text>
+        <Text style={styles.gateTitle}>Take the leap to continue</Text>
         <Text style={styles.gateBody}>
           Post today’s challenge to unlock the feed and see what everyone else is doing.
         </Text>

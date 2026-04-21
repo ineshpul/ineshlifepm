@@ -58,7 +58,7 @@ export function Feed() {
                   marginBottom: '8px',
                 }}
               >
-                Post to continue
+                Take the leap to continue
               </div>
               <div 
                 style={{

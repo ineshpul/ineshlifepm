@@ -41,12 +41,15 @@ export function AppTabs() {
     <View style={styles.tabsRoot}>
       <View style={styles.tabsFill}>
     <Tab.Navigator
+      detachInactiveScreens={false}
       screenOptions={{
         headerShown: false,
         tabBarShowLabel: false,
         tabBarStyle: styles.tabBar,
         tabBarActiveTintColor: colors.text,
         tabBarInactiveTintColor: colors.muted,
+        /** Avoid react-native-screens detach/freeze races that can eat tab bar taps on some devices. */
+        freezeOnBlur: false,
       }}
     >
       <Tab.Screen

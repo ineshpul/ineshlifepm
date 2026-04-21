@@ -1,8 +1,30 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /videos/{userId}/{allPaths=**} {
-      allow read: if request.auth != null;
+    // Leap uploads use `videos/{uid}/{challengeDate}/{file}` — tie reads to Firestore approval (or owner).
+    match /videos/{userId}/{challengeDate}/{fileName} {
+      function videoFirestoreId() {
+        return userId + '_' + challengeDate;
+      }
+
+      function videoIsApprovedInFirestore() {
+        return firestore.exists(/databases/(default)/documents/videos/$(videoFirestoreId()))
+          && firestore.get(/databases/(default)/documents/videos/$(videoFirestoreId())).data.moderationStatus
+            == 'approved';
+      }
+
+      function requestUserIsAdmin() {
+        return firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+          && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+      }
+
+      allow read: if request.auth != null
+        && (
+          request.auth.uid == userId
+          || videoIsApprovedInFirestore()
+          || requestUserIsAdmin()
+        );
+
       allow write, delete: if request.auth != null && request.auth.uid == userId;
     }
 
