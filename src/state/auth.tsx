@@ -16,9 +16,10 @@ import {
   signOut as fbSignOut,
   updateProfile,
 } from 'firebase/auth';
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { isAdminUid, parseProfileIsAdmin } from '../config/admin';
 import { unregisterPushDevice } from '../services/pushNotifications';
 
 export type AuthUser = {
@@ -76,6 +77,11 @@ async function tokenClaimEmailVerified(u: User): Promise<boolean> {
   }
 }
 
+/** Keep Firestore-hydrated fields when the same account is refreshed from Firebase Auth. */
+function mergeAuthUser(prev: AuthUser | null, next: AuthUser): AuthUser {
+  return prev != null && prev.uid === next.uid ? { ...prev, ...next } : next;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = React.useState<AuthUser | null>(null);
   const signOutInProgressRef = React.useRef(false);
@@ -102,11 +108,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const username = user.displayName ?? (user.email?.split('@')[0] ?? 'user');
-      setUser({
-        uid: user.uid,
-        email: user.email ?? '',
-        username,
-        needsEmailVerification,
+      // Preserve fields hydrated from Firestore (e.g. `isAdmin`). `applyFirebaseSession` runs
+      // multiple times (initial commit, final commit after reload loops, and on AppState active);
+      // replacing the whole object would clear `isAdmin` while the profile effect only re-runs on uid change.
+      setUser((prev) => {
+        if (prev != null && prev.uid === user.uid) {
+          return {
+            ...prev,
+            email: user.email ?? '',
+            username,
+            needsEmailVerification,
+          };
+        }
+        return {
+          uid: user.uid,
+          email: user.email ?? '',
+          username,
+          needsEmailVerification,
+        };
       });
     };
 
@@ -254,27 +273,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !user?.uid) return;
     const uid = user.uid;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const snap = await getDoc(doc(firestore(), 'users', uid));
-        if (cancelled) return;
-        if (!snap.exists()) return;
-        const d = snap.data() as Record<string, unknown>;
-        const isAdmin = d.isAdmin === true;
-        const fromDoc = d.username;
-        const usernameFromDoc = typeof fromDoc === 'string' && fromDoc.length > 0 ? fromDoc : null;
-        setUser((prev) => {
-          if (prev == null || prev.uid !== uid) return prev;
-          return { ...prev, isAdmin, username: usernameFromDoc ?? prev.username };
-        });
-      } catch {
-        // ignore (offline / rules); auth user still valid
-      }
-    })();
-    return () => {
-      cancelled = true;
+    const ref = doc(firestore(), 'users', uid);
+
+    const applyProfile = (d: Record<string, unknown> | undefined, exists: boolean) => {
+      const fromUidList = isAdminUid(uid);
+      const isAdmin = exists && d ? parseProfileIsAdmin(d.isAdmin) || fromUidList : fromUidList;
+      const fromDoc = d?.username;
+      const usernameFromDoc = typeof fromDoc === 'string' && fromDoc.length > 0 ? fromDoc : null;
+      setUser((prev) => {
+        if (prev == null || prev.uid !== uid) return prev;
+        return {
+          ...prev,
+          isAdmin,
+          username: usernameFromDoc ?? prev.username,
+        };
+      });
     };
+
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        if (!snap.exists()) {
+          applyProfile(undefined, false);
+          return;
+        }
+        applyProfile(snap.data() as Record<string, unknown>, true);
+      },
+      () => {
+        // Do not clear `isAdmin` on transient errors; optional dev allowlist still applies.
+        if (!isAdminUid(uid)) return;
+        setUser((prev) => (prev != null && prev.uid === uid ? { ...prev, isAdmin: true } : prev));
+      }
+    );
+    return () => unsub();
   }, [user?.uid]);
 
   const signUp = React.useCallback(
@@ -293,12 +324,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await updateProfile(cred.user, { displayName: username });
       await sendEmailVerification(cred.user);
       const u = cred.user;
-      setUser({
-        uid: u.uid,
-        email: u.email ?? '',
-        username: u.displayName ?? (u.email?.split('@')[0] ?? 'user'),
-        needsEmailVerification: hasPasswordProvider(u) && !u.emailVerified,
-      });
+      setUser((prev) =>
+        mergeAuthUser(prev, {
+          uid: u.uid,
+          email: u.email ?? '',
+          username: u.displayName ?? (u.email?.split('@')[0] ?? 'user'),
+          needsEmailVerification: hasPasswordProvider(u) && !u.emailVerified,
+        })
+      );
       void applyFirebaseSession(u).catch(() => {});
     },
     [applyFirebaseSession]
@@ -320,13 +353,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         let signed: User | undefined;
         await withTimeout(25_000, async () => {
           const cred = await signInWithEmailAndPassword(auth, email, password);
-          signed = cred.user;
-          setUser({
-            uid: signed.uid,
-            email: signed.email ?? '',
-            username: signed.displayName ?? (signed.email?.split('@')[0] ?? 'user'),
-            needsEmailVerification: hasPasswordProvider(signed) && !signed.emailVerified,
-          });
+          const uIn = cred.user;
+          signed = uIn;
+          setUser((prev) =>
+            mergeAuthUser(prev, {
+              uid: uIn.uid,
+              email: uIn.email ?? '',
+              username: uIn.displayName ?? (uIn.email?.split('@')[0] ?? 'user'),
+              needsEmailVerification: hasPasswordProvider(uIn) && !uIn.emailVerified,
+            })
+          );
         });
         if (signed) {
           void applyFirebaseSession(signed).catch(() => {});
@@ -388,12 +424,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await updateProfile(userCred.user, { displayName: dn });
     }
     const u = userCred.user;
-    setUser({
-      uid: u.uid,
-      email: u.email ?? '',
-      username: u.displayName ?? (u.email?.split('@')[0] ?? 'user'),
-      needsEmailVerification: hasPasswordProvider(u) && !u.emailVerified,
-    });
+    setUser((prev) =>
+      mergeAuthUser(prev, {
+        uid: u.uid,
+        email: u.email ?? '',
+        username: u.displayName ?? (u.email?.split('@')[0] ?? 'user'),
+        needsEmailVerification: hasPasswordProvider(u) && !u.emailVerified,
+      })
+    );
     void applyFirebaseSession(u).catch(() => {});
   }, [applyFirebaseSession]);
 

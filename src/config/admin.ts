@@ -1,5 +1,12 @@
 import { getExpoExtra } from './expoExtra';
 
+/** Accept boolean `true` or a legacy string `"true"` sometimes seen in hand-edited Firestore data. */
+export function parseProfileIsAdmin(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === 'string' && value.trim().toLowerCase() === 'true') return true;
+  return false;
+}
+
 export function getAdminUids(): string[] {
   const extra = getExpoExtra();
   const raw = extra?.adminUids;

@@ -103,6 +103,7 @@ export function RecordScreen() {
   const cameraRef = React.useRef<CameraView>(null);
   const countdownAbortRef = React.useRef(false);
   const isRecordingRef = React.useRef(false);
+  const recordingWatchdogRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   React.useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -139,16 +140,21 @@ export function RecordScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
-      cameraReadyRef.current = false;
       void setAudioSessionForRecording().catch(() => {});
 
       if (permission?.status === 'undetermined') {
         void requestPermission();
       }
 
+      const markReadyAfterResume = () => {
+        void cameraRef.current?.resumePreview?.().then(() => {
+          cameraReadyRef.current = true;
+        }).catch(() => {});
+      };
+
       const task = InteractionManager.runAfterInteractions(() => {
         requestAnimationFrame(() => {
-          void cameraRef.current?.resumePreview?.().catch(() => {});
+          markReadyAfterResume();
         });
       });
 
@@ -156,15 +162,26 @@ export function RecordScreen() {
         task.cancel?.();
         countdownAbortRef.current = true;
         setCountdown(null);
-        cameraReadyRef.current = false;
+        if (recordingWatchdogRef.current) {
+          clearTimeout(recordingWatchdogRef.current);
+          recordingWatchdogRef.current = null;
+        }
         if (isRecordingRef.current) {
           try {
             cameraRef.current?.stopRecording();
           } catch {
             /* noop */
           }
+          // Do not pause preview while a recording is stopping — expo-camera ends `recordAsync` when
+          // preview is paused, which truncates the file. Pause after native stop settles.
+          setTimeout(() => {
+            cameraReadyRef.current = false;
+            void cameraRef.current?.pausePreview?.().catch(() => {});
+          }, 500);
+        } else {
+          cameraReadyRef.current = false;
+          void cameraRef.current?.pausePreview?.().catch(() => {});
         }
-        void cameraRef.current?.pausePreview?.().catch(() => {});
         void setAudioSessionForPlayback().catch(() => {});
       };
     }, [permission?.status, requestPermission])
@@ -174,9 +191,13 @@ export function RecordScreen() {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       if (next !== 'active') return;
       if (!isFocused || postedToday || clipUri || !canUseCamera) return;
-      cameraReadyRef.current = false;
       requestAnimationFrame(() => {
-        void cameraRef.current?.resumePreview?.().catch(() => {});
+        void cameraRef.current
+          ?.resumePreview?.()
+          .then(() => {
+            cameraReadyRef.current = true;
+          })
+          .catch(() => {});
       });
     });
     return () => sub.remove();
@@ -218,7 +239,6 @@ export function RecordScreen() {
     }
     setCountdown(null);
 
-    setIsRecording(true);
     try {
       await setAudioSessionForRecording().catch(() => {});
 
@@ -226,19 +246,40 @@ export function RecordScreen() {
         showError('Camera not ready', new Error('Try again in a moment.'));
         return;
       }
+
+      // Preview must be running before recordAsync; pausing/stopping preview ends recording (expo-camera).
+      await cameraRef.current.resumePreview?.().catch(() => {});
+
       let waited = 0;
       while (!cameraReadyRef.current && waited < 8000) {
         // eslint-disable-next-line no-await-in-loop
         await new Promise((r) => setTimeout(r, 120));
         waited += 120;
+        if (countdownAbortRef.current) return;
       }
       if (!cameraReadyRef.current) {
         showError('Camera not ready', new Error('Wait for the preview, then try again.'));
         return;
       }
 
-      const recordingOptions = { maxDuration: maxSec };
+      setIsRecording(true);
+
+      const durationSec = Math.max(1, maxSec);
+      const recordingOptions = { maxDuration: durationSec };
+
+      // If native maxDuration never fires, still stop so the user can post (matches challenge length).
+      recordingWatchdogRef.current = setTimeout(() => {
+        recordingWatchdogRef.current = null;
+        if (!isRecordingRef.current) return;
+        try {
+          (cameraRef.current as { stopRecording?: () => void })?.stopRecording?.();
+        } catch {
+          /* noop */
+        }
+      }, durationSec * 1000 + 750);
+
       const result = await cameraRef.current.recordAsync(recordingOptions);
+
       const fileUri = result?.uri ?? null;
       setClipUri(fileUri);
       if (fileUri) {
@@ -252,6 +293,10 @@ export function RecordScreen() {
     } catch (e) {
       showError('Recording failed', e);
     } finally {
+      if (recordingWatchdogRef.current) {
+        clearTimeout(recordingWatchdogRef.current);
+        recordingWatchdogRef.current = null;
+      }
       setIsRecording(false);
       void setAudioSessionForPlayback().catch(() => {});
     }
@@ -469,7 +514,7 @@ export function RecordScreen() {
         ) : canUseCamera ? (
           <>
             <CameraView
-              key={`camera-${challenge.dateKey}-${challenge.maxDurationSeconds}`}
+              key={`camera-${challenge.dateKey}-${challenge.maxDurationSeconds}-${cameraFacing}`}
               ref={cameraRef}
               style={StyleSheet.absoluteFill}
               facing={cameraFacing}
