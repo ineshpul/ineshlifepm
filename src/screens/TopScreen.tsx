@@ -87,7 +87,7 @@ export function TopScreen() {
           <Brandmark size={36} />
           <View>
             <Text style={styles.title}>How high can you jump?</Text>
-            <Text style={styles.sub}>Leaderboard · last 14 days</Text>
+            <Text style={styles.sub}>Leaperboard · last 14 days</Text>
           </View>
         </View>
       </View>
@@ -100,10 +100,10 @@ export function TopScreen() {
           !leaderboardHydrated ? (
             <View style={styles.emptyLoading}>
               <ActivityIndicator size="large" color={colors.moss} />
-              <Text style={styles.emptyLoadingText}>Loading leaderboard…</Text>
+              <Text style={styles.emptyLoadingText}>Loading leaperboard…</Text>
             </View>
           ) : (
-            <Text style={styles.empty}>No leaderboard yet. Post and engage to climb the board.</Text>
+            <Text style={styles.empty}>No leaperboard yet. Post and engage to climb the board.</Text>
           )
         }
         renderItem={({ item, index }) => (

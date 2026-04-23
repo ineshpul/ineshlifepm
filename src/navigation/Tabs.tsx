@@ -84,7 +84,7 @@ export function AppTabs() {
         component={TopScreen}
         options={{
           title: 'How high can you jump?',
-          tabBarAccessibilityLabel: 'How high can you jump? Leaderboard',
+          tabBarAccessibilityLabel: 'How high can you jump? Leaperboard',
           tabBarIcon: ({ focused }) => <TabIcon name="trending-up-outline" focused={focused} />,
         }}
       />
