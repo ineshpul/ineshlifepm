@@ -29,7 +29,6 @@ export function NewChatScreen({ navigation, route }: Props) {
   const [busy, setBusy] = React.useState<string | null>(null);
   const sharePost = route.params?.sharePost;
   const cancelShare = React.useCallback(() => {
-    // When sharing, back should land on the inbox (not pop back to wherever the share originated).
     navigation.replace('ChatInbox');
   }, [navigation]);
 
@@ -66,7 +65,7 @@ export function NewChatScreen({ navigation, route }: Props) {
   };
 
   return (
-    <Screen style={styles.screen}>
+    <Screen style={styles.screen} dismissKeyboardOnTap>
       {sharePost ? (
         <View style={styles.topBar}>
           <TouchableOpacity

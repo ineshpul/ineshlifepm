@@ -1,5 +1,14 @@
 import * as React from 'react';
-import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { Video, ResizeMode } from 'expo-av';
@@ -13,6 +22,8 @@ import type { RootStackParamList } from '../navigation/types';
 import { useAuth } from '../state/auth';
 import { FollowButton } from '../components/FollowButton';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
+import { getOrCreateDm } from '../services/chat/chatFirestore';
+import { showError } from '../utils/ui';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'UserProfile'>;
 
@@ -38,6 +49,7 @@ export function UserProfileScreen({ route }: Props) {
   const [profile, setProfile] = React.useState<any>(null);
   const [videos, setVideos] = React.useState<ProfileVideo[]>([]);
   const [playingId, setPlayingId] = React.useState<string | null>(null);
+  const [dmBusy, setDmBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (!isFocused) setPlayingId(null);
@@ -99,6 +111,28 @@ export function UserProfileScreen({ route }: Props) {
   }, [uid, user?.uid, usernameHint, profile?.username]);
 
   const username = String(profile?.username ?? usernameHint ?? 'user');
+  const openDmWithUser = React.useCallback(async () => {
+    if (!viewerUid || isSelf) return;
+    setDmBusy(true);
+    try {
+      const id = await getOrCreateDm({
+        currentUid: viewerUid,
+        otherUid: uid,
+        otherDisplayName: username,
+      });
+      nav.navigate('Tabs', {
+        screen: 'Chat',
+        params: {
+          screen: 'Conversation',
+          params: { conversationId: id, threadTitle: username },
+        },
+      });
+    } catch (e) {
+      showError('Could not open chat', e);
+    } finally {
+      setDmBusy(false);
+    }
+  }, [viewerUid, isSelf, uid, username, nav]);
   const bio = String(profile?.bio ?? '').trim();
   const photoUrl = String(profile?.photoUrl ?? '').trim();
   const initials =
@@ -129,12 +163,27 @@ export function UserProfileScreen({ route }: Props) {
           {bio ? <Text style={styles.bio}>{bio}</Text> : null}
         </View>
         {!isSelf && user?.uid ? (
-          <FollowButton
-            viewerUid={user.uid}
-            viewerUsername={user.username}
-            targetUid={uid}
-            targetUsername={username}
-          />
+          <View style={styles.profileActions}>
+            <FollowButton
+              viewerUid={user.uid}
+              viewerUsername={user.username}
+              targetUid={uid}
+              targetUsername={username}
+            />
+            <TouchableOpacity
+              style={styles.messageBtn}
+              onPress={() => void openDmWithUser()}
+              disabled={dmBusy}
+              accessibilityRole="button"
+              accessibilityLabel="Message"
+            >
+              {dmBusy ? (
+                <ActivityIndicator size="small" color={colors.moss} />
+              ) : (
+                <Text style={styles.messageBtnTxt}>Message</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         ) : null}
       </View>
 
@@ -242,6 +291,19 @@ const styles = StyleSheet.create({
   avatarText: { fontSize: 18, fontWeight: '900', color: colors.moss },
   name: { fontSize: 16, fontWeight: '900', color: colors.text },
   handle: { marginTop: 2, fontSize: 12, fontWeight: '700', color: colors.muted },
+  profileActions: { alignItems: 'flex-end', gap: 8 },
+  messageBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.moss,
+    backgroundColor: 'rgba(39, 174, 96, 0.08)',
+    minWidth: 86,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  messageBtnTxt: { fontSize: 13, fontWeight: '800', color: colors.moss },
   bio: { marginTop: 8, fontSize: 13, lineHeight: 18, fontWeight: '600', color: colors.text },
   statsRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
   stat: {

@@ -1,5 +1,13 @@
 import * as React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
 import { Brandmark } from '../components/Brandmark';
@@ -12,6 +20,8 @@ import { useLiveCount } from '../state/live';
 import { LEAP_BOTTOM_TAGLINE } from '../content/challengeCopy';
 import { useAuth } from '../state/auth';
 import { showInfo } from '../utils/ui';
+import { isFirebaseConfigured } from '../firebase/firebase';
+import { subscribeUsersByUsernamePrefix, type UserSearchHit } from '../services/userSearch';
 
 function formatHMS(ms: number) {
   if (!Number.isFinite(ms)) return '—';
@@ -33,8 +43,38 @@ export function TodayScreen() {
   const headerCountdown = window.isLive ? window.msUntilExpire : window.msUntilDrop;
   const liveCount = useLiveCount(window.dateKey);
 
+  const [profileQ, setProfileQ] = React.useState('');
+  const [debouncedProfileQ, setDebouncedProfileQ] = React.useState('');
+  const [profileHits, setProfileHits] = React.useState<UserSearchHit[]>([]);
+  const [profileSearchLoading, setProfileSearchLoading] = React.useState(false);
+
+  const qNorm = React.useMemo(() => profileQ.trim().toLowerCase().replace(/^@+/u, ''), [profileQ]);
+  const profileSearchPending = Boolean(qNorm && qNorm !== debouncedProfileQ);
+
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedProfileQ(qNorm), 280);
+    return () => clearTimeout(t);
+  }, [qNorm]);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured() || !user?.uid || !debouncedProfileQ) {
+      setProfileHits([]);
+      setProfileSearchLoading(false);
+      return;
+    }
+    setProfileHits([]);
+    setProfileSearchLoading(true);
+    const unsub = subscribeUsersByUsernamePrefix(debouncedProfileQ, user.uid, 35, (hits) => {
+      setProfileHits(hits);
+      setProfileSearchLoading(false);
+    });
+    return () => unsub();
+  }, [debouncedProfileQ, user?.uid]);
+
+  const showProfileSpinner = Boolean(qNorm) && (profileSearchPending || profileSearchLoading);
+
   return (
-    <Screen style={styles.screen}>
+    <Screen style={styles.screen} dismissKeyboardOnTap>
       <View style={styles.header}>
         <View style={styles.headerBrand}>
           <View style={styles.brandRow}>
@@ -61,6 +101,61 @@ export function TodayScreen() {
             <Text style={styles.pillText}>{formatHMS(headerCountdown)}</Text>
           </View>
         </View>
+      </View>
+
+      <View style={styles.findBlock}>
+        <Text style={styles.findLabel}>Find someone on Leap</Text>
+        {!isFirebaseConfigured() ? (
+          <Text style={styles.findOffline}>Connect Firebase to search profiles.</Text>
+        ) : (
+          <>
+            <TextInput
+              style={styles.findInput}
+              placeholder="Search by username"
+              placeholderTextColor={colors.muted2}
+              value={profileQ}
+              onChangeText={setProfileQ}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {showProfileSpinner ? (
+              <View style={styles.findLoading}>
+                <ActivityIndicator color={colors.moss} />
+                <Text style={styles.findLoadingTxt}>Searching…</Text>
+              </View>
+            ) : null}
+            {qNorm && !showProfileSpinner ? (
+              <View style={styles.findResultsWrap}>
+                <FlatList
+                  data={profileHits}
+                  keyExtractor={(h) => h.uid}
+                  scrollEnabled={profileHits.length > 4}
+                  style={styles.findResultsList}
+                  keyboardShouldPersistTaps="handled"
+                  ListEmptyComponent={
+                    <Text style={styles.findEmpty}>No users match that prefix.</Text>
+                  }
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={styles.findRow}
+                      onPress={() => {
+                        setProfileQ('');
+                        setDebouncedProfileQ('');
+                        setProfileHits([]);
+                        nav.navigate('UserProfile', { uid: item.uid, username: item.username });
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open ${item.username} profile`}
+                    >
+                      <Text style={styles.findRowName}>@{item.username}</Text>
+                      <Text style={styles.findRowHint}>Watch videos</Text>
+                    </TouchableOpacity>
+                  )}
+                />
+              </View>
+            ) : null}
+          </>
+        )}
       </View>
 
       <View style={styles.card}>
@@ -174,6 +269,65 @@ const styles = StyleSheet.create({
     letterSpacing: 2.2,
     fontWeight: '900',
     color: colors.muted,
+  },
+  findBlock: {
+    marginTop: 14,
+  },
+  findLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.muted,
+    marginBottom: 8,
+  },
+  findOffline: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.muted,
+  },
+  findInput: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    fontWeight: '600',
+    backgroundColor: colors.white,
+  },
+  findLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  findLoadingTxt: { fontSize: 13, fontWeight: '700', color: colors.muted },
+  findResultsWrap: {
+    marginTop: 8,
+    maxHeight: 200,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    overflow: 'hidden',
+  },
+  findResultsList: { flexGrow: 0 },
+  findRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border2,
+  },
+  findRowName: { fontSize: 15, fontWeight: '800', color: colors.text, flexShrink: 1 },
+  findRowHint: { fontSize: 12, fontWeight: '700', color: colors.moss, marginLeft: 10 },
+  findEmpty: {
+    padding: 14,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.muted,
+    textAlign: 'center',
   },
   pill: {
     flexDirection: 'row',

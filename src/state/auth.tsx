@@ -21,6 +21,7 @@ import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { isAdminUid, parseProfileIsAdmin } from '../config/admin';
 import { unregisterPushDevice } from '../services/pushNotifications';
+import { usernameToSearchPrefixKey } from '../utils/usernameSearch';
 
 export type AuthUser = {
   uid: string;
@@ -204,6 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           {
             uid: u.uid,
             username,
+            usernameLower: usernameToSearchPrefixKey(username),
             updatedAt: serverTimestamp(),
           },
           { merge: true }

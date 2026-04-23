@@ -3,6 +3,7 @@ import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
 import { firebaseAuth, firestore, isFirebaseConfigured, storage } from '../firebase/firebase';
+import { usernameToSearchPrefixKey } from '../utils/usernameSearch';
 
 async function uriToBlob(uri: string): Promise<Blob> {
   const res = await fetch(uri);
@@ -53,6 +54,7 @@ export async function saveUserPublicProfile(args: SavePublicProfileArgs): Promis
 
   const patch: Record<string, unknown> = {
     username,
+    usernameLower: usernameToSearchPrefixKey(username),
     bio,
     updatedAt: serverTimestamp(),
   };
