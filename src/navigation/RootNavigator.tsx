@@ -19,6 +19,8 @@ import { LEGAL_DOCS } from '../content/settingsLegal';
 import type { AuthStackParamList, MainStackParamList, RootStackParamList } from './types';
 import { AppTabs } from './Tabs';
 import { VerifyEmailScreen } from '../screens/VerifyEmailScreen';
+import { TermsGateScreen } from '../screens/TermsGateScreen';
+import { hasAcceptedTerms } from '../state/termsAcceptance';
 
 const MainStack = createNativeStackNavigator<MainStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -98,11 +100,37 @@ export function RootNavigator() {
   const authed = Boolean(user?.uid);
   const needsEmailVerification = Boolean(user?.needsEmailVerification);
   const navKey = !authed ? 'signed-out' : needsEmailVerification ? `verify-${user!.uid}` : `app-${user!.uid}`;
+  const [termsOk, setTermsOk] = React.useState<boolean>(false);
+  const [termsReady, setTermsReady] = React.useState<boolean>(false);
+
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!authed || !user?.uid) {
+        if (!alive) return;
+        setTermsOk(false);
+        setTermsReady(false);
+        return;
+      }
+      try {
+        const ok = await hasAcceptedTerms(user.uid);
+        if (!alive) return;
+        setTermsOk(ok);
+      } finally {
+        if (alive) setTermsReady(true);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [authed, user?.uid]);
 
   return (
     <NavigationContainer key={navKey}>
       {authed && needsEmailVerification ? (
         <VerifyEmailScreen />
+      ) : authed && termsReady && !termsOk ? (
+        <TermsGateScreen />
       ) : authed ? (
         <LoggedInStack />
       ) : (

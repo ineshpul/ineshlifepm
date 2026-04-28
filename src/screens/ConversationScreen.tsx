@@ -38,6 +38,7 @@ import {
   addReaction,
   editMessage,
   ensureMyInboxRow,
+  removeReaction,
   reportMessage,
   setTyping,
   softDeleteForSelf,
@@ -91,7 +92,9 @@ export function ConversationScreen({ navigation, route }: Props) {
   const typingTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [videoOpen, setVideoOpen] = React.useState<string | null>(null);
   const reactionsUnsubs = React.useRef<Record<string, () => void>>({});
-  const [reactionMap, setReactionMap] = React.useState<Record<string, { emoji: string; count: number }[]>>({});
+  const [reactionMap, setReactionMap] = React.useState<
+    Record<string, { emoji: string; count: number; mine?: boolean }[]>
+  >({});
   const pendingShareHandled = React.useRef(false);
 
   React.useEffect(() => {
@@ -123,6 +126,13 @@ export function ConversationScreen({ navigation, route }: Props) {
       void markRead();
     }, [markRead])
   );
+
+  // If the screen focused before messages loaded, mark read once we have a last message id.
+  React.useEffect(() => {
+    if (loading) return;
+    if (messages.length === 0) return;
+    void markRead();
+  }, [loading, messages.length, markRead]);
 
   React.useEffect(() => {
     if (!user?.uid || !myMember) return;
@@ -170,14 +180,16 @@ export function ConversationScreen({ navigation, route }: Props) {
       if (reactionsUnsubs.current[msgId]) return;
       reactionsUnsubs.current[msgId] = subscribeReactions(conversationId, msgId, (rows) => {
         const map = new Map<string, number>();
+        const mine = new Set<string>();
         rows.forEach((r) => {
           map.set(r.emoji, (map.get(r.emoji) ?? 0) + 1);
+          if (r.userId === user?.uid) mine.add(r.emoji);
         });
-        const arr = [...map.entries()].map(([emoji, count]) => ({ emoji, count }));
+        const arr = [...map.entries()].map(([emoji, count]) => ({ emoji, count, mine: mine.has(emoji) }));
         setReactionMap((prev) => ({ ...prev, [msgId]: arr }));
       });
     },
-    [conversationId]
+    [conversationId, user?.uid]
   );
 
   const onTyping = React.useCallback(() => {
@@ -454,7 +466,13 @@ export function ConversationScreen({ navigation, route }: Props) {
                 onPress={async () => {
                   if (!reactionMsg || !user?.uid) return;
                   try {
-                    await addReaction(conversationId, reactionMsg.id, user.uid, em);
+                    const rows = reactionMsg ? reactionMap[reactionMsg.id] : undefined;
+                    const already = Boolean(rows?.some((r) => r.emoji === em && r.mine));
+                    if (already) {
+                      await removeReaction(conversationId, reactionMsg.id, user.uid, em);
+                    } else {
+                      await addReaction(conversationId, reactionMsg.id, user.uid, em);
+                    }
                   } catch (e) {
                     showError('Reaction failed', e);
                   }

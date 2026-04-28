@@ -414,9 +414,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!apple.identityToken) {
       throw new Error('Apple did not return an identity token.');
     }
+    if (!apple.authorizationCode) {
+      throw new Error('Apple did not return an authorization code.');
+    }
     const auth = firebaseAuth();
     const oauth = new OAuthProvider('apple.com');
-    const cred = oauth.credential({ idToken: apple.identityToken, rawNonce });
+    // Some Firebase / Apple configurations require an access token (authorization code) as well.
+    const cred = oauth.credential({
+      idToken: apple.identityToken,
+      rawNonce,
+      accessToken: apple.authorizationCode,
+    });
     const userCred = await signInWithCredential(auth, cred);
     const dn =
       apple.fullName?.givenName || apple.fullName?.familyName

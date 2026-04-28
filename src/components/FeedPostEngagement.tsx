@@ -28,10 +28,15 @@ import { colors } from '../theme/colors';
 import { firestore, firebaseAuth, isFirebaseConfigured } from '../firebase/firebase';
 import { createInAppNotification } from '../services/social';
 import { showError } from '../utils/ui';
+import { BlockReportModal } from '../chat/components/BlockReportModal';
+import { reportVideo } from '../services/contentReports';
+import { blockUser } from '../services/chat/chatFirestore';
+import { useSettingsPreferences } from '../state/settingsPreferences';
 
 type Props = {
   videoId: string;
   videoOwnerUid: string;
+  videoOwnerUsername: string;
   shareTitle: string;
   shareUrl: string;
   viewerUid: string | undefined;
@@ -43,6 +48,7 @@ type Props = {
 export function FeedPostEngagement({
   videoId,
   videoOwnerUid,
+  videoOwnerUsername,
   shareTitle,
   shareUrl,
   viewerUid,
@@ -50,6 +56,7 @@ export function FeedPostEngagement({
   onCommentComposerFocus,
 }: Props) {
   const navigation = useNavigation<any>();
+  const { preferences, patch } = useSettingsPreferences();
   const [likeCount, setLikeCount] = React.useState(0);
   const [liked, setLiked] = React.useState(false);
   const [docLikeCount, setDocLikeCount] = React.useState<number | null>(null);
@@ -61,6 +68,8 @@ export function FeedPostEngagement({
   const [sending, setSending] = React.useState(false);
   const [likeBusy, setLikeBusy] = React.useState(false);
   const [deletingCommentId, setDeletingCommentId] = React.useState<string | null>(null);
+  const [reportOpen, setReportOpen] = React.useState(false);
+  const [blockOpen, setBlockOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !viewerUid) return;
@@ -276,6 +285,15 @@ export function FeedPostEngagement({
   const displayLikes = Math.max(likeCount, docLikeCount ?? 0);
   const displayComments = Math.max(comments.length, docCommentCount ?? 0);
 
+  const openSafety = () => {
+    if (!viewerUid) return;
+    Alert.alert('Safety', 'Keep Leap safe.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Report post', style: 'destructive', onPress: () => setReportOpen(true) },
+      { text: 'Block user', style: 'destructive', onPress: () => setBlockOpen(true) },
+    ]);
+  };
+
   return (
     <View style={styles.wrap}>
       <View style={styles.actions}>
@@ -334,6 +352,18 @@ export function FeedPostEngagement({
           <Ionicons name="share-outline" size={22} color={colors.text} />
           <Text style={styles.actionLabel}>Share</Text>
         </TouchableOpacity>
+
+        {viewerUid && viewerUid !== videoOwnerUid ? (
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={openSafety}
+            accessibilityRole="button"
+            accessibilityLabel="Report or block"
+          >
+            <Ionicons name="flag-outline" size={21} color={colors.text} />
+            <Text style={styles.actionLabel}>Safety</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {comments.length > 0 && (
@@ -398,6 +428,50 @@ export function FeedPostEngagement({
           </TouchableOpacity>
         </View>
       ) : null}
+
+      <BlockReportModal
+        visible={reportOpen}
+        mode="report"
+        titleOverride="Report post"
+        subtitleOverride="Tell us what’s wrong. Reports are reviewed within 24 hours."
+        reasonPlaceholder="Reason (required)"
+        onClose={() => setReportOpen(false)}
+        onConfirm={(reason) => {
+          if (!viewerUid) return;
+          const r = reason.trim() || 'unspecified';
+          // Hide instantly for this viewer.
+          const nextHidden = Array.from(new Set([...(preferences.hiddenVideoIds ?? []), videoId]));
+          patch({ hiddenVideoIds: nextHidden });
+          void reportVideo({
+            reporterUid: viewerUid,
+            videoId,
+            videoOwnerUid,
+            videoOwnerUsername,
+            reason: r,
+          });
+          setReportOpen(false);
+        }}
+      />
+
+      <BlockReportModal
+        visible={blockOpen}
+        mode="block"
+        titleOverride="Block user?"
+        subtitleOverride="You won’t see their posts, and they won’t be able to chat with you."
+        onClose={() => setBlockOpen(false)}
+        onConfirm={() => {
+          if (!viewerUid) return;
+          const uname = String(videoOwnerUsername ?? '').trim();
+          if (uname) {
+            const nextBlocked = Array.from(new Set([...(preferences.blockedUsernames ?? []), uname]));
+            patch({ blockedUsernames: nextBlocked });
+          }
+          const nextHidden = Array.from(new Set([...(preferences.hiddenVideoIds ?? []), videoId]));
+          patch({ hiddenVideoIds: nextHidden });
+          void blockUser(viewerUid, videoOwnerUid);
+          setBlockOpen(false);
+        }}
+      />
     </View>
   );
 }

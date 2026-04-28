@@ -9,6 +9,17 @@ export function RecordClipPreview({ uri }: Props) {
   const player = useVideoPlayer({ uri }, (p) => {
     p.loop = false;
   });
+  React.useEffect(() => {
+    // Autoplay once after recording so users don't have to tap play.
+    const t = setTimeout(() => {
+      try {
+        (player as any)?.play?.();
+      } catch {
+        // ignore
+      }
+    }, 150);
+    return () => clearTimeout(t);
+  }, [player]);
   return (
     <VideoView
       style={StyleSheet.absoluteFill}

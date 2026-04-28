@@ -169,3 +169,81 @@ export const onChatMessageCreated = onDocumentCreated(
     }
   }
 );
+
+type VideoReportPayload = {
+  reporterUid?: string;
+  videoId?: string;
+  videoOwnerUid?: string;
+  videoOwnerUsername?: string;
+  reason?: string;
+};
+
+async function adminTargets(): Promise<string[]> {
+  const snap = await admin.firestore().collection('users').where('isAdmin', '==', true).limit(25).get();
+  return snap.docs.map((d) => d.id).filter(Boolean);
+}
+
+async function notifyAdmins(title: string, body: string, data?: Record<string, unknown>) {
+  const admins = await adminTargets();
+  for (const userId of admins) {
+    const tokensSnap = await admin.firestore().collection(`users/${userId}/pushDevices`).get();
+    const tokens = tokensSnap.docs.map((d) => String(d.data()?.token ?? '')).filter(Boolean);
+    if (!tokens.length) continue;
+    const messages = tokens.map((to) => ({
+      to,
+      title,
+      body,
+      sound: 'default' as const,
+      priority: 'high' as const,
+      data: data ?? {},
+    }));
+    for (let i = 0; i < messages.length; i += 99) {
+      const chunk = messages.slice(i, i + 99);
+      const res = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(chunk),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        logger.error('Expo admin push error', { status: res.status, text, userId });
+      }
+    }
+  }
+}
+
+/**
+ * Moderation: when a video report is created, increment `videos/{id}.reportCount` and notify admins.
+ * This provides:
+ * - report mechanism
+ * - filtering via `contentFiltering` (you can choose to hide reported posts client-side)
+ * - developer notification to act within 24h
+ */
+export const onVideoReportCreated = onDocumentCreated(
+  { document: 'videoReports/{reportId}', region: 'us-central1' },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    const r = snap.data() as VideoReportPayload;
+    const videoId = String(r.videoId ?? '');
+    if (!videoId) return;
+    try {
+      await admin
+        .firestore()
+        .doc(`videos/${videoId}`)
+        .set({ reportCount: admin.firestore.FieldValue.increment(1) }, { merge: true });
+    } catch (e) {
+      logger.error('Could not increment reportCount', { videoId, e });
+    }
+    const reporter = String(r.reporterUid ?? '');
+    const owner = String(r.videoOwnerUid ?? '');
+    const ownerU = String(r.videoOwnerUsername ?? 'user');
+    const reason = String(r.reason ?? '').slice(0, 180);
+    await notifyAdmins('Leap · Report', `Post by @${ownerU} was reported: ${reason || 'unspecified'}`, {
+      type: 'video_report',
+      videoId,
+      reporterUid: reporter,
+      ownerUid: owner,
+    });
+  }
+);

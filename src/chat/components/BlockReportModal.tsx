@@ -14,27 +14,41 @@ import { PrimaryButton } from '../../components/PrimaryButton';
 type Props = {
   visible: boolean;
   mode: 'block' | 'report';
+  titleOverride?: string;
+  subtitleOverride?: string;
+  reasonPlaceholder?: string;
   onClose: () => void;
   onConfirm: (reason: string) => void;
 };
 
-export function BlockReportModal({ visible, mode, onClose, onConfirm }: Props) {
+export function BlockReportModal({
+  visible,
+  mode,
+  titleOverride,
+  subtitleOverride,
+  reasonPlaceholder,
+  onClose,
+  onConfirm,
+}: Props) {
   const [reason, setReason] = React.useState('');
 
   return (
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.back}>
         <View style={styles.card}>
-          <Text style={styles.title}>{mode === 'block' ? 'Block user?' : 'Report message'}</Text>
+          <Text style={styles.title}>
+            {titleOverride ?? (mode === 'block' ? 'Block user?' : 'Report')}
+          </Text>
           <Text style={styles.sub}>
-            {mode === 'block'
-              ? 'They won’t be able to message you and you won’t see their DMs.'
-              : 'Tell us briefly what’s wrong. Our moderation queue reviews reports.'}
+            {subtitleOverride ??
+              (mode === 'block'
+                ? 'They won’t be able to message you and you won’t see their DMs.'
+                : 'Tell us briefly what’s wrong. Our moderation queue reviews reports.')}
           </Text>
           {mode === 'report' ? (
             <TextInput
               style={styles.input}
-              placeholder="Reason"
+              placeholder={reasonPlaceholder ?? 'Reason'}
               placeholderTextColor={colors.muted2}
               value={reason}
               onChangeText={setReason}

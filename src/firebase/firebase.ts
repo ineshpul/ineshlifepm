@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
 import { initializeApp, getApp, getApps } from 'firebase/app';
 import type { Auth } from 'firebase/auth';
-import { getAuth, initializeAuth } from 'firebase/auth';
+import { browserLocalPersistence, getAuth, initializeAuth } from 'firebase/auth';
+import { Platform } from 'react-native';
 import { getFirestore } from 'firebase/firestore';
 import { getFunctions } from 'firebase/functions';
 import { getStorage } from 'firebase/storage';
@@ -32,27 +32,22 @@ export function getFirebaseApp() {
 
 let cachedAuth: Auth | null = null;
 
-function isExpoGoRuntime() {
-  return Constants.appOwnership === 'expo';
-}
-
 /**
- * Single Auth instance for dev builds / production.
- * Expo Go (especially iOS): always `getAuth(app)` — no module cache — so Metro hot reload cannot leave a
- * stale `initializeAuth` instance, and we avoid AsyncStorage persistence quirks with the RN Firebase SDK.
- * (Session resets when Expo Go fully restarts; that is fine for development.)
+ * Single Auth instance with durable persistence so users stay signed in across app restarts.
+ * - Native: AsyncStorage via `getReactNativePersistence`.
+ * - Web (Expo): `browserLocalPersistence` (localStorage).
+ * `initializeAuth` throws if Auth was already created (e.g. Metro fast refresh); then we reuse `getAuth`.
  */
 export function firebaseAuth(): Auth {
   const app = getFirebaseApp();
 
-  if (isExpoGoRuntime()) {
-    return getAuth(app);
-  }
-
   if (cachedAuth) return cachedAuth;
   try {
     cachedAuth = initializeAuth(app, {
-      persistence: getReactNativePersistence(AsyncStorage),
+      persistence:
+        Platform.OS === 'web'
+          ? browserLocalPersistence
+          : getReactNativePersistence(AsyncStorage),
     });
   } catch {
     cachedAuth = getAuth(app);

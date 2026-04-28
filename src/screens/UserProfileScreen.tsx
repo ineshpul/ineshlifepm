@@ -251,6 +251,7 @@ export function UserProfileScreen({ route }: Props) {
               <FeedPostEngagement
                 videoId={item.id}
                 videoOwnerUid={item.ownerUid}
+                videoOwnerUsername={item.username}
                 shareTitle={`${item.username} on Leap`}
                 shareUrl={item.url}
                 viewerUid={user.uid}

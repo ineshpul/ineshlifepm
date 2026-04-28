@@ -34,6 +34,8 @@ export type SettingsPreferencesState = {
   profilePhotoUri: string | null;
   blockedUsernames: string[];
   mutedUsernames: string[];
+  /** Video ids hidden only for this viewer (e.g. after reporting). */
+  hiddenVideoIds: string[];
 };
 
 export const SETTINGS_DEFAULTS: SettingsPreferencesState = {
@@ -56,6 +58,7 @@ export const SETTINGS_DEFAULTS: SettingsPreferencesState = {
   profilePhotoUri: null,
   blockedUsernames: [],
   mutedUsernames: [],
+  hiddenVideoIds: [],
 };
 
 type Ctx = {
@@ -91,6 +94,9 @@ function mergeLoaded(raw: unknown): SettingsPreferencesState {
     mutedUsernames: Array.isArray(o.mutedUsernames)
       ? o.mutedUsernames.map(String)
       : SETTINGS_DEFAULTS.mutedUsernames,
+    hiddenVideoIds: Array.isArray((o as any).hiddenVideoIds)
+      ? (o as any).hiddenVideoIds.map(String)
+      : SETTINGS_DEFAULTS.hiddenVideoIds,
   };
 }
 

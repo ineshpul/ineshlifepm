@@ -247,6 +247,19 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /videoReports/{reportId} {
+      allow read: if false;
+      allow create: if signedIn()
+        && request.resource.data.reporterUid == request.auth.uid
+        && request.resource.data.videoId is string
+        && request.resource.data.videoOwnerUid is string
+        && request.resource.data.videoOwnerUsername is string
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() > 0
+        && request.resource.data.reason.size() < 500;
+      allow update, delete: if false;
+    }
+
     // Daily post is unique per user per challenge day (doc id `${uid}_${challengeDate}`).
     match /videos/{videoId} {
       // Allow read when the doc is missing so `onSnapshot` (e.g. “posted today?”) does not throw

@@ -1,4 +1,4 @@
-﻿{
+{
   "expo": {
     "name": "Leap_MVP",
     "slug": "Leap_MVP",
@@ -22,7 +22,8 @@
         "NSMicrophoneUsageDescription": "Leap needs microphone access to record audio with your video.",
         "NSPhotoLibraryUsageDescription": "Leap needs photo library access so you can attach a video to your challenge.",
         "NSPhotoLibraryAddUsageDescription": "Leap can save your completed takes to your photo library when you enable Save to camera roll.",
-        "NSUserNotificationsUsageDescription": "Leap uses notifications to remind you when todayâ€™s challenge is live and before time runs out."
+        "NSUserNotificationsUsageDescription": "Leap uses notifications to remind you when todayâ€™s challenge is live and before time runs out.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -32,7 +33,13 @@
         "RECORD_AUDIO",
         "READ_MEDIA_VIDEO",
         "READ_EXTERNAL_STORAGE",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/brandmark.png",
@@ -59,7 +66,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": ""
+        "projectId": "a9f05aed-d919-4d1f-a611-7686ff777fe8"
       },
       "firebase": {
         "apiKey": "AIzaSyCw4_L2aawbQKIhTQ5jBppwDBeK76U5Yxk",

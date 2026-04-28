@@ -291,7 +291,7 @@ function FeedPostVideo(props: {
 export function FeedScreen() {
   const isFocused = useIsFocused();
   const nav = useNavigation<any>();
-  const { preferences } = useSettingsPreferences();
+  const { preferences, patch } = useSettingsPreferences();
   const { hasPostedToday, clearPostedOverride } = useAppState();
   const { user } = useAuth();
   const win = useChallengeWindow();
@@ -331,12 +331,14 @@ export function FeedScreen() {
     }
     v = v.filter((item) => !preferences.blockedUsernames.includes(item.username));
     v = v.filter((item) => !preferences.mutedUsernames.includes(item.username));
+    v = v.filter((item) => !preferences.hiddenVideoIds.includes(item.id));
     return v;
   }, [
     videos,
     preferences.feedType,
     preferences.blockedUsernames,
     preferences.mutedUsernames,
+    preferences.hiddenVideoIds,
     user?.uid,
     followingRows,
   ]);
@@ -779,6 +781,7 @@ export function FeedScreen() {
                     <FeedPostEngagement
                       videoId={item.id}
                       videoOwnerUid={item.ownerUid}
+                      videoOwnerUsername={item.username}
                       shareTitle={`${item.username} on Leap`}
                       shareUrl={item.url}
                       viewerUid={user.uid}

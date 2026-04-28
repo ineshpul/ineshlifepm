@@ -41,13 +41,23 @@ export async function validateLocalFile(uri: string, mime: string): Promise<{ ok
   if (!allowedMime(kind, mime)) {
     return { ok: false, error: 'This file type is not allowed in chat.' };
   }
-  const info = await FileSystem.getInfoAsync(uri);
+  const info = await FileSystem.getInfoAsync(uri as any);
   const size = info.exists && 'size' in info && typeof info.size === 'number' ? info.size : 0;
   if (!size) return { ok: false, error: 'Could not read file size.' };
   if (size > maxBytesForKind(kind)) {
     return { ok: false, error: 'File is too large for chat.' };
   }
   return { ok: true, size };
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  // `atob` exists in Expo/RN JS runtime. Fallback keeps typechecker happy.
+  const a = typeof globalThis.atob === 'function' ? globalThis.atob : undefined;
+  if (!a) throw new Error('Base64 decoder is unavailable.');
+  const bin = a(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
 export async function uploadChatAttachment(args: {
@@ -75,10 +85,13 @@ export async function uploadChatAttachment(args: {
   const path = `chat/${args.conversationId}/${args.uploaderUid}/${id}.${ext}`;
   const sref = ref(storage(), path);
 
-  const res = await fetch(args.localUri);
-  const blob = await res.blob();
+  // `fetch(file://...)` can fail on some iOS/Android URI schemes. Read via FileSystem as base64.
+  const b64 = await FileSystem.readAsStringAsync(args.localUri, {
+    encoding: 'base64' as any,
+  } as any);
+  const bytes = base64ToBytes(b64);
 
-  const task = uploadBytesResumable(sref, blob, { contentType: args.mimeType });
+  const task = uploadBytesResumable(sref, bytes, { contentType: args.mimeType });
   await new Promise<void>((resolve, reject) => {
     task.on(
       'state_changed',
@@ -96,9 +109,11 @@ export async function uploadChatAttachment(args: {
   if (args.thumbnailUri && kind === 'video') {
     const tpath = `chat/${args.conversationId}/${args.uploaderUid}/${id}_thumb.jpg`;
     const tref = ref(storage(), tpath);
-    const tr = await fetch(args.thumbnailUri);
-    const tblob = await tr.blob();
-    await uploadBytesResumable(tref, tblob, { contentType: 'image/jpeg' });
+    const tb64 = await FileSystem.readAsStringAsync(args.thumbnailUri, {
+      encoding: 'base64' as any,
+    } as any);
+    const tbytes = base64ToBytes(tb64);
+    await uploadBytesResumable(tref, tbytes, { contentType: 'image/jpeg' });
     thumbnailUrl = await getDownloadURL(tref);
   }
 
