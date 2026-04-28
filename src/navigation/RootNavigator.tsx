@@ -20,7 +20,7 @@ import type { AuthStackParamList, MainStackParamList, RootStackParamList } from 
 import { AppTabs } from './Tabs';
 import { VerifyEmailScreen } from '../screens/VerifyEmailScreen';
 import { TermsGateScreen } from '../screens/TermsGateScreen';
-import { hasAcceptedTerms } from '../state/termsAcceptance';
+import { hasAcceptedTerms, subscribeTermsAcceptance } from '../state/termsAcceptance';
 
 const MainStack = createNativeStackNavigator<MainStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -123,6 +123,15 @@ export function RootNavigator() {
     return () => {
       alive = false;
     };
+  }, [authed, user?.uid]);
+
+  React.useEffect(() => {
+    if (!authed || !user?.uid) return;
+    return subscribeTermsAcceptance((uid, accepted) => {
+      if (uid !== user.uid) return;
+      setTermsOk(accepted);
+      setTermsReady(true);
+    });
   }, [authed, user?.uid]);
 
   return (

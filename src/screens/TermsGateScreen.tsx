@@ -37,7 +37,7 @@ export function TermsGateScreen() {
   };
 
   return (
-    <Screen style={styles.screen} dismissKeyboardOnTap>
+    <Screen style={styles.screen} dismissKeyboardOnTap edges={['top', 'left', 'right', 'bottom']}>
       <View style={styles.header}>
         <Text style={styles.title}>Terms of use</Text>
         <Text style={styles.sub}>
