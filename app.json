@@ -1,4 +1,4 @@
-{
+﻿{
   "expo": {
     "name": "Leap_MVP",
     "slug": "Leap_MVP",
@@ -16,7 +16,6 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.leapmvp.app",
-      "usesAppleSignIn": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Leap needs camera access to record your daily challenge.",
         "NSMicrophoneUsageDescription": "Leap needs microphone access to record audio with your video.",
@@ -59,7 +58,6 @@
           "enableBackgroundRemoteNotifications": true
         }
       ],
-      "expo-apple-authentication",
       "expo-web-browser",
       "expo-media-library",
       "expo-video"

@@ -1,17 +1,13 @@
 import * as React from 'react';
 import { AppState } from 'react-native';
-import * as AppleAuthentication from 'expo-apple-authentication';
-import * as Crypto from 'expo-crypto';
 import type { User } from 'firebase/auth';
 import {
-  OAuthProvider,
   createUserWithEmailAndPassword,
   getIdTokenResult,
   onAuthStateChanged,
   reload,
   sendEmailVerification,
   sendPasswordResetEmail,
-  signInWithCredential,
   signInWithEmailAndPassword,
   signOut as fbSignOut,
   updateProfile,
@@ -42,7 +38,6 @@ type AuthContextValue = {
   signUp: (args: { email: string; password: string; username: string }) => Promise<void>;
   signInWithEmailPassword: (args: { email: string; password: string }) => Promise<EmailPasswordSignInResult>;
   signOut: () => Promise<void>;
-  signInWithApple: () => Promise<void>;
   resendEmailVerification: () => Promise<void>;
   refreshEmailVerification: () => Promise<boolean>;
   sendPasswordResetEmail: (email: string) => Promise<void>;
@@ -397,53 +392,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [applyFirebaseSession]
   );
 
-  const signInWithApple = React.useCallback(async () => {
-    if (!isFirebaseConfigured()) return;
-    if (!(await AppleAuthentication.isAvailableAsync())) {
-      throw new Error('Sign in with Apple is not available on this device or OS version.');
-    }
-    const rawNonce = Crypto.randomUUID();
-    const nonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
-    const apple = await AppleAuthentication.signInAsync({
-      requestedScopes: [
-        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-        AppleAuthentication.AppleAuthenticationScope.EMAIL,
-      ],
-      nonce,
-    });
-    if (!apple.identityToken) {
-      throw new Error('Apple did not return an identity token.');
-    }
-    if (!apple.authorizationCode) {
-      throw new Error('Apple did not return an authorization code.');
-    }
-    const auth = firebaseAuth();
-    const oauth = new OAuthProvider('apple.com');
-    // Some Firebase / Apple configurations require an access token (authorization code) as well.
-    const cred = oauth.credential({
-      idToken: apple.identityToken,
-      rawNonce,
-      accessToken: apple.authorizationCode,
-    });
-    const userCred = await signInWithCredential(auth, cred);
-    const dn =
-      apple.fullName?.givenName || apple.fullName?.familyName
-        ? [apple.fullName?.givenName, apple.fullName?.familyName].filter(Boolean).join(' ')
-        : '';
-    if (dn && userCred.user && !userCred.user.displayName) {
-      await updateProfile(userCred.user, { displayName: dn });
-    }
-    const u = userCred.user;
-    setUser((prev) =>
-      mergeAuthUser(prev, {
-        uid: u.uid,
-        email: u.email ?? '',
-        username: u.displayName ?? (u.email?.split('@')[0] ?? 'user'),
-        needsEmailVerification: hasPasswordProvider(u) && !u.emailVerified,
-      })
-    );
-    void applyFirebaseSession(u).catch(() => {});
-  }, [applyFirebaseSession]);
+  // Sign in with Apple removed for now (email/password only).
 
   const resendEmailVerificationCb = React.useCallback(async () => {
     if (!isFirebaseConfigured()) return;
@@ -523,7 +472,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signUp,
       signInWithEmailPassword,
       signOut,
-      signInWithApple,
       resendEmailVerification: resendEmailVerificationCb,
       refreshEmailVerification: refreshEmailVerificationCb,
       sendPasswordResetEmail: sendPasswordResetEmailCb,
@@ -533,7 +481,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signUp,
       signInWithEmailPassword,
       signOut,
-      signInWithApple,
       resendEmailVerificationCb,
       refreshEmailVerificationCb,
       sendPasswordResetEmailCb,

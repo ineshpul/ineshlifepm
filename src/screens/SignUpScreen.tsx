@@ -13,7 +13,7 @@ import { isValidEmail, isValidPassword, PASSWORD_MIN_LENGTH } from '../utils/aut
 
 export function SignUpScreen() {
   const nav = useNavigation<any>();
-  const { signUp, signInWithApple } = useAuth();
+  const { signUp } = useAuth();
 
   const [username, setUsername] = React.useState('');
   const [email, setEmail] = React.useState('');
@@ -49,17 +49,7 @@ export function SignUpScreen() {
     }
   };
 
-  const onApple = async () => {
-    setBusy(true);
-    try {
-      await signInWithApple();
-    } catch (e: unknown) {
-      const msg = friendlySignInError(e);
-      if (msg) Alert.alert('Apple sign-in', msg);
-    } finally {
-      setBusy(false);
-    }
-  };
+  // Apple sign-in removed for now (email/password only).
 
   return (
     <KeyboardScreen contentContainerStyle={styles.screen}>
@@ -115,16 +105,6 @@ export function SignUpScreen() {
           variant="black"
           style={styles.cta}
         />
-
-        {Platform.OS === 'ios' ? (
-          <TouchableOpacity
-            style={[styles.appleBtn, busy && styles.disabled]}
-            disabled={busy}
-            onPress={() => void onApple()}
-          >
-            <Text style={styles.appleText}>Continue with Apple</Text>
-          </TouchableOpacity>
-        ) : null}
 
         <TouchableOpacity onPress={() => nav.navigate('SignIn')} style={styles.bottomLink}>
           <Text style={styles.bottomText}>
