@@ -551,7 +551,23 @@ export async function sendChatMessage(args: {
   clientTempId?: string;
 }): Promise<string> {
   const text = (args.text ?? '').trim();
-  const atts = args.attachments ?? [];
+  const atts = (args.attachments ?? []).map((a) => {
+    // Firestore rejects `undefined` values anywhere in the payload; only include defined optional fields.
+    const clean: any = {
+      id: a.id,
+      kind: a.kind,
+      storagePath: a.storagePath,
+      downloadUrl: a.downloadUrl,
+      mimeType: a.mimeType,
+      sizeBytes: a.sizeBytes,
+    };
+    if (typeof a.width === 'number') clean.width = a.width;
+    if (typeof a.height === 'number') clean.height = a.height;
+    if (typeof a.durationSec === 'number') clean.durationSec = a.durationSec;
+    if (typeof a.thumbnailUrl === 'string' && a.thumbnailUrl) clean.thumbnailUrl = a.thumbnailUrl;
+    if (typeof a.fileName === 'string' && a.fileName) clean.fileName = a.fileName;
+    return clean as MessageAttachment;
+  });
   if (!text && !atts.length && !args.sharePost) throw new Error('Empty message.');
   if (text.length > CHAT_MAX_MESSAGE_CHARS) throw new Error('Message too long.');
   if (atts.length > CHAT_MAX_ATTACHMENTS_PER_MESSAGE) throw new Error('Too many attachments.');

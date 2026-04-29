@@ -1,5 +1,6 @@
 import * as Crypto from 'expo-crypto';
-import * as FileSystem from 'expo-file-system';
+// Expo SDK 54+ requires importing the legacy filesystem API explicitly.
+import * as FileSystem from 'expo-file-system/legacy';
 import { getDownloadURL, ref, uploadBytesResumable, type UploadTaskSnapshot } from 'firebase/storage';
 
 import { storage } from '../../firebase/firebase';
@@ -124,7 +125,7 @@ export async function uploadChatAttachment(args: {
     downloadUrl,
     mimeType: args.mimeType,
     sizeBytes: args.bytes,
-    thumbnailUrl,
   };
+  if (thumbnailUrl) att.thumbnailUrl = thumbnailUrl;
   return att;
 }
