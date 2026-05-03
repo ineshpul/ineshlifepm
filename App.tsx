@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av';
 import * as Notifications from 'expo-notifications';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { useChatInboxLocalNotifications } from './src/chat/hooks/useChatInboxLocalNotifications';
 import { RootNavigator } from './src/navigation/RootNavigator';
@@ -80,17 +81,19 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <AuthProvider>
-        <SettingsPreferencesProvider>
-          <UserNotificationPrefSync />
-          <PushTokenRegistrar />
-          <ChatInboxNotificationSubscriber />
-          <AppStateProvider>
-            <RootNavigator />
-            <StatusBar style="dark" />
-          </AppStateProvider>
-        </SettingsPreferencesProvider>
-      </AuthProvider>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <SettingsPreferencesProvider>
+            <UserNotificationPrefSync />
+            <PushTokenRegistrar />
+            <ChatInboxNotificationSubscriber />
+            <AppStateProvider>
+              <RootNavigator />
+              <StatusBar style="dark" />
+            </AppStateProvider>
+          </SettingsPreferencesProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

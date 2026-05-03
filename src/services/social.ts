@@ -3,6 +3,8 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
@@ -85,7 +87,7 @@ export function subscribeNotifications(
             fromUsername: String(data?.fromUsername ?? 'user'),
             videoId: data?.videoId != null ? String(data.videoId) : undefined,
             snippet: data?.snippet != null ? String(data.snippet) : undefined,
-            read: Boolean(data?.read),
+            read: data?.read === true,
             createdAtMs,
           } satisfies InAppNotification;
         })
@@ -100,12 +102,16 @@ export async function followUser(opts: {
   targetUid: string;
   targetUsername: string;
   viewerUsername: string;
+  /** Denormalized from `users/{targetUid}.photoUrl` when known (lists / follow UIs). */
+  targetPhotoUrl?: string | null;
 }) {
-  const { viewerUid, targetUid, targetUsername, viewerUsername } = opts;
+  const { viewerUid, targetUid, targetUsername, viewerUsername, targetPhotoUrl } = opts;
   if (!isFirebaseConfigured() || viewerUid === targetUid) return;
+  const photo = (targetPhotoUrl && String(targetPhotoUrl).trim()) || null;
   await setDoc(doc(firestore(), 'users', viewerUid, 'following', targetUid), {
     targetUsername,
     createdAt: serverTimestamp(),
+    targetPhotoUrl: photo,
   });
   await createInAppNotification({
     recipientUid: targetUid,
@@ -137,7 +143,41 @@ export function subscribeIsFollowing(
   );
 }
 
-export type FollowingRow = { targetUid: string; targetUsername: string; createdAtMs: number };
+export type FollowingRow = {
+  targetUid: string;
+  targetUsername: string;
+  createdAtMs: number;
+  /** Denormalized public avatar URL; may lag until `syncFollowingProfilePhotos` runs. */
+  targetPhotoUrl?: string | null;
+};
+
+/**
+ * For each `users/{viewerUid}/following/*` row, copies current `users/{targetUid}.photoUrl`
+ * into `targetPhotoUrl` when it differs. Call after load (e.g. Following list) so avatars match profiles
+ * without a Cloud Function when someone changes their photo.
+ */
+export async function syncFollowingProfilePhotos(viewerUid: string): Promise<void> {
+  if (!isFirebaseConfigured() || !viewerUid) return;
+  const snap = await getDocs(
+    query(collection(firestore(), 'users', viewerUid, 'following'), limit(200))
+  );
+  for (const d of snap.docs) {
+    const targetUid = d.id;
+    const data = d.data() as Record<string, unknown>;
+    const prev =
+      typeof data.targetPhotoUrl === 'string' ? String(data.targetPhotoUrl).trim() : '';
+    const userSnap = await getDoc(doc(firestore(), 'users', targetUid));
+    const next = userSnap.exists()
+      ? String((userSnap.data() as Record<string, unknown>)?.photoUrl ?? '').trim()
+      : '';
+    if (prev === next) continue;
+    try {
+      await updateDoc(d.ref, { targetPhotoUrl: next || null });
+    } catch {
+      // Rules or missing doc; ignore single-row failures
+    }
+  }
+}
 
 export function subscribeFollowing(
   viewerUid: string | undefined,
@@ -160,10 +200,14 @@ export function subscribeFollowing(
           const data: any = d.data();
           const createdAtMs =
             typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+          const rawPhoto = data?.targetPhotoUrl;
+          const targetPhotoUrl =
+            typeof rawPhoto === 'string' ? (rawPhoto.trim() || null) : null;
           return {
             targetUid: d.id,
             targetUsername: String(data?.targetUsername ?? 'user'),
             createdAtMs,
+            targetPhotoUrl,
           };
         })
       );

@@ -9,13 +9,15 @@ import {
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Screen } from '../components/Screen';
 import { colors } from '../theme/colors';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
-import { subscribeFollowing, type FollowingRow } from '../services/social';
+import { subscribeFollowing, syncFollowingProfilePhotos, type FollowingRow } from '../services/social';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { getOrCreateDm } from '../services/chat/chatFirestore';
 import { showError } from '../utils/ui';
@@ -36,6 +38,13 @@ export function NewChatScreen({ navigation, route }: Props) {
     if (!isFirebaseConfigured() || !user?.uid) return;
     return subscribeFollowing(user.uid, setRows);
   }, [user?.uid]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!user?.uid) return;
+      void syncFollowingProfilePhotos(user.uid);
+    }, [user?.uid])
+  );
 
   const filtered = React.useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -97,18 +106,37 @@ export function NewChatScreen({ navigation, route }: Props) {
       <FlatList
         data={filtered}
         keyExtractor={(r) => r.targetUid}
+        extraData={rows.map((r) => `${r.targetUid}:${r.targetPhotoUrl ?? ''}`).join('|')}
         contentContainerStyle={{ paddingBottom: 40 }}
         ListEmptyComponent={<Text style={styles.empty}>Follow people first, then message them here.</Text>}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.row}
-            onPress={() => void openDm(item.targetUid, item.targetUsername)}
-            disabled={busy === item.targetUid}
-          >
-            <Text style={styles.name}>@{item.targetUsername}</Text>
-            {busy === item.targetUid ? <ActivityIndicator color={colors.moss} /> : null}
-          </TouchableOpacity>
-        )}
+        renderItem={({ item }) => {
+          const photo = (item.targetPhotoUrl ?? '').trim();
+          return (
+            <TouchableOpacity
+              style={styles.row}
+              onPress={() => void openDm(item.targetUid, item.targetUsername)}
+              disabled={busy === item.targetUid}
+            >
+              <View style={styles.avatar}>
+                {photo ? (
+                  <Image
+                    key={`newchat-${item.targetUid}`}
+                    recyclingKey={item.targetUid}
+                    source={{ uri: photo }}
+                    style={styles.avatarImg}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <Text style={styles.avatarTxt}>{item.targetUsername.slice(0, 1).toUpperCase()}</Text>
+                )}
+              </View>
+              <Text style={styles.name} numberOfLines={1}>
+                @{item.targetUsername}
+              </Text>
+              {busy === item.targetUid ? <ActivityIndicator color={colors.moss} /> : null}
+            </TouchableOpacity>
+          );
+        }}
       />
     </Screen>
   );
@@ -151,13 +179,26 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 12,
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border2,
   },
-  name: { fontSize: 16, fontWeight: '800', color: colors.text },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: colors.cardTint,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  avatarImg: { width: 44, height: 44 },
+  avatarTxt: { fontSize: 16, fontWeight: '900', color: colors.moss },
+  name: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: '800', color: colors.text },
   empty: { padding: 24, textAlign: 'center', color: colors.muted, fontWeight: '600' },
 });

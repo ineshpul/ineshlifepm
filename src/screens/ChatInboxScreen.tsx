@@ -56,14 +56,14 @@ export function ChatInboxScreen({ navigation }: Props) {
 
   if (!isFirebaseConfigured()) {
     return (
-      <Screen style={styles.screen}>
+      <Screen style={styles.screen} edges={['bottom', 'left', 'right']}>
         <Text style={styles.offline}>Connect Firebase to use chat.</Text>
       </Screen>
     );
   }
 
   return (
-    <Screen style={styles.screen}>
+    <Screen style={styles.screen} edges={['bottom', 'left', 'right']}>
       {totalUnread > 0 ? (
         <View style={styles.unreadBanner}>
           <Text style={styles.unreadBannerText}>
@@ -90,6 +90,7 @@ export function ChatInboxScreen({ navigation }: Props) {
         <FlatList
           data={rows}
           keyExtractor={(r) => r.conversationId}
+          extraData={rows.map((r) => `${r.conversationId}:${r.member.convAvatarUrl ?? ''}`).join('|')}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={() => {}} />}
           contentContainerStyle={{ paddingBottom: 24 }}
           renderItem={({ item }) => {
@@ -109,7 +110,13 @@ export function ChatInboxScreen({ navigation }: Props) {
               >
                 <View style={styles.avatar}>
                   {avatarUri ? (
-                    <Image source={{ uri: avatarUri }} style={styles.avatarImg} contentFit="cover" />
+                    <Image
+                      key={`inbox-avatar-${item.conversationId}-${avatarUri}`}
+                      recyclingKey={`${item.conversationId}|${avatarUri}`}
+                      source={{ uri: avatarUri }}
+                      style={styles.avatarImg}
+                      contentFit="cover"
+                    />
                   ) : (
                     <Text style={styles.avatarInitial}>{title.slice(0, 1).toUpperCase()}</Text>
                   )}

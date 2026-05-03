@@ -478,8 +478,8 @@ export function FeedPostEngagement({
 
 const styles = StyleSheet.create({
   wrap: {
-    marginTop: 10,
-    gap: 8,
+    marginTop: 4,
+    gap: 6,
   },
   actions: {
     flexDirection: 'row',

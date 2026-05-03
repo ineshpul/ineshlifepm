@@ -37,7 +37,16 @@ export function ChatStackNavigator() {
       }}
     >
       <Stack.Screen name="ChatInbox" component={ChatInboxScreen} options={{ title: 'Chats' }} />
-      <Stack.Screen name="Conversation" component={ConversationScreen} options={{ title: 'Chat' }} />
+      <Stack.Screen
+        name="Conversation"
+        component={ConversationScreen}
+        options={{
+          title: 'Chat',
+          gestureEnabled: true,
+          /** Leave edge-swipe room so the tab pager can move off Chat; back still works from the bar. */
+          fullScreenGestureEnabled: false,
+        }}
+      />
       <Stack.Screen name="GroupInfo" component={GroupInfoScreen} options={{ title: 'Group info' }} />
       <Stack.Screen name="NewChat" component={NewChatScreen} options={{ title: 'New message' }} />
       <Stack.Screen name="NewGroup" component={NewGroupScreen} options={{ title: 'New group' }} />

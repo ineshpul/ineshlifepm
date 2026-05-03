@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 
@@ -106,25 +106,28 @@ export function TopScreen() {
             <Text style={styles.empty}>No leaperboard yet. Post and engage to climb the board.</Text>
           )
         }
-        renderItem={({ item, index }) => (
-          <View style={styles.row}>
-            <Text style={styles.rank}>{index + 1}</Text>
-            <View style={styles.rowBody}>
-              <TouchableOpacity
-                onPress={() =>
-                  nav.navigate('UserProfile', {
-                    uid: item.id,
-                    username: item.username,
-                  })
-                }
-                activeOpacity={0.75}
-              >
+        renderItem={({ item, index }) => {
+          const isMe = Boolean(user?.uid && item.id === user.uid);
+          return (
+            <Pressable
+              style={({ pressed }) => [styles.row, isMe && styles.rowMe, pressed && { opacity: 0.92 }]}
+              onPress={() =>
+                nav.navigate('UserProfile', {
+                  uid: item.id,
+                  username: item.username,
+                })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${item.username} profile`}
+            >
+              <Text style={[styles.rank, isMe && styles.rankMe]}>{index + 1}</Text>
+              <View style={styles.rowBody}>
                 <Text style={styles.name}>{item.username}</Text>
-              </TouchableOpacity>
-              <Text style={styles.score}>{item.verticalScore} in</Text>
-            </View>
-          </View>
-        )}
+                <Text style={[styles.score, isMe && styles.scoreMe]}>{item.verticalScore} in</Text>
+              </View>
+            </Pressable>
+          );
+        }}
       />
     </Screen>
   );
@@ -155,6 +158,11 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.white,
   },
+  rowMe: {
+    borderColor: colors.moss,
+    borderWidth: 2,
+    backgroundColor: 'rgba(39, 174, 96, 0.08)',
+  },
   rank: {
     width: 28,
     fontSize: 16,
@@ -162,7 +170,9 @@ const styles = StyleSheet.create({
     color: colors.muted,
     textAlign: 'center',
   },
+  rankMe: { color: colors.moss },
   rowBody: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   name: { fontSize: 15, fontWeight: '800', color: colors.text },
   score: { fontSize: 15, fontWeight: '900', color: colors.moss },
+  scoreMe: { color: colors.moss },
 });

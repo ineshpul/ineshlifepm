@@ -23,9 +23,11 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
 import { Swipeable } from 'react-native-gesture-handler';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 import { Screen } from '../components/Screen';
 import { colors } from '../theme/colors';
+import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
 import { useConversation } from '../chat/hooks/useConversation';
@@ -101,6 +103,32 @@ export function ConversationScreen({ navigation, route }: Props) {
     pendingShareHandled.current = false;
   }, [conversationId]);
 
+  const dmPeer = React.useMemo(() => {
+    if (conversation?.type !== 'dm' || !user?.uid) return null;
+    return members.find((m) => m.memberUid !== user.uid) ?? null;
+  }, [conversation?.type, members, user?.uid]);
+
+  /** Canonical peer identity from `users/{peer}` — avoids wrong convTitle / convAvatar on member rows. */
+  const [dmPeerUser, setDmPeerUser] = React.useState<{ username: string; photoUrl: string | null } | null>(null);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured() || !dmPeer?.memberUid) {
+      setDmPeerUser(null);
+      return;
+    }
+    const uref = doc(firestore(), 'users', dmPeer.memberUid);
+    return onSnapshot(
+      uref,
+      (snap) => {
+        const d = snap.data();
+        const username = d?.username != null ? String(d.username).trim() : '';
+        const photoUrl = d?.photoUrl != null && String(d.photoUrl).trim() !== '' ? String(d.photoUrl) : null;
+        setDmPeerUser({ username, photoUrl });
+      },
+      () => setDmPeerUser(null)
+    );
+  }, [dmPeer?.memberUid]);
+
   React.useLayoutEffect(() => {
     // `conversation.name` is often stale or defaulted to "Chat" on older DM docs; `myMember.convTitle`
     // is the per-user denormalized thread label (peer name for DMs). Prefer those over the conv doc.
@@ -110,16 +138,115 @@ export function ConversationScreen({ navigation, route }: Props) {
         conversation?.name?.trim() ||
         'Chat') ||
       'Chat';
-    navigation.setOptions({
-      title,
-      headerRight: () =>
-        conversation?.type === 'group' ? (
-          <TouchableOpacity style={{ marginRight: 8 }} onPress={() => navigation.navigate('GroupInfo', { conversationId })}>
-            <Ionicons name="information-circle-outline" size={24} color={colors.text} />
-          </TouchableOpacity>
-        ) : null,
-    });
-  }, [navigation, conversation?.name, conversation?.type, threadTitle, conversationId, myMember?.convTitle]);
+
+    const openDmProfile = () => {
+      if (!dmPeer) return;
+      const raw = (
+        dmPeerUser?.username ||
+        myMember?.convTitle ||
+        threadTitle ||
+        dmPeer.displayNameSnap ||
+        ''
+      ).trim();
+      const uname = raw.replace(/^@+/u, '');
+      navigation.getParent()?.navigate('UserProfile', {
+        uid: dmPeer.memberUid,
+        username: uname || undefined,
+      });
+    };
+
+    /**
+     * DM member rows are per-viewer: `members/{myUid}.convAvatarUrl` is the *peer* photo for my inbox.
+     * `dmPeer` is the *other* member’s row, whose `convAvatarUrl` is **my** photo (their view) — never use it here.
+     */
+    const dmAvatarUri =
+      (dmPeerUser?.photoUrl && dmPeerUser.photoUrl.trim()) ||
+      (myMember?.convAvatarUrl && String(myMember.convAvatarUrl).trim()) ||
+      (conversation?.avatarUrl && String(conversation.avatarUrl).trim()) ||
+      '';
+
+    if (conversation?.type === 'dm' && dmPeer) {
+      const handle =
+        (dmPeerUser?.username && dmPeerUser.username.trim()) ||
+        title.replace(/^@+/u, '').trim() ||
+        'Chat';
+      const showAt = handle.startsWith('@') ? handle : `@${handle.replace(/^@+/u, '')}`;
+      navigation.setOptions({
+        title: undefined,
+        headerTitleAlign: 'center',
+        headerTitle: () => (
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', minHeight: 40 }}>
+            <Pressable
+              onPress={openDmProfile}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: 280 }}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${showAt} profile`}
+            >
+              <View
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 9,
+                  backgroundColor: colors.cardTint,
+                  overflow: 'hidden',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {dmAvatarUri ? (
+                  <Image
+                    key={`dm-av-${dmPeer.memberUid}-${dmAvatarUri}`}
+                    recyclingKey={`${dmPeer.memberUid}|${dmAvatarUri}`}
+                    source={{ uri: dmAvatarUri }}
+                    style={{ width: 28, height: 28 }}
+                    contentFit="cover"
+                    transition={120}
+                  />
+                ) : (
+                  <Text style={{ fontSize: 12, fontWeight: '900', color: colors.text }}>
+                    {showAt.replace(/^@/u, '').slice(0, 1).toUpperCase()}
+                  </Text>
+                )}
+              </View>
+              <Text style={{ fontSize: 17, fontWeight: '800', color: colors.text }} numberOfLines={1}>
+                {showAt}
+              </Text>
+            </Pressable>
+          </View>
+        ),
+        headerRight: () => <View style={{ width: 8 }} />,
+      });
+    } else {
+      navigation.setOptions({
+        title,
+        headerTitleAlign: undefined,
+        headerTitle: undefined,
+        headerRight: () =>
+          conversation?.type === 'group' ? (
+            <TouchableOpacity
+              style={{ paddingHorizontal: 8, marginRight: 4 }}
+              onPress={() => navigation.navigate('GroupInfo', { conversationId })}
+            >
+              <Ionicons name="information-circle-outline" size={24} color={colors.text} />
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 8 }} />
+          ),
+      });
+    }
+  }, [
+    navigation,
+    conversation?.name,
+    conversation?.type,
+    conversation?.avatarUrl,
+    threadTitle,
+    conversationId,
+    myMember?.convTitle,
+    myMember?.convAvatarUrl,
+    dmPeer,
+    dmPeerUser?.username,
+    dmPeerUser?.photoUrl,
+  ]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -328,9 +455,29 @@ export function ConversationScreen({ navigation, route }: Props) {
         {reactionMap[item.id]?.length ? (
           <View style={[styles.reactionRow, mine && styles.reactionRowMine]}>
             {reactionMap[item.id]!.map((r) => (
-              <Text key={r.emoji} style={styles.reactionChip}>
-                {r.emoji} {r.count}
-              </Text>
+              <TouchableOpacity
+                key={r.emoji}
+                style={styles.reactionChipBtn}
+                activeOpacity={0.75}
+                onPress={() => {
+                  if (!user?.uid) return;
+                  void (async () => {
+                    try {
+                      if (r.mine) {
+                        await removeReaction(conversationId, item.id, user.uid, r.emoji);
+                      } else {
+                        await addReaction(conversationId, item.id, user.uid, r.emoji);
+                      }
+                    } catch (e) {
+                      showError('Reaction failed', e);
+                    }
+                  })();
+                }}
+              >
+                <Text style={styles.reactionChip}>
+                  {r.emoji} {r.count}
+                </Text>
+              </TouchableOpacity>
             ))}
           </View>
         ) : null}
@@ -341,6 +488,10 @@ export function ConversationScreen({ navigation, route }: Props) {
       <View>
         {showDate && item.createdAt ? <DateSep d={item.createdAt.toDate()} /> : null}
         <Swipeable
+          friction={2}
+          overshootRight={false}
+          activeOffsetX={[-20, 20]}
+          failOffsetY={[-12, 12]}
           renderRightActions={() => (
             <View style={styles.swipeReply}>
               <TouchableOpacity
@@ -374,9 +525,9 @@ export function ConversationScreen({ navigation, route }: Props) {
     <Screen style={styles.screen} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
         keyboardVerticalOffset={keyboardVerticalOffset}
-        enabled={Platform.OS === 'ios'}
+        enabled
       >
         {typingUids.length > 0 ? (
           <View style={styles.typingBanner}>
@@ -546,6 +697,12 @@ const styles = StyleSheet.create({
   dur: { marginTop: 4, fontSize: 12, fontWeight: '800', color: colors.muted },
   reactionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
   reactionRowMine: { justifyContent: 'flex-end' },
+  reactionChipBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
   reactionChip: { fontSize: 13, fontWeight: '700' },
   dateSep: { alignItems: 'center', marginVertical: 12 },
   dateSepTxt: { fontSize: 12, fontWeight: '800', color: colors.muted2 },

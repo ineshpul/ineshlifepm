@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -12,6 +13,7 @@ import { showError } from '../utils/ui';
 export function TermsGateScreen() {
   const { user, signOut } = useAuth();
   const [busy, setBusy] = React.useState(false);
+  const insets = useSafeAreaInsets();
 
   const onAccept = async () => {
     if (!user?.uid) return;
@@ -37,7 +39,7 @@ export function TermsGateScreen() {
   };
 
   return (
-    <Screen style={styles.screen} dismissKeyboardOnTap edges={['top', 'left', 'right', 'bottom']}>
+    <Screen style={[styles.screen, { paddingTop: Math.max(insets.top, 12) + 4 }]} edges={['bottom', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.title}>Terms of use</Text>
         <Text style={styles.sub}>
@@ -66,7 +68,7 @@ export function TermsGateScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14 },
+  screen: { flex: 1, paddingHorizontal: 16, paddingBottom: 14 },
   header: { gap: 6 },
   title: { fontSize: 22, fontWeight: '900', color: colors.text },
   sub: { fontSize: 13, lineHeight: 18, fontWeight: '700', color: colors.muted },

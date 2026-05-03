@@ -2,13 +2,10 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   InteractionManager,
   Keyboard,
   LayoutChangeEvent,
   Platform,
-  Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -16,28 +13,40 @@ import {
   useWindowDimensions,
   type ViewToken,
 } from 'react-native';
-import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
+import { FlatList, ScrollView } from 'react-native-gesture-handler';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Audio, Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
+import { Audio } from 'expo-av';
 import { collection, doc, limit, onSnapshot, query, where } from 'firebase/firestore';
 
 import { Brandmark } from '../components/Brandmark';
 import { FollowButton } from '../components/FollowButton';
 import { FeedPostEngagement } from '../components/FeedPostEngagement';
+import { FeedPostVideo } from '../components/FeedPostVideo';
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
 import { deleteOwnedVideo } from '../services/deleteVideo';
-import { recordVideoView } from '../services/recordVideoView';
+import { navigateToRecord } from '../navigation/navigationHelpers';
 import { useAppState } from '../state/appState';
 import { normalizeTaskDurationSeconds, useChallengeWindow } from '../state/challenge';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
 import { todayVideoDocId } from '../state/posting';
 import { showError } from '../utils/ui';
+import { useCanViewEveryoneFeed } from '../state/posting';
 import { subscribeFollowing, subscribeNotifications, type FollowingRow } from '../services/social';
 import { useSettingsPreferences } from '../state/settingsPreferences';
+import {
+  computeFeedViewingFromNow,
+  normalizeNyDateKey,
+  nyDateKey,
+  nyDateKeyToSortUtcMs,
+  nyRecentChallengeDateKeys,
+  prevNyDateKey,
+  prioritizedChallengeDateInForVideosQuery,
+} from '../utils/nyTime';
 
 type FeedVideo = {
   id: string;
@@ -48,18 +57,22 @@ type FeedVideo = {
   ownerUid: string;
   moderationStatus: string;
   maxDurationSeconds: number;
+  /** NY calendar day for this post (`videos.challengeDate`). */
+  challengeDate: string;
 };
 
 /** Bottom sheet height (instructions + engagement) per reel page — matches Tabs tab bar feel. */
 const REEL_BOTTOM_SHEET = 232;
 const TAB_BAR_HEIGHT = 58;
+/** Approved-query window: today + prior NY days (Firestore `in` max 30). */
+const FEED_DAY_WINDOW = 14;
 
-function formatTimeLeft(totalSeconds: number) {
-  const s = Math.max(0, totalSeconds);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${String(r).padStart(2, '0')}`;
-}
+/** Must be a stable reference — `viewabilityConfigCallbackPairs` cannot change after mount (RN FlatList). */
+const FEED_VIEWABILITY_CONFIG = {
+  itemVisiblePercentThreshold: 35,
+  minimumViewTime: 80,
+  waitForInteraction: false,
+} as const;
 
 /** Pick the feed item that should play: prefer highest reported visible %, else bottom-most row. */
 function pickPrimaryViewable(viewableItems: ViewToken[]): FeedVideo | null {
@@ -84,217 +97,16 @@ function pickPrimaryViewable(viewableItems: ViewToken[]): FeedVideo | null {
   return (best.item as FeedVideo) ?? null;
 }
 
-function FeedPostVideo(props: {
-  url: string;
-  shouldPlay: boolean;
-  isMuted: boolean;
-  useNativeControls: boolean;
-  maxDurationSeconds: number;
-  dataSaver: boolean;
-  /** Full-bleed vertical clip (Reels-style); hides native controls for a TikTok-like surface. */
-  reel?: boolean;
-  /** When autoplay is off: tap the inactive reel to start this clip. */
-  onReelActivate?: () => void;
-  /** Firestore `videos/{id}` — used for coarse view analytics (callable, throttled). */
-  analyticsVideoId?: string;
-  videoOwnerUid?: string;
-  viewerUid?: string;
-}) {
-  const {
-    url,
-    shouldPlay,
-    isMuted,
-    useNativeControls,
-    maxDurationSeconds,
-    dataSaver,
-    reel = false,
-    onReelActivate,
-    analyticsVideoId,
-    videoOwnerUid,
-    viewerUid,
-  } = props;
-  const videoRef = React.useRef<Video>(null);
-  const [status, setStatus] = React.useState<AVPlaybackStatus | null>(null);
-  const [loaded, setLoaded] = React.useState(false);
-  /** User tapped pause while this reel is still the active slot (feed scroll / focus unchanged). */
-  const [userPaused, setUserPaused] = React.useState(false);
-  const [pauseFlash, setPauseFlash] = React.useState(false);
-  const pauseFlashTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const viewTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const viewRecordedKeyRef = React.useRef<string | null>(null);
-
-  React.useEffect(() => {
-    viewRecordedKeyRef.current = null;
-  }, [analyticsVideoId]);
-
-  React.useEffect(() => {
-    setLoaded(false);
-  }, [url]);
-
-  React.useEffect(() => {
-    if (!shouldPlay) setUserPaused(false);
-  }, [shouldPlay]);
-
-  React.useEffect(
-    () => () => {
-      if (pauseFlashTimerRef.current) clearTimeout(pauseFlashTimerRef.current);
-      if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
-    },
-    []
-  );
-
-  const effectivePlay = shouldPlay && !userPaused;
-
-  React.useEffect(() => {
-    if (viewTimerRef.current) {
-      clearTimeout(viewTimerRef.current);
-      viewTimerRef.current = null;
-    }
-    if (!effectivePlay || !analyticsVideoId || !viewerUid || !videoOwnerUid || viewerUid === videoOwnerUid) {
-      return;
-    }
-    const key = `${analyticsVideoId}:${viewerUid}`;
-    if (viewRecordedKeyRef.current === key) return;
-    viewTimerRef.current = setTimeout(() => {
-      viewTimerRef.current = null;
-      viewRecordedKeyRef.current = key;
-      void recordVideoView(analyticsVideoId);
-    }, 2500);
-    return () => {
-      if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
-      viewTimerRef.current = null;
-    };
-  }, [effectivePlay, analyticsVideoId, viewerUid, videoOwnerUid]);
-
-  React.useEffect(() => {
-    const player = videoRef.current;
-    if (!player) return;
-    if (effectivePlay && loaded) {
-      void (async () => {
-        try {
-          await player.setIsMutedAsync(false);
-          await player.setVolumeAsync(1.0);
-          await player.playAsync();
-        } catch {
-          /* native race or unload */
-        }
-      })();
-    } else if (!effectivePlay) {
-      // Do not pause while we're waiting to load with shouldPlay true — pauseAsync can stall
-      // buffering/autoplay and matches the "videos never start until background" symptom.
-      void player.pauseAsync?.();
-    }
-  }, [effectivePlay, loaded, url]);
-
-  const onPlaybackStatusUpdate = (s: AVPlaybackStatus) => {
-    setStatus(s);
-    if (s.isLoaded) setLoaded(true);
-  };
-
-  const onReelTap = React.useCallback(() => {
-    if (!shouldPlay && onReelActivate) {
-      onReelActivate();
-      setUserPaused(false);
-      return;
-    }
-    if (!shouldPlay) return;
-    if (userPaused) {
-      setUserPaused(false);
-      return;
-    }
-    setUserPaused(true);
-    setPauseFlash(true);
-    if (pauseFlashTimerRef.current) clearTimeout(pauseFlashTimerRef.current);
-    pauseFlashTimerRef.current = setTimeout(() => {
-      pauseFlashTimerRef.current = null;
-      setPauseFlash(false);
-    }, 550);
-  }, [shouldPlay, userPaused, onReelActivate]);
-
-  let remainingSec = maxDurationSeconds;
-  if (status?.isLoaded) {
-    const durMs =
-      status.durationMillis && status.durationMillis > 0
-        ? status.durationMillis
-        : maxDurationSeconds * 1000;
-    const posMs = status.positionMillis ?? 0;
-    remainingSec = Math.max(0, Math.ceil((durMs - posMs) / 1000));
-  }
-
-  const nativeControls = reel ? false : useNativeControls;
-  const resizeMode = reel ? ResizeMode.COVER : ResizeMode.CONTAIN;
-  const videoStyle = reel ? StyleSheet.absoluteFillObject : styles.video;
-
-  const reelTapLayer =
-    reel && (shouldPlay || onReelActivate) ? (
-      <Pressable
-        style={styles.reelTouchLayer}
-        onPress={onReelTap}
-        accessibilityRole="button"
-        accessibilityLabel={
-          !shouldPlay && onReelActivate
-            ? 'Play video'
-            : userPaused
-              ? 'Play video'
-              : 'Pause video'
-        }
-      >
-        {pauseFlash ? (
-          <View style={styles.reelIconCenter} pointerEvents="none">
-            <Ionicons name="pause" size={58} color="rgba(255,255,255,0.92)" />
-          </View>
-        ) : shouldPlay && userPaused ? (
-          <View style={styles.reelIconCenter} pointerEvents="none">
-            <View style={styles.reelPlayCircle}>
-              <Ionicons name="play" size={42} color="rgba(255,255,255,0.96)" style={{ marginLeft: 4 }} />
-            </View>
-          </View>
-        ) : !shouldPlay && onReelActivate ? (
-          <View style={styles.reelIconCenter} pointerEvents="none">
-            <View style={styles.reelPlayCircle}>
-              <Ionicons name="play" size={42} color="rgba(255,255,255,0.96)" style={{ marginLeft: 4 }} />
-            </View>
-          </View>
-        ) : null}
-      </Pressable>
-    ) : null;
-
-  return (
-    <View style={reel ? styles.videoStageReel : styles.videoStage}>
-      <Video
-        ref={videoRef}
-        source={{ uri: url }}
-        style={videoStyle}
-        resizeMode={resizeMode}
-        shouldPlay={effectivePlay}
-        isMuted={isMuted}
-        isLooping={reel}
-        volume={1.0}
-        useNativeControls={nativeControls}
-        progressUpdateIntervalMillis={dataSaver ? 1000 : 250}
-        onPlaybackStatusUpdate={onPlaybackStatusUpdate}
-        onError={() => {
-          // If the first autoplay attempt races with load on some devices,
-          // the user can tap to retry; we also avoid keeping "paused" stuck.
-          setLoaded(false);
-          setUserPaused(false);
-        }}
-      />
-      {reelTapLayer}
-      <View style={styles.timerBar} pointerEvents="none">
-        <Text style={styles.timerText}>{formatTimeLeft(remainingSec)} left</Text>
-      </View>
-    </View>
-  );
-}
-
 export function FeedScreen() {
   const isFocused = useIsFocused();
   const nav = useNavigation<any>();
   const { preferences, patch } = useSettingsPreferences();
-  const { hasPostedToday, clearPostedOverride } = useAppState();
+  const { clearPostedOverride } = useAppState();
   const { user } = useAuth();
   const win = useChallengeWindow();
+  /** Noon-to-noon “post to unlock” cycle — must match `useCanViewEveryoneFeed` / `todayVideoDocId` for your draft. */
+  const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
+  const canViewEveryoneFeed = useCanViewEveryoneFeed(user?.uid);
 
   React.useEffect(() => {
     void Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
@@ -308,7 +120,10 @@ export function FeedScreen() {
   const [unreadNotifications, setUnreadNotifications] = React.useState(0);
   /** Lifts the reel bottom sheet above the keyboard (fixed-height KAV was ineffective here). */
   const [keyboardSheetBottom, setKeyboardSheetBottom] = React.useState(0);
-  const engagementScrollRefs = React.useRef<Record<string, ScrollView | null>>({});
+  /** RNGH `ScrollView` instance; typed loosely so `scrollToEnd` works without RN/GH ref conflicts. */
+  const engagementScrollRefs = React.useRef<Record<string, { scrollToEnd: (o?: { animated?: boolean }) => void } | null>>(
+    {}
+  );
   const flatListRef = React.useRef<FlatList<FeedVideo>>(null);
 
   const insets = useSafeAreaInsets();
@@ -322,6 +137,11 @@ export function FeedScreen() {
     if (slotHeight > 0) return slotHeight;
     return Math.max(380, windowHeight - insets.top - insets.bottom - TAB_BAR_HEIGHT - 52);
   }, [slotHeight, windowHeight, insets.top, insets.bottom]);
+
+  const previousChallengeDateKey = React.useMemo(
+    () => prevNyDateKey(viewingChallengeDateKey),
+    [viewingChallengeDateKey]
+  );
 
   const displayVideos = React.useMemo(() => {
     let v = videos;
@@ -342,16 +162,6 @@ export function FeedScreen() {
     user?.uid,
     followingRows,
   ]);
-
-  /** FlatList is PureComponent-ish: include focus in `extraData` so rows re-render when `shouldPlay` should flip. */
-  useFocusEffect(
-    React.useCallback(() => {
-      const id = requestAnimationFrame(() => {
-        flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
-      });
-      return () => cancelAnimationFrame(id);
-    }, [])
-  );
 
   React.useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -374,38 +184,17 @@ export function FeedScreen() {
     );
   }, [user?.uid]);
 
-  const viewabilityConfig = React.useMemo(
-    () => ({
-      // Reel pages are tall; a lower threshold keeps the active index in sync with paging.
-      itemVisiblePercentThreshold: 35,
-      minimumViewTime: 80,
-      waitForInteraction: false,
-    }),
+  const onViewableItemsChanged = React.useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken[]; changed: ViewToken[] }) => {
+      const next = pickPrimaryViewable(viewableItems);
+      if (next?.id) setActiveVideoId(next.id);
+    },
     []
-  );
-
-  const onViewableItemsChangedRef = React.useRef(
-    (_info: { viewableItems: ViewToken[]; changed: ViewToken[] }) => {}
-  );
-  onViewableItemsChangedRef.current = ({ viewableItems }) => {
-    const next = pickPrimaryViewable(viewableItems);
-    if (next?.id) setActiveVideoId(next.id);
-  };
-
-  const viewabilityConfigCallbackPairs = React.useMemo(
-    () => [
-      {
-        viewabilityConfig,
-        onViewableItemsChanged: (info: { viewableItems: ViewToken[]; changed: ViewToken[] }) =>
-          onViewableItemsChangedRef.current(info),
-      },
-    ],
-    [viewabilityConfig]
   );
 
   React.useEffect(() => {
     setActiveVideoId(null);
-  }, [win.dateKey]);
+  }, [win.dateKey, viewingChallengeDateKey]);
 
   React.useEffect(() => {
     if (displayVideos.length === 0) {
@@ -420,7 +209,7 @@ export function FeedScreen() {
   /** After posting (or first load), reel rows can mount before viewability runs; sync scroll + active id once. */
   const prevFeedNonEmptyCountRef = React.useRef(0);
   React.useEffect(() => {
-    if (!hasPostedToday) {
+    if (!canViewEveryoneFeed) {
       prevFeedNonEmptyCountRef.current = 0;
       return;
     }
@@ -444,7 +233,7 @@ export function FeedScreen() {
       });
     });
     return () => handle.cancel?.();
-  }, [hasPostedToday, feedHydrated, pageHeight, displayVideos]);
+  }, [canViewEveryoneFeed, feedHydrated, pageHeight, displayVideos]);
 
   const confirmDelete = (item: FeedVideo) => {
     if (!user?.uid || item.ownerUid !== user.uid) return;
@@ -474,7 +263,7 @@ export function FeedScreen() {
   };
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured() || !user?.uid || !hasPostedToday) {
+    if (!isFirebaseConfigured() || !user?.uid || !canViewEveryoneFeed) {
       setVideos([]);
       setFeedHydrated(true);
       return;
@@ -500,7 +289,18 @@ export function FeedScreen() {
         if (!v.url) continue;
         map.set(v.id, v);
       }
-      const merged = Array.from(map.values()).sort((a, b) => b.createdAtMs - a.createdAtMs);
+      /**
+       * Everyone feed: **newest `challengeDate` (NY) first**, then older days in order (newer → older).
+       * Within the same challenge day, **newest posts first**. After submit time for a day has passed,
+       * that day stays ordered by date — the latest challenge day in the feed remains at the top until
+       * a newer challenge day has posts (12:00 AM ET rolls the calendar; `challengeDate` on docs is the source of truth).
+       */
+      const merged = Array.from(map.values()).sort((a, b) => {
+        const msB = nyDateKeyToSortUtcMs(b.challengeDate, 0);
+        const msA = nyDateKeyToSortUtcMs(a.challengeDate, 0);
+        if (msB !== msA) return msB - msA;
+        return b.createdAtMs - a.createdAtMs;
+      });
       setVideos(merged);
     };
 
@@ -513,12 +313,29 @@ export function FeedScreen() {
       .then(() => {
         if (cancelled) return;
 
-        // Avoid orderBy here so the feed works before composite indexes are deployed; merge() sorts by time.
+        const calToday = nyDateKey();
+        const anchorCandidates = [
+          normalizeNyDateKey(win.dateKey, calToday),
+          normalizeNyDateKey(calToday, calToday),
+          normalizeNyDateKey(viewingChallengeDateKey, calToday),
+        ];
+        const anchorKey = anchorCandidates.reduce((best, k) =>
+          nyDateKeyToSortUtcMs(k, 0) > nyDateKeyToSortUtcMs(best, 0) ? k : best
+        );
+        let challengeDateIn = prioritizedChallengeDateInForVideosQuery(
+          anchorKey,
+          FEED_DAY_WINDOW,
+          viewingChallengeDateKey
+        );
+        if (challengeDateIn.length === 0) {
+          challengeDateIn = [normalizeNyDateKey(viewingChallengeDateKey, calToday)];
+        }
+        // Avoid orderBy so indexes stay minimal; merge() sorts by challengeDate + time.
         const approvedQ = query(
           collection(firestore(), 'videos'),
-          where('challengeDate', '==', win.dateKey),
+          where('challengeDate', 'in', challengeDateIn),
           where('moderationStatus', '==', 'approved'),
-          limit(200)
+          limit(400)
         );
 
         approvedUnsub = onSnapshot(
@@ -528,6 +345,12 @@ export function FeedScreen() {
               const data: any = d.data();
               const createdAtMs =
                 typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+              const rawCd = data?.challengeDate;
+              const cdRaw =
+                rawCd && typeof (rawCd as { toDate?: () => Date }).toDate === 'function'
+                  ? nyDateKey((rawCd as { toDate: () => Date }).toDate())
+                  : String(rawCd ?? '');
+              const challengeDate = normalizeNyDateKey(cdRaw, viewingChallengeDateKey);
               return {
                 id: d.id,
                 username: String(data?.username ?? 'user'),
@@ -537,6 +360,7 @@ export function FeedScreen() {
                 ownerUid: String(data?.uid ?? ''),
                 moderationStatus: String(data?.moderationStatus ?? 'approved'),
                 maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
+                challengeDate,
               };
             });
             merge();
@@ -551,7 +375,7 @@ export function FeedScreen() {
           }
         );
 
-        const mineRef = doc(firestore(), 'videos', todayVideoDocId(user.uid, win.dateKey));
+        const mineRef = doc(firestore(), 'videos', todayVideoDocId(user.uid, viewingChallengeDateKey));
         mineUnsub = onSnapshot(
           mineRef,
           (snap) => {
@@ -561,6 +385,11 @@ export function FeedScreen() {
               const data: any = snap.data();
               const createdAtMs =
                 typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+              const rawMineCd = data?.challengeDate;
+              const mineCdRaw =
+                rawMineCd && typeof (rawMineCd as { toDate?: () => Date }).toDate === 'function'
+                  ? nyDateKey((rawMineCd as { toDate: () => Date }).toDate())
+                  : String(rawMineCd ?? '');
               mineDocs = [
                 {
                   id: snap.id,
@@ -571,6 +400,7 @@ export function FeedScreen() {
                   ownerUid: String(data?.uid ?? ''),
                   moderationStatus: String(data?.moderationStatus ?? 'pending'),
                   maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
+                  challengeDate: normalizeNyDateKey(mineCdRaw, viewingChallengeDateKey),
                 },
               ];
             }
@@ -596,9 +426,9 @@ export function FeedScreen() {
       approvedUnsub?.();
       mineUnsub?.();
     };
-  }, [win.dateKey, user?.uid, hasPostedToday]);
+  }, [win.dateKey, viewingChallengeDateKey, user?.uid, canViewEveryoneFeed]);
 
-  if (!hasPostedToday) {
+  if (!canViewEveryoneFeed) {
     return (
       <Screen style={styles.gateScreen}>
         <View style={styles.lockIcon}>
@@ -606,12 +436,13 @@ export function FeedScreen() {
         </View>
         <Text style={styles.gateTitle}>Take the leap to continue</Text>
         <Text style={styles.gateBody}>
-          Post today’s challenge to unlock the feed and see what everyone else is doing.
+          Post the current challenge (noon–noon Eastern) to unlock the feed. It locks again at the next 12:00
+          PM ET until you post for that new cycle.
         </Text>
         <PrimaryButton
           title="Leap"
           variant="green"
-          onPress={() => nav.navigate('Record')}
+          onPress={() => navigateToRecord(nav)}
           style={styles.gateCta}
         />
       </Screen>
@@ -665,7 +496,8 @@ export function FeedScreen() {
           data={displayVideos}
           keyExtractor={(x) => x.id}
           extraData={`${pageHeight}-${activeVideoId}-${feedHydrated}-${isFocused ? 1 : 0}`}
-          viewabilityConfigCallbackPairs={viewabilityConfigCallbackPairs}
+          viewabilityConfig={FEED_VIEWABILITY_CONFIG}
+          onViewableItemsChanged={onViewableItemsChanged}
           contentContainerStyle={displayVideos.length === 0 ? { flexGrow: 1 } : undefined}
           pagingEnabled
           snapToInterval={pageHeight}
@@ -673,6 +505,7 @@ export function FeedScreen() {
           decelerationRate="fast"
           disableIntervalMomentum
           showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
           removeClippedSubviews={false}
           windowSize={5}
           getItemLayout={
@@ -697,7 +530,7 @@ export function FeedScreen() {
                 <PrimaryButton
                   title="Leap"
                   variant="green"
-                  onPress={() => nav.navigate('Record')}
+                  onPress={() => navigateToRecord(nav)}
                   style={{ width: 200, borderRadius: 30, marginTop: 10 }}
                 />
               </View>
@@ -743,6 +576,13 @@ export function FeedScreen() {
                     >
                       <Text style={styles.reelUser}>@{item.username}</Text>
                     </TouchableOpacity>
+                    {item.challengeDate && item.challengeDate !== viewingChallengeDateKey ? (
+                      <Text style={styles.reelDayTag}>
+                        {item.challengeDate === previousChallengeDateKey
+                          ? 'Previous challenge'
+                          : item.challengeDate}
+                      </Text>
+                    ) : null}
                     <Text style={styles.reelPrompt} numberOfLines={2}>
                       {item.prompt}
                     </Text>
@@ -777,6 +617,7 @@ export function FeedScreen() {
                     style={styles.reelEngagementScroll}
                     nestedScrollEnabled
                     keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
                   >
                     <FeedPostEngagement
                       videoId={item.id}
@@ -854,7 +695,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   reelAvatar: {
     width: 40,
@@ -878,6 +719,12 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: colors.text,
   },
+  reelDayTag: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: colors.moss,
+    marginBottom: 2,
+  },
   reelPrompt: {
     fontSize: 13,
     fontWeight: '600',
@@ -892,31 +739,6 @@ const styles = StyleSheet.create({
   reelEngagementScroll: {
     flex: 1,
     minHeight: 0,
-  },
-  videoStageReel: {
-    ...StyleSheet.absoluteFillObject,
-    overflow: 'hidden',
-    backgroundColor: '#0B1020',
-  },
-  reelTouchLayer: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 2,
-  },
-  reelIconCenter: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.32)',
-  },
-  reelPlayCircle: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   header: {
     paddingTop: 6,
@@ -1021,36 +843,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.muted,
     fontWeight: '600',
-  },
-  videoStage: {
-    marginTop: 6,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: '#0B1020',
-    width: '100%',
-    aspectRatio: 9 / 16,
-  },
-  video: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  timerBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  timerText: {
-    color: colors.white,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.4,
-    textAlign: 'center',
   },
   empty: {
     paddingTop: 16,

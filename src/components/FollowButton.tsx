@@ -10,9 +10,17 @@ type Props = {
   viewerUsername: string;
   targetUid: string;
   targetUsername: string;
+  /** When set, stored on the follow edge for avatar lists (see `FollowingRow.targetPhotoUrl`). */
+  targetPhotoUrl?: string | null;
 };
 
-export function FollowButton({ viewerUid, viewerUsername, targetUid, targetUsername }: Props) {
+export function FollowButton({
+  viewerUid,
+  viewerUsername,
+  targetUid,
+  targetUsername,
+  targetPhotoUrl,
+}: Props) {
   const [following, setFollowing] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
 
@@ -33,6 +41,7 @@ export function FollowButton({ viewerUid, viewerUsername, targetUid, targetUsern
           targetUid,
           targetUsername,
           viewerUsername,
+          targetPhotoUrl: targetPhotoUrl?.trim() || null,
         });
       }
     } catch (e) {

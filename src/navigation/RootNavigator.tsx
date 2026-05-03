@@ -1,7 +1,13 @@
 import * as React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { ActivityIndicator, View } from 'react-native';
+import * as Notifications from 'expo-notifications';
+import {
+  NavigationContainer,
+  createNavigationContainerRef,
+} from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
+import { RecordScreen } from '../screens/RecordScreen';
 import { useAuth } from '../state/auth';
 import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
 import { SignInScreen } from '../screens/SignInScreen';
@@ -13,10 +19,14 @@ import { BlockedUsersScreen } from '../screens/BlockedUsersScreen';
 import { MutedUsersScreen } from '../screens/MutedUsersScreen';
 import { LegalDocumentScreen } from '../screens/LegalDocumentScreen';
 import { UserProfileScreen } from '../screens/UserProfileScreen';
+import { FollowingListScreen } from '../screens/FollowingListScreen';
 import { VideoPostScreen } from '../screens/VideoPostScreen';
 import { AdminVideoModerationScreen } from '../screens/AdminVideoModerationScreen';
+import { YourLeapsScreen } from '../screens/YourLeapsScreen';
+import { UserLeapsScreen } from '../screens/UserLeapsScreen';
 import { LEGAL_DOCS } from '../content/settingsLegal';
-import type { AuthStackParamList, MainStackParamList, RootStackParamList } from './types';
+import type { AuthStackParamList, MainStackParamList } from './types';
+import { handleNotificationNavigation } from './notificationNavigation';
 import { AppTabs } from './Tabs';
 import { VerifyEmailScreen } from '../screens/VerifyEmailScreen';
 import { TermsGateScreen } from '../screens/TermsGateScreen';
@@ -30,10 +40,22 @@ export type { RootStackParamList } from './types';
 const screenOptions = { headerShown: false } as const;
 
 /** No SignIn / SignUp here — duplicate route names confused iOS native stack + Expo Go after login. */
+export const rootNavigationRef = createNavigationContainerRef<MainStackParamList>();
+
 function LoggedInStack() {
   return (
     <MainStack.Navigator initialRouteName="Tabs" screenOptions={screenOptions}>
       <MainStack.Screen name="Tabs" component={AppTabs} />
+      <MainStack.Screen
+        name="Record"
+        component={RecordScreen}
+        options={{
+          headerShown: false,
+          presentation: 'fullScreenModal',
+          animation: 'slide_from_bottom',
+          gestureEnabled: true,
+        }}
+      />
       <MainStack.Screen
         name="ChallengeAdmin"
         component={ChallengeAdminScreen}
@@ -66,10 +88,33 @@ function LoggedInStack() {
       <MainStack.Screen
         name="UserProfile"
         component={UserProfileScreen}
-        options={({ route }) => ({
-          headerShown: true,
-          title: route.params.username ? `@${route.params.username}` : 'Profile',
-        })}
+        /** New stack entry per `uid` so header params never stick from the last opened profile. */
+        getId={({ params }) => params.uid}
+        options={{ headerShown: true, title: 'Profile' }}
+      />
+      <MainStack.Screen
+        name="FollowingList"
+        component={FollowingListScreen}
+        options={{ headerShown: true, title: 'Following' }}
+      />
+      <MainStack.Screen
+        name="MyLeaps"
+        component={YourLeapsScreen}
+        options={{
+          headerShown: false,
+          presentation: 'card',
+          animation: 'slide_from_right',
+        }}
+      />
+      <MainStack.Screen
+        name="UserLeaps"
+        component={UserLeapsScreen}
+        getId={({ params }) => params.uid}
+        options={{
+          headerShown: false,
+          presentation: 'card',
+          animation: 'slide_from_right',
+        }}
       />
       <MainStack.Screen
         name="VideoPost"
@@ -96,10 +141,16 @@ function LoggedOutStack() {
 }
 
 export function RootNavigator() {
-  const { user } = useAuth();
+  const { user, authReady } = useAuth();
   const authed = Boolean(user?.uid);
   const needsEmailVerification = Boolean(user?.needsEmailVerification);
-  const navKey = !authed ? 'signed-out' : needsEmailVerification ? `verify-${user!.uid}` : `app-${user!.uid}`;
+  const navKey = !authReady
+    ? 'auth-boot'
+    : !authed
+      ? 'signed-out'
+      : needsEmailVerification
+        ? `verify-${user!.uid}`
+        : `app-${user!.uid}`;
   const [termsOk, setTermsOk] = React.useState<boolean>(false);
   const [termsReady, setTermsReady] = React.useState<boolean>(false);
 
@@ -134,8 +185,28 @@ export function RootNavigator() {
     });
   }, [authed, user?.uid]);
 
+  React.useEffect(() => {
+    if (!authed) return;
+    const open = (response: Notifications.NotificationResponse) => {
+      handleNotificationNavigation(rootNavigationRef, response);
+    };
+    void Notifications.getLastNotificationResponseAsync().then((r) => {
+      if (r) open(r);
+    });
+    const sub = Notifications.addNotificationResponseReceivedListener(open);
+    return () => sub.remove();
+  }, [authed]);
+
+  if (!authReady) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f7f8f6' }}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
   return (
-    <NavigationContainer key={navKey}>
+    <NavigationContainer ref={rootNavigationRef} key={navKey}>
       {authed && needsEmailVerification ? (
         <VerifyEmailScreen />
       ) : authed && termsReady && !termsOk ? (

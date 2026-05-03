@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { doc, increment, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 
 import { LeapLoadingFrog } from '../components/LeapLoadingFrog';
 import { RecordClipPreview } from '../components/RecordClipPreview';
@@ -99,6 +99,7 @@ export function RecordScreen() {
   const [clipSource, setClipSource] = React.useState<'recorded' | 'demo' | null>(null);
   const [cameraFacing, setCameraFacing] = React.useState<'front' | 'back'>('front');
   const [uploading, setUploading] = React.useState(false);
+  const [uploadPct, setUploadPct] = React.useState(0);
   const cameraReadyRef = React.useRef(false);
   const cameraRef = React.useRef<CameraView>(null);
   const countdownAbortRef = React.useRef(false);
@@ -367,7 +368,7 @@ export function RecordScreen() {
         markPostedToday();
         setClipUri(null);
         setClipSource(null);
-        nav.navigate('Feed');
+        nav.navigate('Tabs' as never, { screen: 'Feed' } as never);
         return;
       }
 
@@ -376,8 +377,23 @@ export function RecordScreen() {
       const contentType = 'video/mp4';
       const path = `videos/${user.uid}/${window.dateKey}/${Date.now()}.${ext}`;
       const rref = ref(storage(), path);
-      await uploadBytes(rref, blob, { contentType });
-      const downloadUrl = await getDownloadURL(rref);
+      setUploadPct(0);
+      const task = uploadBytesResumable(rref, blob, { contentType });
+      await new Promise<void>((resolve, reject) => {
+        task.on(
+          'state_changed',
+          (snapshot) => {
+            const total = snapshot.totalBytes;
+            if (total > 0) {
+              setUploadPct(Math.min(99, Math.round((100 * snapshot.bytesTransferred) / total)));
+            }
+          },
+          (err) => reject(err),
+          () => resolve()
+        );
+      });
+      setUploadPct(100);
+      const downloadUrl = await getDownloadURL(task.snapshot.ref);
 
       try {
         const requireMod = Boolean(getExpoExtra().requirePostModeration);
@@ -437,7 +453,7 @@ export function RecordScreen() {
       markPostedToday();
       setClipUri(null);
       setClipSource(null);
-      nav.navigate('Feed');
+      nav.navigate('Tabs' as never, { screen: 'Feed' } as never);
     } catch (e) {
       if (user?.uid && isFirebaseConfigured()) {
         try {
@@ -451,6 +467,7 @@ export function RecordScreen() {
       }
       showError('Post failed', e);
     } finally {
+      setUploadPct(0);
       setUploading(false);
     }
     };
@@ -473,7 +490,13 @@ export function RecordScreen() {
   return (
     <Screen withSafeArea={false} style={styles.screen}>
       <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => nav.navigate('Today')} style={styles.topBtn}>
+        <TouchableOpacity
+          onPress={() => {
+            if (nav.canGoBack()) nav.goBack();
+            else nav.navigate('Tabs' as never, { screen: 'Today' } as never);
+          }}
+          style={styles.topBtn}
+        >
           <Text style={styles.topBtnText}>✕</Text>
         </TouchableOpacity>
         <View style={styles.promptPill}>
@@ -579,7 +602,7 @@ export function RecordScreen() {
               </Text>
             </View>
             <PrimaryButton
-              title={uploading ? 'POSTING…' : 'POST'}
+              title={uploading ? (uploadPct > 0 ? `POST ${uploadPct}%` : 'POSTING…') : 'POST'}
               variant="green"
               onPress={onPost}
               style={styles.postBtn}

@@ -47,6 +47,25 @@ export function nyDateKey(d = new Date()) {
   return `${y}-${String(mo).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+/** Coerce `YYYY-M-D` / `YYYY-MM-DD` to canonical `YYYY-MM-DD` (invalid → `fallback`). */
+export function normalizeNyDateKey(raw: string, fallback: string): string {
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(raw ?? '').trim());
+  if (!m) return fallback;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return fallback;
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/** NY noon on `dateKey` as UTC ms — larger = newer challenge day (stable sort key). */
+export function nyDateKeyToSortUtcMs(dateKey: string, fallbackMs = 0): number {
+  const n = normalizeNyDateKey(dateKey, '');
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(n);
+  if (!m) return fallbackMs;
+  return utcMsForNyWallClock(Number(m[1]), Number(m[2]), Number(m[3]), 12, 0);
+}
+
 const safeMax0 = (x: number) => (Number.isFinite(x) ? Math.max(0, x) : 0);
 
 export type NyChallengeWindow = {
@@ -76,7 +95,134 @@ export function computeChallengeWindowFromNow(nowMs: number): NyChallengeWindow 
   };
 }
 
+/**
+ * Everyone-feed access is tied to NY **noon-to-noon** challenge cycles (not calendar midnight).
+ * `viewingChallengeDateKey` is the `videos/{uid}_{dateKey}` key you must have posted for to watch
+ * until the next noon ET boundary (`msUntilNextLock`).
+ */
+export type FeedViewingWindow = {
+  viewingChallengeDateKey: string;
+  msUntilNextLock: number;
+};
+
+export function computeFeedViewingFromNow(nowMs: number): FeedViewingWindow {
+  const { y, mo, d } = nyCalendarPartsFromUtc(nowMs);
+  const todayNoon = utcMsForNyWallClock(y, mo, d, 12, 0);
+
+  let vy: number;
+  let vm: number;
+  let vd: number;
+  if (nowMs >= todayNoon) {
+    vy = y;
+    vm = mo;
+    vd = d;
+  } else {
+    const prev = nyCalendarPartsFromUtc(todayNoon - 36 * 3600000);
+    vy = prev.y;
+    vm = prev.mo;
+    vd = prev.d;
+  }
+
+  const viewingChallengeDateKey = `${vy}-${String(vm).padStart(2, '0')}-${String(vd).padStart(2, '0')}`;
+
+  const nextDay = nextNyCalendarDay(y, mo, d);
+  const nextNoon =
+    nowMs < todayNoon ? todayNoon : utcMsForNyWallClock(nextDay.y, nextDay.mo, nextDay.d, 12, 0);
+
+  return {
+    viewingChallengeDateKey,
+    msUntilNextLock: safeMax0(nextNoon - nowMs),
+  };
+}
+
 /** Next UTC ms at or after `nowMs + 15s` for NY wall clock hour:minute today or a future NY day. */
+
+/**
+ * Firestore `where('challengeDate', 'in', …)` is **exact string** match. Some older posts use
+ * `YYYY-M-D` without zero-padding; include both canonical and compact forms (deduped, max 30).
+ */
+export function challengeDateKeysForFirestoreIn(dateKeys: readonly string[]): string[] {
+  const set = new Set<string>();
+  for (const raw of dateKeys) {
+    const canon = normalizeNyDateKey(String(raw), String(raw));
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(canon);
+    if (!m) continue;
+    set.add(canon);
+    set.add(`${Number(m[1])}-${Number(m[2])}-${Number(m[3])}`);
+  }
+  return Array.from(set).slice(0, 30);
+}
+
+export function prevNyDateKey(dateKey: string): string {
+  const n = normalizeNyDateKey(dateKey, '');
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(n);
+  if (!m) return dateKey;
+  const noon = utcMsForNyWallClock(Number(m[1]), Number(m[2]), Number(m[3]), 12, 0);
+  const prev = nyCalendarPartsFromUtc(noon - 40 * 3600000);
+  return `${prev.y}-${String(prev.mo).padStart(2, '0')}-${String(prev.d).padStart(2, '0')}`;
+}
+
+export function nyRecentChallengeDateKeys(anchorDateKey: string, totalDays: number): string[] {
+  const keys: string[] = [];
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(anchorDateKey.trim());
+  if (!m || totalDays <= 0) return keys;
+  let y = Number(m[1]);
+  let mo = Number(m[2]);
+  let d = Number(m[3]);
+  for (let i = 0; i < totalDays; i++) {
+    keys.push(`${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+    const noon = utcMsForNyWallClock(y, mo, d, 12, 0);
+    const prev = nyCalendarPartsFromUtc(noon - 40 * 3600000);
+    y = prev.y;
+    mo = prev.mo;
+    d = prev.d;
+  }
+  return keys;
+}
+
+/**
+ * Build `in` list for `videos.challengeDate` capped at 30 values. Prioritizes the active viewing
+ * cycle + the day before so early-morning feeds still match peers’ “yesterday” posts before older
+ * days consume the Firestore `in` budget.
+ */
+export function prioritizedChallengeDateInForVideosQuery(
+  anchorKey: string,
+  totalDays: number,
+  viewingChallengeDateKey: string
+): string[] {
+  const recent = nyRecentChallengeDateKeys(anchorKey, totalDays);
+  const priorityKeys = [
+    normalizeNyDateKey(viewingChallengeDateKey, anchorKey),
+    prevNyDateKey(viewingChallengeDateKey),
+    normalizeNyDateKey(anchorKey, anchorKey),
+  ];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const pushVariants = (dayKey: string) => {
+    const canon = normalizeNyDateKey(String(dayKey), String(dayKey));
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(canon);
+    const variants = m
+      ? [canon, `${Number(m[1])}-${Number(m[2])}-${Number(m[3])}`]
+      : [String(dayKey).trim()].filter(Boolean);
+    for (const v of variants) {
+      if (out.length >= 30) return;
+      if (!seen.has(v)) {
+        seen.add(v);
+        out.push(v);
+      }
+    }
+  };
+  for (const k of priorityKeys) {
+    if (out.length >= 30) break;
+    pushVariants(k);
+  }
+  for (const k of recent) {
+    if (out.length >= 30) break;
+    pushVariants(k);
+  }
+  return out;
+}
+
 export function nextNyFireUtcMs(hour: number, minute: number, nowMs = Date.now()): number {
   let { y, mo, d } = nyCalendarPartsFromUtc(nowMs);
   for (let i = 0; i < 400; i++) {

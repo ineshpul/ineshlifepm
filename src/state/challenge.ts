@@ -43,8 +43,9 @@ export type PlayerFacingChallenge = {
 
 export function getPlayerFacingChallenge(challenge: Challenge, window: ChallengeWindow): PlayerFacingChallenge {
   if (window.isLive) {
+    const title = challenge.title.trim();
     return {
-      title: challenge.title,
+      title: title || "Loading today's leap…",
       instructionsLine: `${CHALLENGE_INSTRUCTIONS} · Up to ${challenge.maxDurationSeconds}s`,
       canRecord: true,
     };
@@ -72,7 +73,7 @@ export function useTodayChallenge() {
   const win = useChallengeWindow();
   const [challenge, setChallenge] = React.useState<Challenge>(() => ({
     dateKey: win.dateKey,
-    title: 'Introduce yourself',
+    title: '',
     subtitle: '',
     maxDurationSeconds: 60,
   }));

@@ -367,10 +367,15 @@ export function subscribeMyInboxRows(
     q,
     (snap) => {
       const rows: InboxMemberSnapshot[] = snap.docs
-        .map((d) => ({
-          conversationId: d.id,
-          member: mapMemberDoc(myUid, d.data() as Record<string, unknown>),
-        }))
+        .map((d) => {
+          const data = d.data() as Record<string, unknown>;
+          // Doc id is conversationId; `memberUid` must be the viewer — never fall back to doc id.
+          const merged = { ...data, memberUid: data.memberUid != null ? String(data.memberUid) : myUid };
+          return {
+            conversationId: d.id,
+            member: mapMemberDoc(d.id, merged),
+          };
+        })
         .filter((r) => Boolean(r.conversationId))
         .sort((a, b) => {
           const am = a.member.lastActivityAt?.toMillis?.() ?? 0;

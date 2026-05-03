@@ -20,6 +20,7 @@ import { useLiveCount } from '../state/live';
 import { LEAP_BOTTOM_TAGLINE } from '../content/challengeCopy';
 import { useAuth } from '../state/auth';
 import { showInfo } from '../utils/ui';
+import { navigateToRecord } from '../navigation/navigationHelpers';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { subscribeUsersByUsernamePrefix, type UserSearchHit } from '../services/userSearch';
 
@@ -199,7 +200,7 @@ export function TodayScreen() {
               );
               return;
             }
-            nav.navigate('Record');
+            navigateToRecord(nav);
           }}
           style={styles.leapBtn}
         />

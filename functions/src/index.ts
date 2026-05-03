@@ -33,8 +33,10 @@ type ChatMessagePayload = {
 
 type NotifPayload = {
   type?: string;
+  fromUid?: string;
   fromUsername?: string;
   snippet?: string | null;
+  videoId?: string | null;
 };
 
 function buildBody(data: NotifPayload): string {
@@ -75,12 +77,21 @@ export const onInboxNotificationCreated = onDocumentCreated(
     }
 
     const body = buildBody(data);
+    const notifId = event.params.notifId as string;
     const messages = tokens.map((to) => ({
       to,
       title: 'Leap',
       body,
       sound: 'default',
       priority: 'high' as const,
+      data: {
+        kind: 'social',
+        type: String(data.type ?? ''),
+        fromUid: String(data.fromUid ?? ''),
+        fromUsername: String(data.fromUsername ?? ''),
+        videoId: String(data.videoId ?? ''),
+        notificationId: String(notifId ?? ''),
+      },
     }));
 
     for (let i = 0; i < messages.length; i += 99) {

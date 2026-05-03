@@ -1,26 +1,27 @@
 import * as React from 'react';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import type { NavigatorScreenParams } from '@react-navigation/native';
+import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '../theme/colors';
 import { TodayScreen } from '../screens/TodayScreen';
 import { FeedScreen } from '../screens/FeedScreen';
-import { RecordScreen } from '../screens/RecordScreen';
 import { TopScreen } from '../screens/TopScreen';
 import { MeScreen } from '../screens/MeScreen';
 import { ChatStackNavigator } from './ChatStack';
+import type { ChatStackParamList } from './ChatStack';
 
 export type TabsParamList = {
   Today: undefined;
+  /** Everyone’s leaps (gated until you post). Same reel as before; lives on the play tab. */
   Feed: undefined;
-  Record: undefined;
   Top: undefined;
-  Chat: undefined;
+  Chat: NavigatorScreenParams<ChatStackParamList> | undefined;
   Me: undefined;
 };
 
-const Tab = createBottomTabNavigator<TabsParamList>();
+const Tab = createMaterialTopTabNavigator<TabsParamList>();
 
 function TabIcon({
   name,
@@ -40,73 +41,70 @@ export function AppTabs() {
   return (
     <View style={styles.tabsRoot}>
       <View style={styles.tabsFill}>
-    <Tab.Navigator
-      detachInactiveScreens={false}
-      screenOptions={{
-        headerShown: false,
-        tabBarShowLabel: false,
-        tabBarStyle: styles.tabBar,
-        tabBarActiveTintColor: colors.text,
-        tabBarInactiveTintColor: colors.muted,
-        /** Avoid react-native-screens detach/freeze races that can eat tab bar taps on some devices. */
-        freezeOnBlur: false,
-      }}
-    >
-      <Tab.Screen
-        name="Today"
-        component={TodayScreen}
-        options={{
-          title: 'Today',
-          tabBarAccessibilityLabel: 'Today',
-          tabBarIcon: ({ focused }) => <TabIcon name="today-outline" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="Feed"
-        component={FeedScreen}
-        options={{
-          title: 'Feed',
-          tabBarAccessibilityLabel: 'Feed',
-          tabBarIcon: ({ focused }) => <TabIcon name="albums-outline" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="Record"
-        component={RecordScreen}
-        options={{
-          title: 'Record',
-          tabBarAccessibilityLabel: 'Record',
-          tabBarIcon: ({ focused }) => <TabIcon name="videocam-outline" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="Top"
-        component={TopScreen}
-        options={{
-          title: 'How high can you jump?',
-          tabBarAccessibilityLabel: 'How high can you jump? Leaperboard',
-          tabBarIcon: ({ focused }) => <TabIcon name="trending-up-outline" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="Chat"
-        component={ChatStackNavigator}
-        options={{
-          title: 'Chat',
-          tabBarAccessibilityLabel: 'Chat',
-          tabBarIcon: ({ focused }) => <TabIcon name="chatbubbles-outline" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="Me"
-        component={MeScreen}
-        options={{
-          title: 'Me',
-          tabBarAccessibilityLabel: 'Me',
-          tabBarIcon: ({ focused }) => <TabIcon name="person-circle-outline" focused={focused} />,
-        }}
-      />
-    </Tab.Navigator>
+        <Tab.Navigator
+          initialRouteName="Today"
+          tabBarPosition="bottom"
+          screenOptions={{
+            tabBarShowLabel: false,
+            tabBarShowIcon: true,
+            swipeEnabled: true,
+            animationEnabled: true,
+            tabBarStyle: styles.tabBar,
+            tabBarActiveTintColor: colors.text,
+            tabBarInactiveTintColor: colors.muted,
+            tabBarIndicatorStyle: styles.tabBarIndicator,
+            tabBarPressColor: 'transparent',
+            tabBarPressOpacity: 0.85,
+            tabBarItemStyle: styles.tabBarItem,
+            tabBarContentContainerStyle: styles.tabBarContent,
+          }}
+        >
+          <Tab.Screen
+            name="Today"
+            component={TodayScreen}
+            options={{
+              title: 'Today',
+              tabBarAccessibilityLabel: 'Today',
+              tabBarIcon: ({ focused }) => <TabIcon name="today-outline" focused={focused} />,
+            }}
+          />
+          <Tab.Screen
+            name="Feed"
+            component={FeedScreen}
+            options={{
+              title: 'Feed',
+              tabBarAccessibilityLabel: "Everyone's leaps",
+              tabBarIcon: ({ focused }) => <TabIcon name="play-circle-outline" focused={focused} />,
+            }}
+          />
+          <Tab.Screen
+            name="Top"
+            component={TopScreen}
+            options={{
+              title: 'How high can you jump?',
+              tabBarAccessibilityLabel: 'How high can you jump? Leaperboard',
+              tabBarIcon: ({ focused }) => <TabIcon name="trending-up-outline" focused={focused} />,
+            }}
+          />
+          <Tab.Screen
+            name="Chat"
+            component={ChatStackNavigator}
+            options={{
+              title: 'Chat',
+              tabBarAccessibilityLabel: 'Chat',
+              tabBarIcon: ({ focused }) => <TabIcon name="chatbubbles-outline" focused={focused} />,
+            }}
+          />
+          <Tab.Screen
+            name="Me"
+            component={MeScreen}
+            options={{
+              title: 'Me',
+              tabBarAccessibilityLabel: 'Me',
+              tabBarIcon: ({ focused }) => <TabIcon name="person-circle-outline" focused={focused} />,
+            }}
+          />
+        </Tab.Navigator>
       </View>
     </View>
   );
@@ -120,6 +118,21 @@ const styles = StyleSheet.create({
     paddingTop: 6,
     paddingBottom: 10,
     borderTopColor: colors.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    elevation: 0,
+    shadowOpacity: 0,
+  },
+  tabBarIndicator: {
+    height: 0,
+    backgroundColor: 'transparent',
+  },
+  tabBarItem: {
+    flex: 1,
+  },
+  tabBarContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
   },
   iconWrap: {
     width: 30,
@@ -132,4 +145,3 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 107, 84, 0.12)',
   },
 });
-

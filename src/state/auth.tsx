@@ -34,6 +34,8 @@ export type EmailPasswordSignInResult =
   | { ok: false; reason: 'unknown'; message: string };
 
 type AuthContextValue = {
+  /** False until Firebase `authStateReady()` resolves — avoids a one-frame signed-out flash on cold start. */
+  authReady: boolean;
   user: AuthUser | null;
   signUp: (args: { email: string; password: string; username: string }) => Promise<void>;
   signInWithEmailPassword: (args: { email: string; password: string }) => Promise<EmailPasswordSignInResult>;
@@ -80,7 +82,19 @@ function mergeAuthUser(prev: AuthUser | null, next: AuthUser): AuthUser {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = React.useState<AuthUser | null>(null);
+  const [authReady, setAuthReady] = React.useState(() => !isFirebaseConfigured());
   const signOutInProgressRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      setAuthReady(true);
+      return;
+    }
+    void firebaseAuth()
+      .authStateReady()
+      .then(() => setAuthReady(true))
+      .catch(() => setAuthReady(true));
+  }, []);
 
   /**
    * Maps Firebase Auth → in-app `user`.
@@ -468,6 +482,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value: AuthContextValue = React.useMemo(
     () => ({
+      authReady,
       user,
       signUp,
       signInWithEmailPassword,
@@ -477,6 +492,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sendPasswordResetEmail: sendPasswordResetEmailCb,
     }),
     [
+      authReady,
       user,
       signUp,
       signInWithEmailPassword,

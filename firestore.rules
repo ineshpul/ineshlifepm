@@ -481,12 +481,31 @@ service cloud.firestore {
       // Who you follow — visible only to you. No public follower lists or counts.
       match /following/{targetUid} {
         allow read: if isOwner(userId);
+        // `targetPhotoUrl` is optional denormalized public avatar for list UIs (synced from `users/{targetUid}.photoUrl`).
         allow create: if isOwner(userId)
           && request.auth.uid == userId
           && userId != targetUid
-          && request.resource.data.targetUsername is string;
+          && request.resource.data.targetUsername is string
+          && (
+            request.resource.data.keys().hasOnly(['targetUsername', 'createdAt'])
+            || (
+              request.resource.data.keys().hasOnly(['targetUsername', 'createdAt', 'targetPhotoUrl'])
+              && (
+                request.resource.data.targetPhotoUrl == null
+                || request.resource.data.targetPhotoUrl is string
+              )
+            )
+          );
         allow delete: if isOwner(userId);
-        allow update: if false;
+        allow update: if isOwner(userId)
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly(['targetUsername', 'createdAt', 'targetPhotoUrl'])
+          && request.resource.data.targetUsername is string
+          && request.resource.data.createdAt == resource.data.createdAt
+          && (
+            request.resource.data.targetPhotoUrl == null
+            || request.resource.data.targetPhotoUrl is string
+          );
       }
 
       // Expo push tokens for this user (one doc per device). Used by Cloud Functions only to send pushes.

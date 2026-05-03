@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+
+import { FollowButton } from '../components/FollowButton';
 import { Screen } from '../components/Screen';
 import { colors } from '../theme/colors';
 import { useAuth } from '../state/auth';
@@ -22,13 +24,25 @@ export function NotificationsScreen() {
     return subscribeNotifications(user?.uid, setItems);
   }, [user?.uid]);
 
-  const onOpen = async (n: InAppNotification) => {
-    if (!user?.uid || n.read) return;
-    try {
-      await markNotificationRead(user.uid, n.id);
-    } catch {
-      // ignore
+  const openNotification = async (n: InAppNotification) => {
+    if (user?.uid && !n.read) {
+      setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      try {
+        await markNotificationRead(user.uid, n.id);
+      } catch {
+        setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: false } : x)));
+      }
     }
+    if (n.type === 'admin_alert') return;
+    if (n.type === 'follow') {
+      nav.navigate('UserProfile', { uid: n.fromUid, username: n.fromUsername });
+      return;
+    }
+    if ((n.type === 'like' || n.type === 'comment') && n.videoId) {
+      nav.navigate('VideoPost', { videoId: n.videoId });
+      return;
+    }
+    nav.navigate('UserProfile', { uid: n.fromUid, username: n.fromUsername });
   };
 
   return (
@@ -41,36 +55,34 @@ export function NotificationsScreen() {
           <Text style={styles.empty}>No notifications yet.</Text>
         }
         renderItem={({ item }) => (
-          <TouchableOpacity
-            style={[styles.row, !item.read && styles.rowUnread]}
-            onPress={() => void onOpen(item)}
-            activeOpacity={0.85}
-          >
-            <View style={styles.dotWrap}>{!item.read ? <View style={styles.dot} /> : null}</View>
-            <View style={{ flex: 1 }}>
-              {item.type === 'admin_alert' ? (
-                <Text style={styles.line}>
-                  <Text style={styles.name}>Leap</Text> · {bodyFor(item)}
-                </Text>
-              ) : (
-                <Text style={styles.line}>
-                  <Text
-                    style={styles.name}
-                    onPress={() =>
-                      nav.navigate('UserProfile', {
-                        uid: item.fromUid,
-                        username: item.fromUsername,
-                      })
-                    }
-                    suppressHighlighting
-                  >
-                    @{item.fromUsername}
-                  </Text>{' '}
-                  {bodyFor(item)}
-                </Text>
-              )}
-            </View>
-          </TouchableOpacity>
+          <View style={[styles.row, !item.read && styles.rowUnread]}>
+            <TouchableOpacity
+              style={styles.rowMain}
+              onPress={() => void openNotification(item)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.dotWrap}>{!item.read ? <View style={styles.dot} /> : null}</View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                {item.type === 'admin_alert' ? (
+                  <Text style={styles.line}>
+                    <Text style={styles.name}>Leap</Text> · {bodyFor(item)}
+                  </Text>
+                ) : (
+                  <Text style={styles.line}>
+                    <Text style={styles.name}>@{item.fromUsername}</Text> {bodyFor(item)}
+                  </Text>
+                )}
+              </View>
+            </TouchableOpacity>
+            {item.type === 'follow' && user?.uid && item.fromUid && item.fromUid !== user.uid ? (
+              <FollowButton
+                viewerUid={user.uid}
+                viewerUsername={user.username}
+                targetUid={item.fromUid}
+                targetUsername={item.fromUsername}
+              />
+            ) : null}
+          </View>
         )}
       />
     </Screen>
@@ -96,13 +108,21 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 8,
-    padding: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
+  },
+  rowMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    minWidth: 0,
   },
   rowUnread: {
     backgroundColor: 'rgba(255, 107, 84, 0.06)',
