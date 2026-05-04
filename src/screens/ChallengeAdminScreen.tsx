@@ -1,6 +1,7 @@
 import * as React from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { deleteField, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 
 import { Screen } from '../components/Screen';
@@ -23,6 +24,7 @@ const ATTEMPT_PRESETS = [1, 2, 3, 5, 10] as const;
 
 export function ChallengeAdminScreen() {
   const nav = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const win = useChallengeWindow();
 
   const [title, setTitle] = React.useState('');
@@ -104,85 +106,98 @@ export function ChallengeAdminScreen() {
   };
 
   return (
-    <Screen style={styles.screen}>
-      <Text style={styles.kicker}>ADMIN</Text>
-      <Text style={styles.title}>Set today’s challenge</Text>
-      <Text style={styles.meta}>Date key (NY): {win.dateKey}</Text>
+    <Screen style={styles.screenOuter} edges={['bottom', 'left', 'right']}>
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Math.max(insets.bottom, 12) + 24 },
+        ]}
+      >
+        <Text style={styles.kicker}>ADMIN</Text>
+        <Text style={styles.title}>Set today’s challenge</Text>
+        <Text style={styles.meta}>Date key (NY): {win.dateKey}</Text>
 
-      <View style={styles.field}>
-        <Text style={styles.label}>TITLE</Text>
-        <TextInput value={title} onChangeText={setTitle} style={styles.input} placeholder="Prompt title" />
-      </View>
-
-      <Text style={styles.helper}>
-        Players only see this title and length after 12:00 PM Eastern. Before noon they see “Today’s leap is loading…”;
-        your edits here stay hidden until the drop.
-      </Text>
-
-      <View style={styles.field}>
-        <Text style={styles.label}>MAX LENGTH (SECONDS)</Text>
-        <View style={styles.durationRow}>
-          {TASK_DURATION_OPTIONS.map((sec) => (
-            <Pressable
-              key={sec}
-              onPress={() => setDurationInput(String(sec))}
-              style={[styles.durationChip, durationParsed === sec && styles.durationChipActive]}
-            >
-              <Text style={[styles.durationChipText, durationParsed === sec && styles.durationChipTextActive]}>
-                {sec}s
-              </Text>
-            </Pressable>
-          ))}
+        <View style={styles.field}>
+          <Text style={styles.label}>TITLE</Text>
+          <TextInput value={title} onChangeText={setTitle} style={styles.input} placeholder="Prompt title" />
         </View>
-        <Text style={styles.subLabel}>Custom ({MIN_TASK_DURATION_SECONDS}–{MAX_TASK_DURATION_SECONDS}s)</Text>
-        <TextInput
-          value={durationInput}
-          onChangeText={setDurationInput}
-          onBlur={applyDurationFromInput}
-          keyboardType="number-pad"
-          style={styles.input}
-          placeholder={`${MIN_TASK_DURATION_SECONDS}–${MAX_TASK_DURATION_SECONDS}`}
-        />
-        <Text style={styles.durationHint}>Recording limit matches this length for everyone that day.</Text>
-      </View>
 
-      <View style={styles.field}>
-        <Text style={styles.label}>RECORDING ATTEMPTS (PER DAY)</Text>
-        <View style={styles.durationRow}>
-          {ATTEMPT_PRESETS.map((n) => (
-            <Pressable
-              key={n}
-              onPress={() => setAttemptsInput(String(n))}
-              style={[styles.durationChip, attemptsParsed === n && styles.durationChipActive]}
-            >
-              <Text style={[styles.durationChipText, attemptsParsed === n && styles.durationChipTextActive]}>
-                {n}
-              </Text>
-            </Pressable>
-          ))}
+        <Text style={styles.helper}>
+          Players only see this title and length after 12:00 PM Eastern. Before noon they see “Today’s leap is loading…”;
+          your edits here stay hidden until the drop.
+        </Text>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>MAX LENGTH (SECONDS)</Text>
+          <View style={styles.durationRow}>
+            {TASK_DURATION_OPTIONS.map((sec) => (
+              <Pressable
+                key={sec}
+                onPress={() => setDurationInput(String(sec))}
+                style={[styles.durationChip, durationParsed === sec && styles.durationChipActive]}
+              >
+                <Text style={[styles.durationChipText, durationParsed === sec && styles.durationChipTextActive]}>
+                  {sec}s
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.subLabel}>Custom ({MIN_TASK_DURATION_SECONDS}–{MAX_TASK_DURATION_SECONDS}s)</Text>
+          <TextInput
+            value={durationInput}
+            onChangeText={setDurationInput}
+            onBlur={applyDurationFromInput}
+            keyboardType="number-pad"
+            style={styles.input}
+            placeholder={`${MIN_TASK_DURATION_SECONDS}–${MAX_TASK_DURATION_SECONDS}`}
+          />
+          <Text style={styles.durationHint}>Recording limit matches this length for everyone that day.</Text>
         </View>
-        <Text style={styles.subLabel}>Custom (1–{MAX_RECORDING_ATTEMPTS_CAP})</Text>
-        <TextInput
-          value={attemptsInput}
-          onChangeText={setAttemptsInput}
-          onBlur={applyAttemptsFromInput}
-          keyboardType="number-pad"
-          style={styles.input}
-          placeholder="3"
-        />
-        <Text style={styles.durationHint}>Each try counts when they start recording for the day’s leap.</Text>
-      </View>
 
-      <PrimaryButton title={busy ? 'PUBLISHING…' : 'PUBLISH'} variant="green" onPress={onPublish} disabled={busy} />
-      <PrimaryButton title="BACK" variant="outline" onPress={() => nav.goBack()} style={{ marginTop: 12 }} />
+        <View style={styles.field}>
+          <Text style={styles.label}>RECORDING ATTEMPTS (PER DAY)</Text>
+          <View style={styles.durationRow}>
+            {ATTEMPT_PRESETS.map((n) => (
+              <Pressable
+                key={n}
+                onPress={() => setAttemptsInput(String(n))}
+                style={[styles.durationChip, attemptsParsed === n && styles.durationChipActive]}
+              >
+                <Text style={[styles.durationChipText, attemptsParsed === n && styles.durationChipTextActive]}>
+                  {n}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.subLabel}>Custom (1–{MAX_RECORDING_ATTEMPTS_CAP})</Text>
+          <TextInput
+            value={attemptsInput}
+            onChangeText={setAttemptsInput}
+            onBlur={applyAttemptsFromInput}
+            keyboardType="number-pad"
+            style={styles.input}
+            placeholder="3"
+          />
+          <Text style={styles.durationHint}>Each try counts when they start recording for the day’s leap.</Text>
+        </View>
+
+        <PrimaryButton title={busy ? 'PUBLISHING…' : 'PUBLISH'} variant="green" onPress={onPublish} disabled={busy} />
+        <PrimaryButton title="BACK" variant="outline" onPress={() => nav.goBack()} style={{ marginTop: 12 }} />
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
+  screenOuter: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: 18,
-    paddingTop: 18,
+    paddingTop: 10,
     gap: 12,
   },
   kicker: {
