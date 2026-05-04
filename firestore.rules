@@ -39,18 +39,10 @@ service cloud.firestore {
         && request.auth.uid in convDoc(convId).memberIds;
     }
 
-    function follows(a, b) {
-      return exists(/databases/$(database)/documents/users/$(a)/following/$(b));
-    }
-
-    function canDm(sender, recipient) {
+    function canDm() {
       // Beta behavior: anyone can DM anyone unless blocked.
       // Block enforcement happens in `isBlockedPair()` inside conversation create.
       return signedIn();
-    }
-
-    function dmOtherUid(mids) {
-      return mids[0] == request.auth.uid ? mids[1] : mids[0];
     }
 
     function isBlockedPair(a, b) {
@@ -92,7 +84,7 @@ service cloud.firestore {
             request.resource.data.type == 'dm'
             && request.resource.data.memberIds.size() == 2
             && request.resource.data.dmPairKey is string
-            && canDm(request.auth.uid, dmOtherUid(request.resource.data.memberIds))
+            && canDm()
             && !isBlockedPair(
               request.resource.data.memberIds[0],
               request.resource.data.memberIds[1]
