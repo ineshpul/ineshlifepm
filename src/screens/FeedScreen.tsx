@@ -13,7 +13,7 @@ import {
   useWindowDimensions,
   type ViewToken,
 } from 'react-native';
-import { FlatList, ScrollView } from 'react-native-gesture-handler';
+import { FlatList } from 'react-native-gesture-handler';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -120,11 +120,9 @@ export function FeedScreen() {
   const [unreadNotifications, setUnreadNotifications] = React.useState(0);
   /** Lifts the reel bottom sheet above the keyboard (fixed-height KAV was ineffective here). */
   const [keyboardSheetBottom, setKeyboardSheetBottom] = React.useState(0);
-  /** RNGH `ScrollView` instance; typed loosely so `scrollToEnd` works without RN/GH ref conflicts. */
-  const engagementScrollRefs = React.useRef<Record<string, { scrollToEnd: (o?: { animated?: boolean }) => void } | null>>(
-    {}
-  );
   const flatListRef = React.useRef<FlatList<FeedVideo>>(null);
+  /** Reel sheet `bottom` must use overlap with keyboard vs this slot’s bottom (tab bar is below; window-height math over-lifts). */
+  const feedSlotRef = React.useRef<View>(null);
 
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -166,13 +164,27 @@ export function FeedScreen() {
   React.useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvent, (e) => setKeyboardSheetBottom(e.endCoordinates.height));
+    const show = Keyboard.addListener(showEvent, (e) => {
+      const ec = e.endCoordinates;
+      const top = typeof ec.screenY === 'number' ? ec.screenY : null;
+      const fallback =
+        top != null && windowHeight > 0 ? Math.max(0, windowHeight - top) : Math.max(0, ec.height);
+      const node = feedSlotRef.current;
+      if (node && top != null) {
+        node.measureInWindow((fx, fy, fw, fh) => {
+          const anchorBottom = fy + fh;
+          setKeyboardSheetBottom(Math.max(0, anchorBottom - top));
+        });
+      } else {
+        setKeyboardSheetBottom(fallback);
+      }
+    });
     const hide = Keyboard.addListener(hideEvent, () => setKeyboardSheetBottom(0));
     return () => {
       show.remove();
       hide.remove();
     };
-  }, []);
+  }, [windowHeight]);
 
   React.useEffect(() => {
     return subscribeFollowing(user?.uid, setFollowingRows);
@@ -489,7 +501,7 @@ export function FeedScreen() {
         </View>
       </View>
 
-      <View style={styles.feedSlot} onLayout={onSlotLayout}>
+      <View ref={feedSlotRef} style={styles.feedSlot} onLayout={onSlotLayout} collapsable={false}>
         <FlatList
           ref={flatListRef}
           style={styles.reelList}
@@ -610,16 +622,9 @@ export function FeedScreen() {
                   </View>
                 </View>
                 {user?.uid ? (
-                  <ScrollView
-                    ref={(r) => {
-                      engagementScrollRefs.current[item.id] = r;
-                    }}
-                    style={styles.reelEngagementScroll}
-                    nestedScrollEnabled
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={false}
-                  >
+                  <View style={styles.reelEngagementScroll}>
                     <FeedPostEngagement
+                      reelLayout
                       videoId={item.id}
                       videoOwnerUid={item.ownerUid}
                       videoOwnerUsername={item.username}
@@ -627,13 +632,8 @@ export function FeedScreen() {
                       shareUrl={item.url}
                       viewerUid={user.uid}
                       viewerUsername={user.username}
-                      onCommentComposerFocus={() => {
-                        requestAnimationFrame(() => {
-                          engagementScrollRefs.current[item.id]?.scrollToEnd({ animated: true });
-                        });
-                      }}
                     />
-                  </ScrollView>
+                  </View>
                 ) : null}
               </View>
             </View>

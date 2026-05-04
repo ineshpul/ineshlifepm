@@ -2,6 +2,8 @@
 export const CHAT_MAX_MESSAGE_CHARS = 4000;
 export const CHAT_MAX_ATTACHMENTS_PER_MESSAGE = 4;
 export const CHAT_MAX_GROUP_MEMBERS = 50;
+/** First snapshot: smaller = faster time-to-first paint; older history loads on scroll. */
+export const CHAT_MESSAGES_INITIAL_PAGE = 18;
 export const CHAT_MESSAGES_PAGE_SIZE = 40;
 
 /** Storage / upload */
@@ -20,6 +22,5 @@ export const CHAT_ALLOWED_DOC_MIMES = [
 ];
 
 export const CHAT_TYPING_TTL_MS = 5000;
-export const CHAT_MIN_MESSAGE_INTERVAL_MS = 400; // soft anti-flood (client)
 
 export const CHAT_REACTION_EMOJIS = ['❤️', '🔥', '😂', '😮', '😢', '👍', '👎', '🎉'] as const;

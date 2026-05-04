@@ -3,20 +3,23 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  KeyboardAvoidingView,
-  LayoutAnimation,
+  InteractionManager,
+  Keyboard,
   Modal,
+  LayoutChangeEvent,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  UIManager,
   View,
+  useWindowDimensions,
+  type KeyboardEvent,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { useHeaderHeight } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -48,11 +51,8 @@ import {
   subscribeTyping,
 } from '../services/chat/chatFirestore';
 import { BlockReportModal } from '../chat/components/BlockReportModal';
+import { setForegroundChatConversationId } from '../chat/activeConversationRef';
 import { showError, showInfo } from '../utils/ui';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 type Props = NativeStackScreenProps<ChatStackParamList, 'Conversation'>;
 
@@ -72,14 +72,16 @@ function DateSep({ d }: { d: Date }) {
 
 export function ConversationScreen({ navigation, route }: Props) {
   const { conversationId, threadTitle, pendingShare } = route.params;
-  const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { user } = useAuth();
   const { conversation, members, myMember } = useConversation(conversationId, user?.uid);
   const { messages, loading, loadOlder, hasMore, loadingOlder, send, markRead } = useMessages(
     conversationId,
     user?.uid
   );
+  /** Newest first — pairs with `inverted` FlatList so latest sits by the composer (standard chat layout). */
+  const displayMessages = React.useMemo(() => [...messages].reverse(), [messages]);
   const { pickAndUploadImage, pickAndUploadVideo, uploadProgress, busy } = useAttachments(
     conversationId,
     user?.uid
@@ -93,15 +95,60 @@ export function ConversationScreen({ navigation, route }: Props) {
   const [typingUids, setTypingUids] = React.useState<string[]>([]);
   const typingTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [videoOpen, setVideoOpen] = React.useState<string | null>(null);
+  const [imageOpen, setImageOpen] = React.useState<string | null>(null);
   const reactionsUnsubs = React.useRef<Record<string, () => void>>({});
   const [reactionMap, setReactionMap] = React.useState<
     Record<string, { emoji: string; count: number; mine?: boolean }[]>
   >({});
   const pendingShareHandled = React.useRef(false);
+  const listRef = React.useRef<FlatList<ChatMessage>>(null);
+  const nearBottomRef = React.useRef(true);
+  const composerFocusedRef = React.useRef(false);
+  const lastNewestMessageIdRef = React.useRef<string | null>(null);
+  /** Measured height of reply bar + upload row + composer — with `inverted`, use paddingTop on list content for visual bottom gap. */
+  const [bottomChromeHeight, setBottomChromeHeight] = React.useState(88);
+  /** iOS: lift thread + composer above keyboard (KAV is unreliable inside native stack + tabs). */
+  const [keyboardPadIOS, setKeyboardPadIOS] = React.useState(0);
+  /** Bottom of chat scene in window coords — keyboard overlap = anchorBottom - keyboardTop (not raw window height). */
+  const keyboardLayoutRef = React.useRef<View>(null);
 
   React.useEffect(() => {
     pendingShareHandled.current = false;
+    setReactionMap({});
+    lastNewestMessageIdRef.current = null;
+    nearBottomRef.current = true;
   }, [conversationId]);
+
+  /** iOS: pin composer using overlap between this screen’s bottom and the keyboard (tabs sit below; raw `height` over-lifts). */
+  React.useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const showEv = 'keyboardWillShow' as const;
+    const hideEv = 'keyboardWillHide' as const;
+    const applyShow = (e: KeyboardEvent) => {
+      const ec = e.endCoordinates;
+      const top = typeof ec.screenY === 'number' ? ec.screenY : null;
+      const fallback =
+        top != null && windowHeight > 0 ? Math.max(0, windowHeight - top) : Math.max(0, ec.height);
+      const node = keyboardLayoutRef.current;
+      if (node && top != null) {
+        node.measureInWindow((fx, fy, fw, fh) => {
+          const anchorBottom = fy + fh;
+          setKeyboardPadIOS(Math.max(0, anchorBottom - top));
+        });
+      } else {
+        setKeyboardPadIOS(fallback);
+      }
+    };
+    const show = Keyboard.addListener(showEv, applyShow);
+    const hide = Keyboard.addListener(hideEv, () => setKeyboardPadIOS(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [windowHeight]);
+
+  /** Only attach reaction listeners for recent messages (each sub is a live query). */
+  const messagesForReactions = React.useMemo(() => messages.slice(-18), [messages]);
 
   const dmPeer = React.useMemo(() => {
     if (conversation?.type !== 'dm' || !user?.uid) return null;
@@ -250,8 +297,21 @@ export function ConversationScreen({ navigation, route }: Props) {
 
   useFocusEffect(
     React.useCallback(() => {
+      setForegroundChatConversationId(conversationId);
       void markRead();
-    }, [markRead])
+      let cancelled = false;
+      InteractionManager.runAfterInteractions(() => {
+        if (cancelled) return;
+        requestAnimationFrame(() => {
+          if (cancelled) return;
+          listRef.current?.scrollToOffset({ offset: 0, animated: false });
+        });
+      });
+      return () => {
+        cancelled = true;
+        setForegroundChatConversationId(null);
+      };
+    }, [conversationId, markRead])
   );
 
   // If the screen focused before messages loaded, mark read once we have a last message id.
@@ -292,32 +352,56 @@ export function ConversationScreen({ navigation, route }: Props) {
     });
   }, [members, user?.uid, watchPresence]);
 
+  /** Keep pinned to newest when new messages arrive while you are following the thread. */
   React.useEffect(() => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-  }, [messages.length]);
+    const newestId = displayMessages[0]?.id ?? null;
+    const prevNewest = lastNewestMessageIdRef.current;
+    if (newestId === prevNewest) return;
+    lastNewestMessageIdRef.current = newestId;
+    if (!newestId || prevNewest === null) return;
+    if (nearBottomRef.current || composerFocusedRef.current) {
+      const anim = keyboardPadIOS <= 0;
+      requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: anim }));
+    }
+  }, [displayMessages, keyboardPadIOS]);
 
   React.useEffect(() => {
     return () => {
       Object.values(reactionsUnsubs.current).forEach((u) => u());
+      reactionsUnsubs.current = {};
     };
-  }, []);
+  }, [conversationId]);
 
-  const attachReactionsListener = React.useCallback(
-    (msgId: string) => {
-      if (reactionsUnsubs.current[msgId]) return;
-      reactionsUnsubs.current[msgId] = subscribeReactions(conversationId, msgId, (rows) => {
+  React.useEffect(() => {
+    if (!conversationId || !user?.uid) return;
+    const uid = user.uid;
+    const activeIds = new Set(messagesForReactions.map((m) => m.id));
+    for (const id of Object.keys(reactionsUnsubs.current)) {
+      if (!activeIds.has(id)) {
+        reactionsUnsubs.current[id]?.();
+        delete reactionsUnsubs.current[id];
+      }
+    }
+    for (const m of messagesForReactions) {
+      if (reactionsUnsubs.current[m.id]) continue;
+      reactionsUnsubs.current[m.id] = subscribeReactions(conversationId, m.id, (rows) => {
         const map = new Map<string, number>();
         const mine = new Set<string>();
         rows.forEach((r) => {
           map.set(r.emoji, (map.get(r.emoji) ?? 0) + 1);
-          if (r.userId === user?.uid) mine.add(r.emoji);
+          if (r.userId === uid) mine.add(r.emoji);
         });
         const arr = [...map.entries()].map(([emoji, count]) => ({ emoji, count, mine: mine.has(emoji) }));
-        setReactionMap((prev) => ({ ...prev, [msgId]: arr }));
+        setReactionMap((prev) => ({ ...prev, [m.id]: arr }));
       });
-    },
-    [conversationId, user?.uid]
-  );
+    }
+  }, [conversationId, user?.uid, messagesForReactions]);
+
+  const onListScroll = React.useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    // Inverted list: offset near 0 means user is at the newest end (by the composer).
+    nearBottomRef.current = y < 120;
+  }, []);
 
   const onTyping = React.useCallback(() => {
     if (!user?.uid) return;
@@ -329,24 +413,38 @@ export function ConversationScreen({ navigation, route }: Props) {
     }, 2200);
   }, [conversationId, user?.uid]);
 
-  const onSend = async () => {
+  const onSend = () => {
     const text = draft.trim();
     if (!text && !replyTo) return;
-    try {
-      await send({ text, replyTo: replyTo ?? undefined });
-      setDraft('');
-      setReplyTo(null);
-      void markRead();
-    } catch (e) {
-      showError('Could not send', e);
-    }
+    const reply = replyTo;
+    setDraft('');
+    setReplyTo(null);
+    void send({ text, replyTo: reply ?? undefined })
+      .then(() => {
+        void markRead();
+      })
+      .catch((e) => {
+        setDraft(text);
+        setReplyTo(reply);
+        showError('Could not send', e);
+      });
   };
 
   const renderMessage = ({ item, index }: { item: ChatMessage; index: number }) => {
-    attachReactionsListener(item.id);
     const mine = item.senderId === user?.uid;
-    const prev = index > 0 ? messages[index - 1] : null;
-    const showDate = !prev || !prev.createdAt || !item.createdAt || !sameDay(prev.createdAt.toDate(), item.createdAt.toDate());
+    const older = displayMessages[index + 1];
+    const newer = displayMessages[index - 1];
+    const showDate =
+      !older ||
+      !older.createdAt ||
+      !item.createdAt ||
+      !sameDay(older.createdAt.toDate(), item.createdAt.toDate());
+    const sameSenderCluster =
+      Boolean(newer && newer.senderId === item.senderId && !showDate) &&
+      !(
+        newer?.deletedForEveryone ||
+        (newer?.deletedForSelfUids && user?.uid && newer.deletedForSelfUids.includes(user.uid))
+      );
     const hidden =
       item.deletedForEveryone ||
       (item.deletedForSelfUids && user?.uid && item.deletedForSelfUids.includes(user.uid));
@@ -441,9 +539,16 @@ export function ConversationScreen({ navigation, route }: Props) {
               <Text style={styles.dur}>{a.durationSec ? `${a.durationSec}s` : 'Video'}</Text>
             </TouchableOpacity>
           ) : a.kind === 'image' ? (
-            <View key={a.id} style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
+            <TouchableOpacity
+              key={a.id}
+              style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}
+              activeOpacity={0.85}
+              onPress={() => setImageOpen(a.downloadUrl)}
+              accessibilityRole="image"
+              accessibilityLabel="View photo full screen"
+            >
               <Image source={{ uri: a.downloadUrl }} style={styles.thumb} contentFit="cover" />
-            </View>
+            </TouchableOpacity>
           ) : null
         )}
         {item.text ? (
@@ -504,109 +609,164 @@ export function ConversationScreen({ navigation, route }: Props) {
             </View>
           )}
         >
-          <View style={[styles.rowMsg, mine ? styles.rowMine : styles.rowTheirs]}>{bubble}</View>
+          <View
+            style={[
+              styles.rowMsg,
+              mine ? styles.rowMine : styles.rowTheirs,
+              sameSenderCluster && styles.rowMsgCluster,
+            ]}
+          >
+            {bubble}
+          </View>
         </Swipeable>
       </View>
     );
   };
 
-  if (loading && !messages.length) {
-    return (
-      <Screen style={styles.screen}>
-        <ActivityIndicator color={colors.moss} style={{ marginTop: 24 }} />
-      </Screen>
-    );
-  }
+  const listEmpty = React.useMemo(() => {
+    if (loading && !messages.length) {
+      return (
+        <View style={styles.listEmptyWrap}>
+          <ActivityIndicator color={colors.moss} size="large" />
+        </View>
+      );
+    }
+    if (!messages.length) {
+      return (
+        <View style={styles.listEmptyWrap}>
+          <Text style={styles.listEmptyTxt}>No messages yet — say hi.</Text>
+        </View>
+      );
+    }
+    return null;
+  }, [loading, messages.length]);
 
-  /** Native stack header sits above this content; without offset, `padding` does not clear the keyboard. */
-  const keyboardVerticalOffset = Platform.OS === 'ios' ? headerHeight : 0;
+  const onComposerLayout = React.useCallback((e: LayoutChangeEvent) => {
+    const h = e.nativeEvent.layout.height;
+    if (h > 0) setBottomChromeHeight(h);
+  }, []);
+
+  const composerDock = (
+    <View style={styles.composerDock} onLayout={onComposerLayout}>
+      {replyTo ? (
+        <View style={styles.replyBar}>
+          <Text style={styles.replyBarTxt} numberOfLines={2}>
+            Replying to: {replyTo.textSnippet}
+          </Text>
+          <TouchableOpacity onPress={() => setReplyTo(null)}>
+            <Ionicons name="close" size={22} color={colors.muted} />
+          </TouchableOpacity>
+        </View>
+      ) : null}
+      {busy ? (
+        <View style={styles.uploadBar}>
+          <Text style={styles.uploadTxt}>Uploading… {uploadProgress}%</Text>
+        </View>
+      ) : null}
+      <View
+        style={[
+          styles.composer,
+          { paddingBottom: keyboardPadIOS > 0 ? 10 : Math.max(insets.bottom, 10) },
+        ]}
+      >
+        <TouchableOpacity
+          onPress={async () => {
+            try {
+              const att = await pickAndUploadImage();
+              if (att) await send({ attachments: [att], replyTo: replyTo ?? undefined });
+            } catch (e) {
+              showError('Upload failed', e);
+            }
+          }}
+        >
+          <Ionicons name="image-outline" size={24} color={colors.moss} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={async () => {
+            try {
+              const att = await pickAndUploadVideo();
+              if (att) await send({ attachments: [att], replyTo: replyTo ?? undefined });
+            } catch (e) {
+              showError('Video failed', e);
+            }
+          }}
+        >
+          <Ionicons name="videocam-outline" size={24} color={colors.moss} />
+        </TouchableOpacity>
+        <TextInput
+          style={styles.input}
+          placeholder="Message…"
+          placeholderTextColor={colors.muted2}
+          value={draft}
+          onChangeText={(t) => {
+            setDraft(t);
+            onTyping();
+          }}
+          onFocus={() => {
+            composerFocusedRef.current = true;
+          }}
+          onBlur={() => {
+            composerFocusedRef.current = false;
+          }}
+          multiline
+          scrollEnabled
+          textAlignVertical="top"
+        />
+        <TouchableOpacity style={styles.sendBtn} onPress={onSend}>
+          <Ionicons name="send" size={20} color={colors.white} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 
   return (
     <Screen style={styles.screen} edges={['top', 'left', 'right']}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
-        keyboardVerticalOffset={keyboardVerticalOffset}
-        enabled
-      >
+      <View ref={keyboardLayoutRef} style={styles.flex} collapsable={false}>
         {typingUids.length > 0 ? (
           <View style={styles.typingBanner}>
             <Text style={styles.typingTxt}>Someone is typing…</Text>
           </View>
         ) : null}
         <FlatList
-          data={messages}
+          ref={listRef}
+          style={styles.flex}
+          inverted
+          data={displayMessages}
+          extraData={reactionMap}
           keyExtractor={(m) => m.id}
           renderItem={renderMessage}
+          ListEmptyComponent={listEmpty}
+          initialNumToRender={10}
+          maxToRenderPerBatch={8}
+          windowSize={7}
+          updateCellsBatchingPeriod={80}
+          removeClippedSubviews={Platform.OS === 'android'}
+          onScroll={onListScroll}
+          scrollEventThrottle={32}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
+          keyboardDismissMode="on-drag"
           onEndReached={() => {
             if (hasMore && !loadingOlder) void loadOlder();
           }}
-          onEndReachedThreshold={0.2}
+          onEndReachedThreshold={0.3}
           ListFooterComponent={
             loadingOlder ? <ActivityIndicator color={colors.moss} style={{ padding: 12 }} /> : null
           }
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingTop: bottomChromeHeight + 12 },
+          ]}
         />
-        {replyTo ? (
-          <View style={styles.replyBar}>
-            <Text style={styles.replyBarTxt} numberOfLines={2}>
-              Replying to: {replyTo.textSnippet}
-            </Text>
-            <TouchableOpacity onPress={() => setReplyTo(null)}>
-              <Ionicons name="close" size={22} color={colors.muted} />
-            </TouchableOpacity>
+        {Platform.OS === 'ios' ? (
+          <View style={styles.composerOverlay} pointerEvents="box-none">
+            <View style={[styles.composerPinned, { bottom: keyboardPadIOS }]} pointerEvents="auto">
+              <View style={styles.composerAvoid}>{composerDock}</View>
+            </View>
           </View>
-        ) : null}
-        {busy ? (
-          <View style={styles.uploadBar}>
-            <Text style={styles.uploadTxt}>Uploading… {uploadProgress}%</Text>
-          </View>
-        ) : null}
-        <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-          <TouchableOpacity
-            onPress={async () => {
-              try {
-                const att = await pickAndUploadImage();
-                if (att) await send({ attachments: [att], replyTo: replyTo ?? undefined });
-              } catch (e) {
-                showError('Upload failed', e);
-              }
-            }}
-          >
-            <Ionicons name="image-outline" size={24} color={colors.moss} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={async () => {
-              try {
-                const att = await pickAndUploadVideo();
-                if (att) await send({ attachments: [att], replyTo: replyTo ?? undefined });
-              } catch (e) {
-                showError('Video failed', e);
-              }
-            }}
-          >
-            <Ionicons name="videocam-outline" size={24} color={colors.moss} />
-          </TouchableOpacity>
-          <TextInput
-            style={styles.input}
-            placeholder="Message… Use @username in text"
-            placeholderTextColor={colors.muted2}
-            value={draft}
-            onChangeText={(t) => {
-              setDraft(t);
-              onTyping();
-            }}
-            multiline
-            scrollEnabled
-            textAlignVertical="top"
-          />
-          <TouchableOpacity style={styles.sendBtn} onPress={() => void onSend()}>
-            <Ionicons name="send" size={20} color={colors.white} />
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
+        ) : (
+          <View style={styles.composerAvoid}>{composerDock}</View>
+        )}
+      </View>
 
       <Modal visible={!!reactionMsg} transparent animationType="fade">
         <Pressable style={styles.reactionBackdrop} onPress={() => setReactionMsg(null)}>
@@ -648,6 +808,17 @@ export function ConversationScreen({ navigation, route }: Props) {
         </View>
       </Modal>
 
+      <Modal visible={!!imageOpen} animationType="fade" transparent onRequestClose={() => setImageOpen(null)}>
+        <View style={styles.imageModal}>
+          <TouchableOpacity style={styles.videoClose} onPress={() => setImageOpen(null)}>
+            <Text style={styles.videoCloseTxt}>Close</Text>
+          </TouchableOpacity>
+          {imageOpen ? (
+            <Image source={{ uri: imageOpen }} style={styles.imageFull} contentFit="contain" transition={200} />
+          ) : null}
+        </View>
+      </Modal>
+
       <BlockReportModal
         visible={!!reportTarget}
         mode="report"
@@ -670,20 +841,29 @@ export function ConversationScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },
-  listContent: { paddingHorizontal: 12, paddingBottom: 12, paddingTop: 8 },
-  rowMsg: { marginBottom: 8, maxWidth: '92%' },
+  listEmptyWrap: {
+    flexGrow: 1,
+    minHeight: 220,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  listEmptyTxt: { fontSize: 15, fontWeight: '600', color: colors.muted, textAlign: 'center' },
+  listContent: { paddingHorizontal: 14, paddingTop: 10 },
+  rowMsg: { marginBottom: 6, maxWidth: '88%' },
+  rowMsgCluster: { marginTop: -2 },
   rowMine: { alignSelf: 'flex-end' },
   rowTheirs: { alignSelf: 'flex-start' },
   bubble: {
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
     backgroundColor: colors.cardTint,
   },
-  bubbleMine: { backgroundColor: 'rgba(76, 175, 80, 0.18)', borderColor: colors.moss },
-  bubbleTheirs: { backgroundColor: colors.white },
+  bubbleMine: { backgroundColor: 'rgba(76, 175, 80, 0.22)', borderColor: 'rgba(76, 175, 80, 0.35)' },
+  bubbleTheirs: { backgroundColor: colors.white, borderColor: colors.border2 },
   bubbleTxt: { fontSize: 16, fontWeight: '600', color: colors.text },
   bubbleTxtMine: { color: colors.text },
   edited: { marginTop: 4, fontSize: 11, fontWeight: '700', color: colors.muted2 },
@@ -704,16 +884,52 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.06)',
   },
   reactionChip: { fontSize: 13, fontWeight: '700' },
-  dateSep: { alignItems: 'center', marginVertical: 12 },
-  dateSepTxt: { fontSize: 12, fontWeight: '800', color: colors.muted2 },
+  dateSep: { alignItems: 'center', marginTop: 16, marginBottom: 8 },
+  dateSepTxt: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.muted2,
+    overflow: 'hidden',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
   swipeReply: { justifyContent: 'center', paddingHorizontal: 12 },
+  composerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 30,
+  },
+  composerPinned: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+  },
+  composerAvoid: {
+    backgroundColor: colors.white,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 6,
+      },
+      android: { elevation: 10 },
+    }),
+  },
+  composerDock: {
+    backgroundColor: colors.white,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    overflow: 'hidden',
+  },
   replyBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: colors.border2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border2,
     gap: 8,
   },
   replyBarTxt: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.muted },
@@ -722,31 +938,29 @@ const styles = StyleSheet.create({
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    paddingHorizontal: 8,
-    paddingVertical: 10,
+    paddingHorizontal: 10,
+    paddingTop: 10,
     gap: 8,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
     backgroundColor: colors.white,
   },
   input: {
     flex: 1,
-    minHeight: 40,
+    minHeight: 42,
     maxHeight: 120,
-    borderRadius: 14,
-    borderWidth: 1,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
     color: colors.text,
-    backgroundColor: '#FAFBFC',
+    backgroundColor: colors.bg,
   },
   sendBtn: {
     width: 44,
     height: 44,
-    borderRadius: 14,
+    borderRadius: 22,
     backgroundColor: colors.moss,
     alignItems: 'center',
     justifyContent: 'center',
@@ -763,6 +977,8 @@ const styles = StyleSheet.create({
   },
   reactionEmoji: { fontSize: 28 },
   videoModal: { flex: 1, backgroundColor: colors.black, paddingTop: 48 },
+  imageModal: { flex: 1, backgroundColor: colors.black, paddingTop: 48 },
+  imageFull: { flex: 1, width: '100%' },
   videoClose: { padding: 16 },
   videoCloseTxt: { color: colors.white, fontWeight: '800', fontSize: 16 },
   typingBanner: { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: colors.cardTint },

@@ -1,17 +1,27 @@
 import * as React from 'react';
+import { startTransition } from 'react';
 import type { DocumentSnapshot } from 'firebase/firestore';
 
 import { isFirebaseConfigured } from '../../firebase/firebase';
-import type { ChatMessage, ReplyRef, SharePostPayload } from '../types';
-import type { MessageAttachment } from '../types';
+import type { ChatMessage, MessageAttachment, ReplyRef, SharePostPayload } from '../types';
+import { CHAT_MESSAGES_INITIAL_PAGE, CHAT_MESSAGES_PAGE_SIZE } from '../constants';
 import {
-  CHAT_MESSAGES_PAGE_SIZE,
   loadOlderMessages,
   markConversationRead,
   sendChatMessage,
   subscribeMessagesPage,
 } from '../../services/chat/chatFirestore';
-import { CHAT_MIN_MESSAGE_INTERVAL_MS } from '../constants';
+
+type SendJob = {
+  payload: {
+    text?: string;
+    replyTo?: ReplyRef;
+    attachments?: MessageAttachment[];
+    sharePost?: SharePostPayload;
+  };
+  resolve: () => void;
+  reject: (e: unknown) => void;
+};
 
 export function useMessages(conversationId: string | undefined, myUid: string | undefined) {
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
@@ -19,8 +29,9 @@ export function useMessages(conversationId: string | undefined, myUid: string | 
   const [loadingOlder, setLoadingOlder] = React.useState(false);
   const [hasMore, setHasMore] = React.useState(true);
   const oldestSnapRef = React.useRef<DocumentSnapshot | null>(null);
-  const lastSendAt = React.useRef(0);
   const lastMessageIdRef = React.useRef<string | null>(null);
+  const sendQueueRef = React.useRef<SendJob[]>([]);
+  const pumpRunningRef = React.useRef(false);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !conversationId) {
@@ -31,13 +42,18 @@ export function useMessages(conversationId: string | undefined, myUid: string | 
     setLoading(true);
     const unsub = subscribeMessagesPage(
       conversationId,
-      CHAT_MESSAGES_PAGE_SIZE,
+      CHAT_MESSAGES_INITIAL_PAGE,
       (page, docs) => {
-        setMessages(page);
-        oldestSnapRef.current = docs.length ? docs[docs.length - 1] : null;
-        lastMessageIdRef.current = page.length ? page[page.length - 1]!.id : null;
-        setHasMore(docs.length >= CHAT_MESSAGES_PAGE_SIZE);
-        setLoading(false);
+        const oldest = docs.length ? docs[docs.length - 1] : null;
+        const lastId = page.length ? page[page.length - 1]!.id : null;
+        const more = docs.length >= CHAT_MESSAGES_INITIAL_PAGE;
+        startTransition(() => {
+          setMessages(page);
+          oldestSnapRef.current = oldest;
+          lastMessageIdRef.current = lastId;
+          setHasMore(more);
+          setLoading(false);
+        });
       },
       () => setLoading(false)
     );
@@ -63,34 +79,58 @@ export function useMessages(conversationId: string | undefined, myUid: string | 
         return;
       }
       oldestSnapRef.current = lastDoc;
-      setMessages((prev) => [...older, ...prev]);
+      startTransition(() => {
+        setMessages((prev) => [...older, ...prev]);
+      });
       if (older.length < CHAT_MESSAGES_PAGE_SIZE) setHasMore(false);
     } finally {
       setLoadingOlder(false);
     }
   }, [conversationId, hasMore, loadingOlder]);
 
+  const pumpSendQueue = React.useCallback(async () => {
+    if (!conversationId || !myUid) return;
+    if (pumpRunningRef.current) return;
+    pumpRunningRef.current = true;
+    try {
+      while (sendQueueRef.current.length > 0) {
+        const job = sendQueueRef.current.shift()!;
+        try {
+          await sendChatMessage({
+            conversationId,
+            senderId: myUid,
+            text: job.payload.text,
+            replyTo: job.payload.replyTo,
+            attachments: job.payload.attachments,
+            sharePost: job.payload.sharePost,
+          });
+          job.resolve();
+        } catch (e) {
+          job.reject(e);
+        }
+      }
+    } finally {
+      pumpRunningRef.current = false;
+      if (sendQueueRef.current.length > 0) void pumpSendQueue();
+    }
+  }, [conversationId, myUid]);
+
   const send = React.useCallback(
-    async (args: {
+    (args: {
       text?: string;
       replyTo?: ReplyRef;
       attachments?: MessageAttachment[];
       sharePost?: SharePostPayload;
-    }) => {
-      if (!conversationId || !myUid) return;
-      const now = Date.now();
-      if (now - lastSendAt.current < CHAT_MIN_MESSAGE_INTERVAL_MS) return;
-      lastSendAt.current = now;
-      await sendChatMessage({
-        conversationId,
-        senderId: myUid,
-        text: args.text,
-        replyTo: args.replyTo,
-        attachments: args.attachments,
-        sharePost: args.sharePost,
-      });
-    },
-    [conversationId, myUid]
+    }) =>
+      new Promise<void>((resolve, reject) => {
+        if (!conversationId || !myUid) {
+          resolve();
+          return;
+        }
+        sendQueueRef.current.push({ payload: args, resolve, reject });
+        void pumpSendQueue();
+      }),
+    [conversationId, myUid, pumpSendQueue]
   );
 
   return { messages, loading, loadingOlder, hasMore, loadOlder, send, markRead };

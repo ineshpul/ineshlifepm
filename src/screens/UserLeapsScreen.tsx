@@ -81,8 +81,8 @@ export function UserLeapsScreen({ route }: Props) {
     setHydrated(false);
     const col = collection(firestore(), 'videos');
     const q = isOwnerViewer
-      ? query(col, where('uid', '==', targetUid), limit(120))
-      : query(col, where('uid', '==', targetUid), where('moderationStatus', '==', 'approved'), limit(120));
+      ? query(col, where('uid', '==', targetUid), limit(40))
+      : query(col, where('uid', '==', targetUid), where('moderationStatus', '==', 'approved'), limit(40));
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -107,7 +107,7 @@ export function UserLeapsScreen({ route }: Props) {
           })
           .filter(Boolean) as LeapVideo[];
         rows.sort((a, b) => b.createdAtMs - a.createdAtMs);
-        setVideos(rows.slice(0, 50));
+        setVideos(rows.slice(0, 30));
         setHydrated(true);
       },
       () => {
@@ -143,6 +143,14 @@ export function UserLeapsScreen({ route }: Props) {
     },
     []
   );
+
+  React.useEffect(() => {
+    if (videos.length === 0) {
+      setActiveVideoId(null);
+      return;
+    }
+    setActiveVideoId((cur) => (cur && videos.some((v) => v.id === cur) ? cur : videos[0].id));
+  }, [videos]);
 
   const confirmDelete = (item: LeapVideo) => {
     if (!viewerUid || item.ownerUid !== viewerUid) return;
@@ -213,7 +221,10 @@ export function UserLeapsScreen({ route }: Props) {
             showsVerticalScrollIndicator={false}
             nestedScrollEnabled
             removeClippedSubviews={false}
-            windowSize={5}
+            initialNumToRender={2}
+            maxToRenderPerBatch={2}
+            windowSize={3}
+            updateCellsBatchingPeriod={50}
             viewabilityConfig={viewabilityConfig}
             onViewableItemsChanged={onViewableItemsChanged}
             getItemLayout={
@@ -266,7 +277,7 @@ export function UserLeapsScreen({ route }: Props) {
                       <View style={{ width: 56 }} />
                     )}
                   </View>
-                  {user?.uid ? (
+                  {user?.uid && item.id === activeVideoId ? (
                     <ScrollView
                       ref={(r) => {
                         engagementScrollRefs.current[item.id] = r;
@@ -291,6 +302,12 @@ export function UserLeapsScreen({ route }: Props) {
                         }}
                       />
                     </ScrollView>
+                  ) : user?.uid ? (
+                    <View style={styles.reelEngagementPlaceholder}>
+                      <Text style={styles.reelEngagementPlaceholderText}>
+                        Swipe to another leap — comments and share load on the clip in view.
+                      </Text>
+                    </View>
                   ) : null}
                 </View>
               </View>
@@ -382,6 +399,19 @@ const styles = StyleSheet.create({
   reelEngagementScroll: {
     flex: 1,
     minHeight: 0,
+  },
+  reelEngagementPlaceholder: {
+    flex: 1,
+    minHeight: 48,
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  reelEngagementPlaceholderText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+    textAlign: 'center',
   },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   empty: { flex: 1, paddingTop: 48, paddingHorizontal: 16 },

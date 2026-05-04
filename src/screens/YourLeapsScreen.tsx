@@ -71,7 +71,7 @@ export function YourLeapsScreen() {
       return;
     }
     setHydrated(false);
-    const q = query(collection(firestore(), 'videos'), where('uid', '==', user.uid), limit(120));
+    const q = query(collection(firestore(), 'videos'), where('uid', '==', user.uid), limit(40));
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -94,7 +94,7 @@ export function YourLeapsScreen() {
           })
           .filter(Boolean) as LeapVideo[];
         rows.sort((a, b) => b.createdAtMs - a.createdAtMs);
-        setVideos(rows.slice(0, 50));
+        setVideos(rows.slice(0, 30));
         setHydrated(true);
       },
       () => {
@@ -133,6 +133,14 @@ export function YourLeapsScreen() {
     },
     []
   );
+
+  React.useEffect(() => {
+    if (videos.length === 0) {
+      setActiveVideoId(null);
+      return;
+    }
+    setActiveVideoId((cur) => (cur && videos.some((v) => v.id === cur) ? cur : videos[0].id));
+  }, [videos]);
 
   const confirmDelete = (item: LeapVideo) => {
     if (!user?.uid) return;
@@ -198,7 +206,10 @@ export function YourLeapsScreen() {
             showsVerticalScrollIndicator={false}
             nestedScrollEnabled
             removeClippedSubviews={false}
-            windowSize={5}
+            initialNumToRender={2}
+            maxToRenderPerBatch={2}
+            windowSize={3}
+            updateCellsBatchingPeriod={50}
             viewabilityConfig={viewabilityConfig}
             onViewableItemsChanged={onViewableItemsChanged}
             getItemLayout={
@@ -247,7 +258,7 @@ export function YourLeapsScreen() {
                       <Text style={styles.deleteLink}>{deletingId === item.id ? '…' : 'Delete'}</Text>
                     </TouchableOpacity>
                   </View>
-                  {user?.uid ? (
+                  {user?.uid && item.id === activeVideoId ? (
                     <ScrollView
                       ref={(r) => {
                         engagementScrollRefs.current[item.id] = r;
@@ -272,6 +283,12 @@ export function YourLeapsScreen() {
                         }}
                       />
                     </ScrollView>
+                  ) : user?.uid ? (
+                    <View style={styles.reelEngagementPlaceholder}>
+                      <Text style={styles.reelEngagementPlaceholderText}>
+                        Swipe to another leap — comments and share load on the clip in view.
+                      </Text>
+                    </View>
                   ) : null}
                 </View>
               </View>
@@ -363,6 +380,19 @@ const styles = StyleSheet.create({
   reelEngagementScroll: {
     flex: 1,
     minHeight: 0,
+  },
+  reelEngagementPlaceholder: {
+    flex: 1,
+    minHeight: 48,
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  reelEngagementPlaceholderText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+    textAlign: 'center',
   },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   empty: { flex: 1, paddingTop: 48, paddingHorizontal: 16 },

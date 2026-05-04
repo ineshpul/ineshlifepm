@@ -3,7 +3,7 @@ import { initializeApp, getApp, getApps } from 'firebase/app';
 import type { Auth } from 'firebase/auth';
 import { browserLocalPersistence, getAuth, initializeAuth } from 'firebase/auth';
 import { Platform } from 'react-native';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, memoryLocalCache } from 'firebase/firestore';
 import { getFunctions } from 'firebase/functions';
 import { getStorage } from 'firebase/storage';
 
@@ -55,8 +55,20 @@ export function firebaseAuth(): Auth {
   return cachedAuth;
 }
 
+let firestoreInstance: ReturnType<typeof getFirestore> | null = null;
+
+/** Single Firestore instance. Memory cache speeds repeat reads in-session (e.g. re-opening chats). */
 export function firestore() {
-  return getFirestore(getFirebaseApp());
+  if (firestoreInstance) return firestoreInstance;
+  const app = getFirebaseApp();
+  try {
+    firestoreInstance = initializeFirestore(app, {
+      localCache: memoryLocalCache(),
+    });
+  } catch {
+    firestoreInstance = getFirestore(app);
+  }
+  return firestoreInstance;
 }
 
 export function storage() {

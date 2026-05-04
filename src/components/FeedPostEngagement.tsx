@@ -2,6 +2,7 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -32,6 +33,7 @@ import { BlockReportModal } from '../chat/components/BlockReportModal';
 import { reportVideo } from '../services/contentReports';
 import { blockUser } from '../services/chat/chatFirestore';
 import { useSettingsPreferences } from '../state/settingsPreferences';
+import { navigateToChatSharePost } from '../navigation/navigationHelpers';
 
 type Props = {
   videoId: string;
@@ -43,6 +45,11 @@ type Props = {
   viewerUsername: string;
   /** Feed / parent can scroll so the composer stays visible when the keyboard opens. */
   onCommentComposerFocus?: () => void;
+  /**
+   * When true (Daily Feed reel): comments scroll in their own pane and the composer stays
+   * pinned under the action row so it sits flush above the keyboard with the parent sheet.
+   */
+  reelLayout?: boolean;
 };
 
 export function FeedPostEngagement({
@@ -54,6 +61,7 @@ export function FeedPostEngagement({
   viewerUid,
   viewerUsername,
   onCommentComposerFocus,
+  reelLayout = false,
 }: Props) {
   const navigation = useNavigation<any>();
   const { preferences, patch } = useSettingsPreferences();
@@ -210,11 +218,13 @@ export function FeedPostEngagement({
 
   const onShare = async () => {
     try {
-      await Share.share({
-        title: shareTitle,
-        message: `${shareTitle}\n${shareUrl}`,
-        url: shareUrl,
-      });
+      const message = `${shareTitle}\n${shareUrl}`;
+      const isHttp = /^https?:\/\//i.test(shareUrl.trim());
+      await Share.share(
+        isHttp
+          ? { title: shareTitle, message }
+          : { title: shareTitle, message, url: shareUrl }
+      );
     } catch {
       // user dismissed sheet
     }
@@ -294,8 +304,72 @@ export function FeedPostEngagement({
     ]);
   };
 
+  const commentsBlock =
+    comments.length > 0 ? (
+      <View style={styles.comments}>
+        {comments
+          .slice()
+          .reverse()
+          .map((c) => (
+            <View key={c.id} style={styles.commentRow}>
+              <Text style={styles.commentLine}>
+                <Text
+                  style={styles.commentUser}
+                  onPress={() =>
+                    c.uid ? navigation.navigate('UserProfile', { uid: c.uid, username: c.username }) : undefined
+                  }
+                  suppressHighlighting
+                >
+                  {c.username}
+                </Text>{' '}
+                {c.text}
+              </Text>
+              {canDeleteComment(c) ? (
+                <TouchableOpacity
+                  onPress={() => confirmDeleteComment(c.id)}
+                  disabled={deletingCommentId === c.id}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Delete comment"
+                >
+                  <Text style={styles.commentDelete}>
+                    {deletingCommentId === c.id ? '…' : 'Delete'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ))}
+      </View>
+    ) : null;
+
+  const composeRow = viewerUid ? (
+    <View style={[styles.compose, reelLayout && styles.composeReel]}>
+      <TextInput
+        value={draft}
+        onChangeText={setDraft}
+        placeholder="Add a comment…"
+        placeholderTextColor={colors.muted}
+        style={styles.input}
+        editable={!sending}
+        maxLength={500}
+        onFocus={() => onCommentComposerFocus?.()}
+      />
+      <TouchableOpacity
+        style={[styles.sendBtn, (!draft.trim() || sending) && styles.sendBtnDisabled]}
+        onPress={onSendComment}
+        disabled={!draft.trim() || sending}
+      >
+        {sending ? (
+          <ActivityIndicator color={colors.white} />
+        ) : (
+          <Text style={styles.sendText}>Post</Text>
+        )}
+      </TouchableOpacity>
+    </View>
+  ) : null;
+
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, reelLayout && styles.wrapReel]}>
       <View style={styles.actions}>
         <TouchableOpacity
           style={styles.actionBtn}
@@ -324,33 +398,29 @@ export function FeedPostEngagement({
               showError('Sign in required', new Error('Log in to send clips to chat.'));
               return;
             }
-            navigation.navigate('Chat', {
-              screen: 'NewChat',
-              params: {
-                sharePost: {
-                  videoId,
-                  videoUrl: shareUrl,
-                  title: shareTitle,
-                  ownerUid: videoOwnerUid,
-                },
-              },
+            navigateToChatSharePost(navigation, {
+              videoId,
+              videoUrl: shareUrl,
+              title: shareTitle,
+              ownerUid: videoOwnerUid,
+              ownerUsername: videoOwnerUsername,
             });
           }}
           accessibilityRole="button"
-          accessibilityLabel="Send to chat"
+          accessibilityLabel="Send this clip to someone in Leap"
         >
           <Ionicons name="paper-plane-outline" size={21} color={colors.text} />
-          <Text style={styles.actionLabel}>Chat</Text>
+          <Text style={styles.actionLabel}>Send</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.actionBtn}
           onPress={onShare}
           accessibilityRole="button"
-          accessibilityLabel="Share"
+          accessibilityLabel="Share link outside Leap"
         >
           <Ionicons name="share-outline" size={22} color={colors.text} />
-          <Text style={styles.actionLabel}>Share</Text>
+          <Text style={styles.actionLabel}>Share link</Text>
         </TouchableOpacity>
 
         {viewerUid && viewerUid !== videoOwnerUid ? (
@@ -366,68 +436,21 @@ export function FeedPostEngagement({
         ) : null}
       </View>
 
-      {comments.length > 0 && (
-        <View style={styles.comments}>
-          {comments
-            .slice()
-            .reverse()
-            .map((c) => (
-              <View key={c.id} style={styles.commentRow}>
-                <Text style={styles.commentLine}>
-                  <Text
-                    style={styles.commentUser}
-                    onPress={() =>
-                      c.uid ? navigation.navigate('UserProfile', { uid: c.uid, username: c.username }) : undefined
-                    }
-                    suppressHighlighting
-                  >
-                    {c.username}
-                  </Text>{' '}
-                  {c.text}
-                </Text>
-                {canDeleteComment(c) ? (
-                  <TouchableOpacity
-                    onPress={() => confirmDeleteComment(c.id)}
-                    disabled={deletingCommentId === c.id}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel="Delete comment"
-                  >
-                    <Text style={styles.commentDelete}>
-                      {deletingCommentId === c.id ? '…' : 'Delete'}
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            ))}
-        </View>
+      {reelLayout ? (
+        <ScrollView
+          style={styles.commentsScroll}
+          contentContainerStyle={styles.commentsScrollContent}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {commentsBlock}
+        </ScrollView>
+      ) : (
+        commentsBlock
       )}
 
-      {viewerUid ? (
-        <View style={styles.compose}>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Add a comment…"
-            placeholderTextColor={colors.muted}
-            style={styles.input}
-            editable={!sending}
-            maxLength={500}
-            onFocus={() => onCommentComposerFocus?.()}
-          />
-          <TouchableOpacity
-            style={[styles.sendBtn, (!draft.trim() || sending) && styles.sendBtnDisabled]}
-            onPress={onSendComment}
-            disabled={!draft.trim() || sending}
-          >
-            {sending ? (
-              <ActivityIndicator color={colors.white} />
-            ) : (
-              <Text style={styles.sendText}>Post</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      ) : null}
+      {composeRow}
 
       <BlockReportModal
         visible={reportOpen}
@@ -481,6 +504,18 @@ const styles = StyleSheet.create({
     marginTop: 4,
     gap: 6,
   },
+  wrapReel: {
+    flex: 1,
+    minHeight: 0,
+  },
+  commentsScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  commentsScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 4,
+  },
   actions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -522,6 +557,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginTop: 4,
+  },
+  composeReel: {
+    marginTop: 0,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
   input: {
     flex: 1,

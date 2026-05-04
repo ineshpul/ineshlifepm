@@ -5,7 +5,6 @@ import * as Notifications from 'expo-notifications';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { useChatInboxLocalNotifications } from './src/chat/hooks/useChatInboxLocalNotifications';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { AuthProvider, useAuth } from './src/state/auth';
 import { AppStateProvider } from './src/state/appState';
@@ -13,23 +12,29 @@ import { SettingsPreferencesProvider, useSettingsPreferences } from './src/state
 import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { firestore, isFirebaseConfigured } from './src/firebase/firebase';
 import { registerAndSavePushToken, unregisterPushDevice } from './src/services/pushNotifications';
+import { getForegroundChatConversationId } from './src/chat/activeConversationRef';
 
+/** Foreground: show remote pushes unless the user is already in that chat thread. */
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data as Record<string, unknown> | undefined;
+    const cid = typeof data?.conversationId === 'string' ? data.conversationId : undefined;
+    if (cid && cid === getForegroundChatConversationId()) {
+      return {
+        shouldShowBanner: false,
+        shouldShowList: false,
+        shouldPlaySound: false,
+        shouldSetBadge: true,
+      };
+    }
+    return {
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    };
+  },
 });
-
-/** Foreground: local banner when inbox unread increases (remote push still handles background). */
-function ChatInboxNotificationSubscriber() {
-  const { user } = useAuth();
-  const { preferences, ready } = useSettingsPreferences();
-  useChatInboxLocalNotifications(user?.uid, ready && preferences.notificationsEnabled);
-  return null;
-}
 
 /** Keeps Firestore in sync so Cloud Functions know whether to send pushes. */
 function UserNotificationPrefSync() {
@@ -86,7 +91,6 @@ export default function App() {
           <SettingsPreferencesProvider>
             <UserNotificationPrefSync />
             <PushTokenRegistrar />
-            <ChatInboxNotificationSubscriber />
             <AppStateProvider>
               <RootNavigator />
               <StatusBar style="dark" />

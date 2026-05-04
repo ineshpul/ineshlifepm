@@ -70,7 +70,7 @@ export const onInboxNotificationCreated = onDocumentCreated(
     }
 
     const tokensSnap = await admin.firestore().collection(`users/${userId}/pushDevices`).get();
-    const tokens = tokensSnap.docs.map((d) => String(d.data()?.token ?? '')).filter(Boolean);
+    const tokens = [...new Set(tokensSnap.docs.map((d) => String(d.data()?.token ?? '')).filter(Boolean))];
     if (!tokens.length) {
       logger.info('No push tokens for user', { userId });
       return;
@@ -150,7 +150,7 @@ export const onChatMessageCreated = onDocumentCreated(
       if (userDoc.data()?.notificationsEnabled === false) continue;
 
       const tokensSnap = await admin.firestore().collection(`users/${userId}/pushDevices`).get();
-      const tokens = tokensSnap.docs.map((d) => String(d.data()?.token ?? '')).filter(Boolean);
+      const tokens = [...new Set(tokensSnap.docs.map((d) => String(d.data()?.token ?? '')).filter(Boolean))];
       if (!tokens.length) continue;
 
       const messages = tokens.map((to) => ({
@@ -198,7 +198,7 @@ async function notifyAdmins(title: string, body: string, data?: Record<string, u
   const admins = await adminTargets();
   for (const userId of admins) {
     const tokensSnap = await admin.firestore().collection(`users/${userId}/pushDevices`).get();
-    const tokens = tokensSnap.docs.map((d) => String(d.data()?.token ?? '')).filter(Boolean);
+    const tokens = [...new Set(tokensSnap.docs.map((d) => String(d.data()?.token ?? '')).filter(Boolean))];
     if (!tokens.length) continue;
     const messages = tokens.map((to) => ({
       to,
