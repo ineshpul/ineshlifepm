@@ -2,7 +2,8 @@ import type * as Notifications from 'expo-notifications';
 import type { NavigationContainerRef } from '@react-navigation/native';
 
 import { firebaseAuth } from '../firebase/firebase';
-import { markNotificationRead } from '../services/social';
+import { countUnreadNotifications, markNotificationRead } from '../services/social';
+import { setAppBadgeCount } from '../services/pushNotifications';
 import type { MainStackParamList } from './types';
 
 function str(d: Record<string, unknown> | undefined, key: string): string {
@@ -10,10 +11,10 @@ function str(d: Record<string, unknown> | undefined, key: string): string {
   return typeof v === 'string' ? v : '';
 }
 
-export function handleNotificationNavigation(
+export async function handleNotificationNavigation(
   ref: NavigationContainerRef<MainStackParamList>,
   response: Notifications.NotificationResponse
-) {
+): Promise<void> {
   if (!ref.isReady()) return;
   const raw = response.notification.request.content.data as Record<string, unknown> | undefined;
   if (!raw || typeof raw !== 'object') return;
@@ -23,7 +24,13 @@ export function handleNotificationNavigation(
   const kind = str(raw, 'kind');
   const type = str(raw, 'type');
   if (uid && notificationId && (kind === 'social' || type === 'like' || type === 'comment' || type === 'follow')) {
-    void markNotificationRead(uid, notificationId).catch(() => {});
+    try {
+      await markNotificationRead(uid, notificationId);
+      const unread = await countUnreadNotifications(uid);
+      await setAppBadgeCount(unread);
+    } catch {
+      // ignore
+    }
   }
 
   const conversationId = str(raw, 'conversationId');

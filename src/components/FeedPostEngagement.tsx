@@ -2,16 +2,23 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   Alert,
-  ScrollView,
+  FlatList,
+  Keyboard,
+  Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Platform,
+  Pressable,
   Share,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
+  type KeyboardEvent,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import {
   addDoc,
   collection,
@@ -34,6 +41,17 @@ import { reportVideo } from '../services/contentReports';
 import { blockUser } from '../services/chat/chatFirestore';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import { navigateToChatSharePost } from '../navigation/navigationHelpers';
+import type { VideoComment } from '../types/videoComment';
+import {
+  buildThreadDisplayList,
+  flattenCommentsForThread,
+  type ThreadDisplayRow,
+} from '../utils/commentThread';
+import { EngagementCommentComposer } from './EngagementCommentComposer';
+import { EngagementCommentRow, type ReplyTargetPayload } from './EngagementCommentRow';
+import { EngagementThreadCollapseRow } from './EngagementThreadCollapseRow';
+
+export type { VideoComment };
 
 type Props = {
   videoId: string;
@@ -43,12 +61,7 @@ type Props = {
   shareUrl: string;
   viewerUid: string | undefined;
   viewerUsername: string;
-  /** Feed / parent can scroll so the composer stays visible when the keyboard opens. */
   onCommentComposerFocus?: () => void;
-  /**
-   * When true (Daily Feed reel): comments scroll in their own pane and the composer stays
-   * pinned under the action row so it sits flush above the keyboard with the parent sheet.
-   */
   reelLayout?: boolean;
 };
 
@@ -69,15 +82,50 @@ export function FeedPostEngagement({
   const [liked, setLiked] = React.useState(false);
   const [docLikeCount, setDocLikeCount] = React.useState<number | null>(null);
   const [docCommentCount, setDocCommentCount] = React.useState<number | null>(null);
-  const [comments, setComments] = React.useState<
-    { id: string; uid: string; username: string; text: string; at: number }[]
-  >([]);
+  const [comments, setComments] = React.useState<VideoComment[]>([]);
   const [draft, setDraft] = React.useState('');
   const [sending, setSending] = React.useState(false);
   const [likeBusy, setLikeBusy] = React.useState(false);
   const [deletingCommentId, setDeletingCommentId] = React.useState<string | null>(null);
   const [reportOpen, setReportOpen] = React.useState(false);
   const [blockOpen, setBlockOpen] = React.useState(false);
+  const [commentsModalOpen, setCommentsModalOpen] = React.useState(false);
+  const [replyTarget, setReplyTarget] = React.useState<ReplyTargetPayload | null>(null);
+  const [modalKeyboardInset, setModalKeyboardInset] = React.useState(0);
+  const [expandedThreads, setExpandedThreads] = React.useState<Record<string, boolean>>({});
+  const [commentsQueryReady, setCommentsQueryReady] = React.useState(false);
+  const postInFlightRef = React.useRef(false);
+
+  const commentsThreaded = React.useMemo(() => flattenCommentsForThread(comments), [comments]);
+  const commentDisplayList = React.useMemo(
+    () => buildThreadDisplayList(commentsThreaded, expandedThreads),
+    [commentsThreaded, expandedThreads]
+  );
+
+  React.useEffect(() => {
+    setExpandedThreads({});
+    setComments([]);
+    setCommentsQueryReady(false);
+  }, [videoId]);
+
+  React.useEffect(() => {
+    if (!commentsModalOpen) {
+      setModalKeyboardInset(0);
+      return;
+    }
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = (e: KeyboardEvent) => {
+      setModalKeyboardInset(Math.max(0, e.endCoordinates?.height ?? 0));
+    };
+    const onHide = () => setModalKeyboardInset(0);
+    const subShow = Keyboard.addListener(showEvt, onShow);
+    const subHide = Keyboard.addListener(hideEvt, onHide);
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, [commentsModalOpen]);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !viewerUid) return;
@@ -146,7 +194,7 @@ export function FeedPostEngagement({
   }, [videoId, viewerUid]);
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured() || !viewerUid) return;
+    if (!isFirebaseConfigured() || !viewerUid || !commentsModalOpen) return;
     let unsub: (() => void) | undefined;
     let cancelled = false;
 
@@ -157,27 +205,38 @@ export function FeedPostEngagement({
         const q = query(
           collection(firestore(), 'videos', videoId, 'comments'),
           orderBy('createdAt', 'desc'),
-          limit(12)
+          limit(80)
         );
         unsub = onSnapshot(
           q,
           (snap) => {
-            setComments(
-              snap.docs.map((d) => {
-                const data: any = d.data();
-                const at =
-                  typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
-                return {
-                  id: d.id,
-                  uid: String(data?.uid ?? ''),
-                  username: String(data?.username ?? 'user'),
-                  text: String(data?.text ?? ''),
-                  at,
-                };
-              })
-            );
+            const next = snap.docs.map((d) => {
+              const data: any = d.data();
+              const at =
+                typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+              const replyToCommentId =
+                data?.replyToCommentId != null ? String(data.replyToCommentId) : undefined;
+              const replyToUsername =
+                data?.replyToUsername != null ? String(data.replyToUsername) : undefined;
+              const replyPreview = data?.replyPreview != null ? String(data.replyPreview) : undefined;
+              return {
+                id: d.id,
+                uid: String(data?.uid ?? ''),
+                username: String(data?.username ?? 'user'),
+                text: String(data?.text ?? ''),
+                at,
+                replyToCommentId,
+                replyToUsername,
+                replyPreview,
+              };
+            });
+            setComments(next);
+            setCommentsQueryReady(true);
           },
-          () => setComments([])
+          () => {
+            setComments([]);
+            setCommentsQueryReady(true);
+          }
         );
       });
 
@@ -185,7 +244,7 @@ export function FeedPostEngagement({
       cancelled = true;
       unsub?.();
     };
-  }, [videoId, viewerUid]);
+  }, [videoId, viewerUid, commentsModalOpen]);
 
   const onToggleLike = async () => {
     if (!viewerUid) {
@@ -230,6 +289,30 @@ export function FeedPostEngagement({
     }
   };
 
+  const notifyCommentRecipients = async (text: string, reply: ReplyTargetPayload | null) => {
+    if (!viewerUid) return;
+    const snippet = text.length > 140 ? `${text.slice(0, 137)}…` : text;
+    const recipients = new Set<string>();
+
+    if (reply) {
+      if (reply.uid !== viewerUid) recipients.add(reply.uid);
+      if (videoOwnerUid !== viewerUid && videoOwnerUid !== reply.uid) recipients.add(videoOwnerUid);
+    } else if (videoOwnerUid !== viewerUid) {
+      recipients.add(videoOwnerUid);
+    }
+
+    for (const uid of recipients) {
+      await createInAppNotification({
+        recipientUid: uid,
+        type: 'comment',
+        fromUid: viewerUid,
+        fromUsername: viewerUsername,
+        videoId,
+        snippet,
+      });
+    }
+  };
+
   const onSendComment = async () => {
     const text = draft.trim();
     if (!viewerUid) {
@@ -237,60 +320,105 @@ export function FeedPostEngagement({
       return;
     }
     if (!text) return;
+    if (postInFlightRef.current) return;
+    postInFlightRef.current = true;
+    const reply = replyTarget;
     setSending(true);
     try {
-      await addDoc(collection(firestore(), 'videos', videoId, 'comments'), {
+      const payload: Record<string, unknown> = {
         uid: viewerUid,
         username: viewerUsername,
         text,
         createdAt: serverTimestamp(),
-      });
-      const snippet = text.length > 140 ? `${text.slice(0, 137)}…` : text;
-      if (viewerUid !== videoOwnerUid) {
-        await createInAppNotification({
-          recipientUid: videoOwnerUid,
-          type: 'comment',
-          fromUid: viewerUid,
-          fromUsername: viewerUsername,
-          videoId,
-          snippet,
-        });
+      };
+      if (reply) {
+        payload.replyToCommentId = reply.id;
+        payload.replyToUid = reply.uid;
+        payload.replyToUsername = reply.username;
       }
+      await addDoc(collection(firestore(), 'videos', videoId, 'comments'), payload);
+      await notifyCommentRecipients(text, reply);
       setDraft('');
+      setReplyTarget(null);
+      Keyboard.dismiss();
     } catch (e) {
       showError('Comment failed', e);
     } finally {
       setSending(false);
+      postInFlightRef.current = false;
     }
   };
 
-  const canDeleteComment = React.useCallback(
-    (c: { uid: string }) => Boolean(viewerUid && (viewerUid === c.uid || viewerUid === videoOwnerUid)),
-    [viewerUid, videoOwnerUid]
+  const confirmDeleteComment = React.useCallback(
+    (commentId: string) => {
+      if (!viewerUid) return;
+      Alert.alert('Delete comment?', 'This removes the comment from this video.', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () =>
+            void (async () => {
+              if (!isFirebaseConfigured()) return;
+              setDeletingCommentId(commentId);
+              try {
+                await deleteDoc(doc(firestore(), 'videos', videoId, 'comments', commentId));
+              } catch (e) {
+                showError('Delete failed', e);
+              } finally {
+                setDeletingCommentId(null);
+              }
+            })(),
+        },
+      ]);
+    },
+    [viewerUid, videoId]
   );
 
-  const confirmDeleteComment = (commentId: string) => {
-    if (!viewerUid) return;
-    Alert.alert('Delete comment?', 'This removes the comment from this video.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () =>
-          void (async () => {
-            if (!isFirebaseConfigured()) return;
-            setDeletingCommentId(commentId);
-            try {
-              await deleteDoc(doc(firestore(), 'videos', videoId, 'comments', commentId));
-            } catch (e) {
-              showError('Delete failed', e);
-            } finally {
-              setDeletingCommentId(null);
-            }
-          })(),
-      },
-    ]);
-  };
+  const onOpenProfile = React.useCallback(
+    (uid: string, username: string) => {
+      navigation.navigate('UserProfile', { uid, username });
+    },
+    [navigation]
+  );
+
+  const onReply = React.useCallback((target: ReplyTargetPayload) => {
+    setReplyTarget(target);
+  }, []);
+
+  const onExpandThread = React.useCallback((rootId: string) => {
+    setExpandedThreads((prev) => ({ ...prev, [rootId]: true }));
+  }, []);
+
+  const renderModalRow = React.useCallback(
+    ({ item }: { item: ThreadDisplayRow }) => {
+      if (item.kind === 'collapsed') {
+        return (
+          <EngagementThreadCollapseRow
+            indentDepth={item.indentDepth}
+            hiddenCount={item.hiddenEntries.length}
+            layout="modal"
+            onPress={() => onExpandThread(item.threadRootId)}
+          />
+        );
+      }
+      const { comment: c, depth } = item.entry;
+      return (
+        <EngagementCommentRow
+          comment={c}
+          layout="modal"
+          threadDepth={depth}
+          viewerUid={viewerUid}
+          videoOwnerUid={videoOwnerUid}
+          deletingCommentId={deletingCommentId}
+          onOpenProfile={onOpenProfile}
+          onReply={onReply}
+          onRequestDelete={confirmDeleteComment}
+        />
+      );
+    },
+    [viewerUid, videoOwnerUid, deletingCommentId, onOpenProfile, onReply, confirmDeleteComment, onExpandThread]
+  );
 
   const displayLikes = Math.max(likeCount, docLikeCount ?? 0);
   const displayComments = Math.max(comments.length, docCommentCount ?? 0);
@@ -304,72 +432,72 @@ export function FeedPostEngagement({
     ]);
   };
 
-  const commentsBlock =
-    comments.length > 0 ? (
-      <View style={styles.comments}>
-        {comments
-          .slice()
-          .reverse()
-          .map((c) => (
-            <View key={c.id} style={styles.commentRow}>
-              <Text style={styles.commentLine}>
-                <Text
-                  style={styles.commentUser}
-                  onPress={() =>
-                    c.uid ? navigation.navigate('UserProfile', { uid: c.uid, username: c.username }) : undefined
-                  }
-                  suppressHighlighting
-                >
-                  {c.username}
-                </Text>{' '}
-                {c.text}
-              </Text>
-              {canDeleteComment(c) ? (
-                <TouchableOpacity
-                  onPress={() => confirmDeleteComment(c.id)}
-                  disabled={deletingCommentId === c.id}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel="Delete comment"
-                >
-                  <Text style={styles.commentDelete}>
-                    {deletingCommentId === c.id ? '…' : 'Delete'}
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          ))}
-      </View>
-    ) : null;
+  const closeCommentsModal = React.useCallback(() => {
+    Keyboard.dismiss();
+    setCommentsModalOpen(false);
+    setReplyTarget(null);
+    setExpandedThreads({});
+  }, []);
 
-  const composeRow = viewerUid ? (
-    <View style={[styles.compose, reelLayout && styles.composeReel]}>
-      <TextInput
-        value={draft}
-        onChangeText={setDraft}
-        placeholder="Add a comment…"
-        placeholderTextColor={colors.muted}
-        style={styles.input}
-        editable={!sending}
-        maxLength={500}
-        onFocus={() => onCommentComposerFocus?.()}
-      />
-      <TouchableOpacity
-        style={[styles.sendBtn, (!draft.trim() || sending) && styles.sendBtnDisabled]}
-        onPress={onSendComment}
-        disabled={!draft.trim() || sending}
-      >
-        {sending ? (
-          <ActivityIndicator color={colors.white} />
-        ) : (
-          <Text style={styles.sendText}>Post</Text>
-        )}
-      </TouchableOpacity>
-    </View>
-  ) : null;
+  const sheetPullDismissedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (commentsModalOpen) {
+      sheetPullDismissedRef.current = false;
+    }
+  }, [commentsModalOpen]);
+
+  const onModalPanGesture = React.useCallback(
+    (e: { nativeEvent: { state: State; translationY: number; velocityY: number } }) => {
+      const { state, translationY, velocityY } = e.nativeEvent;
+      if (state !== State.END) return;
+      if (translationY > 40 || velocityY > 520) {
+        closeCommentsModal();
+      }
+    },
+    [closeCommentsModal]
+  );
+
+  const onModalListScroll = React.useCallback(
+    (ev: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (Platform.OS !== 'ios' || sheetPullDismissedRef.current) return;
+      const y = ev.nativeEvent.contentOffset.y;
+      if (y < -40) {
+        sheetPullDismissedRef.current = true;
+        closeCommentsModal();
+      }
+    },
+    [closeCommentsModal]
+  );
+
+  const onOpenCommentsModal = () => {
+    if (!viewerUid) {
+      showError('Sign in required', new Error('Log in to view comments.'));
+      return;
+    }
+    setCommentsModalOpen(true);
+  };
+
+  const modalListFooter = React.useMemo(
+    () =>
+      viewerUid ? (
+        <EngagementCommentComposer
+          draft={draft}
+          onChangeText={setDraft}
+          replyTarget={replyTarget}
+          onClearReply={() => setReplyTarget(null)}
+          sending={sending}
+          onSend={() => void onSendComment()}
+          forModal
+          reelLayout={reelLayout}
+          onComposerFocus={onCommentComposerFocus}
+        />
+      ) : null,
+    [viewerUid, draft, replyTarget, sending, reelLayout, onCommentComposerFocus, videoId]
+  );
 
   return (
-    <View style={[styles.wrap, reelLayout && styles.wrapReel]}>
+    <View style={[styles.wrap, reelLayout && styles.wrapReelCompact]}>
       <View style={styles.actions}>
         <TouchableOpacity
           style={styles.actionBtn}
@@ -386,10 +514,15 @@ export function FeedPostEngagement({
           <Text style={styles.actionLabel}>{displayLikes}</Text>
         </TouchableOpacity>
 
-        <View style={styles.actionBtn}>
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={onOpenCommentsModal}
+          accessibilityRole="button"
+          accessibilityLabel="View comments"
+        >
           <Ionicons name="chatbubble-outline" size={20} color={colors.text} />
           <Text style={styles.actionLabel}>{displayComments}</Text>
-        </View>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.actionBtn}
@@ -436,21 +569,87 @@ export function FeedPostEngagement({
         ) : null}
       </View>
 
-      {reelLayout ? (
-        <ScrollView
-          style={styles.commentsScroll}
-          contentContainerStyle={styles.commentsScrollContent}
-          nestedScrollEnabled
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {commentsBlock}
-        </ScrollView>
-      ) : (
-        commentsBlock
-      )}
-
-      {composeRow}
+      <Modal
+        visible={commentsModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => closeCommentsModal()}
+      >
+        <View style={styles.modalKb}>
+          <View style={styles.modalRoot}>
+            <Pressable style={styles.modalBackdrop} onPress={() => closeCommentsModal()} />
+            <View
+              style={[
+                styles.modalSheet,
+                {
+                  paddingBottom:
+                    (Platform.OS === 'ios' ? 10 : 12) + modalKeyboardInset,
+                },
+              ]}
+            >
+              <PanGestureHandler
+                onHandlerStateChange={onModalPanGesture}
+                activeOffsetY={8}
+                failOffsetX={[-40, 40]}
+              >
+                <View style={styles.modalTopPan} collapsable={false}>
+                  <View style={styles.modalGrabber} />
+                  <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>Comments</Text>
+                    <TouchableOpacity
+                      onPress={() => closeCommentsModal()}
+                      hitSlop={12}
+                      accessibilityRole="button"
+                      accessibilityLabel="Close comments"
+                    >
+                      <Ionicons name="close" size={26} color={colors.text} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </PanGestureHandler>
+              <View style={styles.modalKeyboardArea}>
+                <View style={styles.modalBody}>
+                  <FlatList
+                    data={commentDisplayList}
+                    extraData={expandedThreads}
+                    keyExtractor={(row) =>
+                      row.kind === 'comment' ? row.entry.comment.id : `collapsed-${row.threadRootId}`
+                    }
+                    renderItem={renderModalRow}
+                    ListEmptyComponent={
+                      comments.length === 0 ? (
+                        commentsQueryReady ? (
+                          <View style={styles.modalEmptyWrap}>
+                            <Text style={styles.modalEmpty}>No comments yet.</Text>
+                            <Text style={styles.modalHint}>Be the first to say something.</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.modalLoadingWrap}>
+                            <ActivityIndicator size="large" color={colors.moss} />
+                          </View>
+                        )
+                      ) : null
+                    }
+                    ListFooterComponent={modalListFooter}
+                    style={styles.modalList}
+                    contentContainerStyle={[
+                      styles.modalListContent,
+                      comments.length === 0 ? styles.modalListContentEmpty : null,
+                    ]}
+                    keyboardShouldPersistTaps="always"
+                    keyboardDismissMode="none"
+                    showsVerticalScrollIndicator={false}
+                    removeClippedSubviews={false}
+                    scrollEventThrottle={16}
+                    onScroll={onModalListScroll}
+                    windowSize={10}
+                  />
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <BlockReportModal
         visible={reportOpen}
@@ -462,7 +661,6 @@ export function FeedPostEngagement({
         onConfirm={(reason) => {
           if (!viewerUid) return;
           const r = reason.trim() || 'unspecified';
-          // Hide instantly for this viewer.
           const nextHidden = Array.from(new Set([...(preferences.hiddenVideoIds ?? []), videoId]));
           patch({ hiddenVideoIds: nextHidden });
           void reportVideo({
@@ -504,17 +702,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
     gap: 6,
   },
-  wrapReel: {
-    flex: 1,
-    minHeight: 0,
-  },
-  commentsScroll: {
-    flex: 1,
-    minHeight: 0,
-  },
-  commentsScrollContent: {
-    flexGrow: 1,
-    paddingBottom: 4,
+  wrapReelCompact: {
+    alignSelf: 'stretch',
   },
   actions: {
     flexDirection: 'row',
@@ -531,66 +720,77 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: colors.text,
   },
-  comments: {
-    gap: 6,
-    paddingTop: 4,
-  },
-  commentRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  commentLine: {
+  modalKb: {
     flex: 1,
-    fontSize: 13,
-    color: colors.muted,
-    fontWeight: '600',
   },
-  commentUser: {
-    fontWeight: '900',
-    color: colors.text,
-  },
-  commentDelete: { fontSize: 12, fontWeight: '900', color: colors.coral },
-  compose: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 4,
-  },
-  composeReel: {
-    marginTop: 0,
-    paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-  },
-  input: {
+  modalRoot: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalSheet: {
+    flex: 1,
+    maxHeight: '88%',
+    minHeight: 320,
     backgroundColor: colors.white,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 14,
+    paddingBottom: 0,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 12,
   },
-  sendBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: colors.moss,
-    minWidth: 64,
+  modalTopPan: {
+    paddingBottom: 2,
+  },
+  modalGrabber: {
+    alignSelf: 'center',
+    width: 48,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.border2,
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 10,
+  },
+  modalTitle: { fontSize: 17, fontWeight: '900', color: colors.text },
+  modalKeyboardArea: {
+    flex: 1,
+    minHeight: 0,
+  },
+  modalBody: {
+    flex: 1,
+    minHeight: 0,
+  },
+  modalList: { flex: 1 },
+  modalListContent: { paddingBottom: 8 },
+  modalListContentEmpty: {
+    flexGrow: 1,
+  },
+  modalLoadingWrap: {
+    minHeight: 200,
     justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 32,
   },
-  sendBtnDisabled: {
-    opacity: 0.45,
+  modalEmptyWrap: {
+    minHeight: 160,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 8,
   },
-  sendText: {
-    color: colors.white,
-    fontWeight: '900',
-    fontSize: 13,
-  },
+  modalEmpty: { fontSize: 16, fontWeight: '800', color: colors.text },
+  modalHint: { marginTop: 6, fontSize: 14, fontWeight: '600', color: colors.muted },
 });

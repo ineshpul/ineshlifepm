@@ -36,7 +36,13 @@ import { useAuth } from '../state/auth';
 import { todayVideoDocId } from '../state/posting';
 import { showError } from '../utils/ui';
 import { useCanViewEveryoneFeed } from '../state/posting';
-import { subscribeFollowing, subscribeNotifications, type FollowingRow } from '../services/social';
+import {
+  markAllNotificationsRead,
+  subscribeFollowing,
+  subscribeNotifications,
+  type FollowingRow,
+} from '../services/social';
+import { setAppBadgeCount } from '../services/pushNotifications';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import {
   computeFeedViewingFromNow,
@@ -121,6 +127,8 @@ export function FeedScreen() {
   /** Lifts the reel bottom sheet above the keyboard (fixed-height KAV was ineffective here). */
   const [keyboardSheetBottom, setKeyboardSheetBottom] = React.useState(0);
   const flatListRef = React.useRef<FlatList<FeedVideo>>(null);
+  /** Measured bottom-sheet height per video so the video slot clears the sheet without extra whitespace. */
+  const [reelSheetHeights, setReelSheetHeights] = React.useState<Record<string, number>>({});
   /** Reel sheet `bottom` must use overlap with keyboard vs this slot’s bottom (tab bar is below; window-height math over-lifts). */
   const feedSlotRef = React.useRef<View>(null);
 
@@ -141,6 +149,12 @@ export function FeedScreen() {
     [viewingChallengeDateKey]
   );
 
+  const onReelSheetLayoutFor = React.useCallback((videoId: string) => (e: LayoutChangeEvent) => {
+    const h = Math.ceil(e.nativeEvent.layout.height);
+    if (h < 48) return;
+    setReelSheetHeights((prev) => (prev[videoId] === h ? prev : { ...prev, [videoId]: h }));
+  }, []);
+
   const displayVideos = React.useMemo(() => {
     let v = videos;
     if (preferences.feedType === 'friends' && user?.uid) {
@@ -160,6 +174,12 @@ export function FeedScreen() {
     user?.uid,
     followingRows,
   ]);
+
+  /** First reel in feed order that is not “today’s” viewing challenge — show Previous leaps chip only here (once at the boundary). */
+  const firstPreviousLeapsIndex = React.useMemo(
+    () => displayVideos.findIndex((v) => v.challengeDate !== viewingChallengeDateKey),
+    [displayVideos, viewingChallengeDateKey]
+  );
 
   React.useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -191,9 +211,11 @@ export function FeedScreen() {
   }, [user?.uid]);
 
   React.useEffect(() => {
-    return subscribeNotifications(user?.uid, (rows) =>
-      setUnreadNotifications(rows.filter((r) => !r.read).length)
-    );
+    return subscribeNotifications(user?.uid, (rows) => {
+      const n = rows.filter((r) => !r.read).length;
+      setUnreadNotifications(n);
+      void setAppBadgeCount(n);
+    });
   }, [user?.uid]);
 
   const onViewableItemsChanged = React.useCallback(
@@ -475,7 +497,15 @@ export function FeedScreen() {
             <View style={styles.headerRight}>
               <TouchableOpacity
                 style={styles.notifBtn}
-                onPress={() => nav.navigate('Notifications')}
+                onPress={() => {
+                  if (user?.uid) {
+                    void markAllNotificationsRead(user.uid).then(() => {
+                      setUnreadNotifications(0);
+                      void setAppBadgeCount(0);
+                    });
+                  }
+                  nav.navigate('Notifications');
+                }}
                 accessibilityRole="button"
                 accessibilityLabel="Notifications"
               >
@@ -507,7 +537,7 @@ export function FeedScreen() {
           style={styles.reelList}
           data={displayVideos}
           keyExtractor={(x) => x.id}
-          extraData={`${pageHeight}-${activeVideoId}-${feedHydrated}-${isFocused ? 1 : 0}`}
+          extraData={`${pageHeight}-${activeVideoId}-${feedHydrated}-${isFocused ? 1 : 0}-${Object.keys(reelSheetHeights).length}`}
           viewabilityConfig={FEED_VIEWABILITY_CONFIG}
           onViewableItemsChanged={onViewableItemsChanged}
           contentContainerStyle={displayVideos.length === 0 ? { flexGrow: 1 } : undefined}
@@ -548,9 +578,15 @@ export function FeedScreen() {
               </View>
             )
           }
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => {
+            const sheetBottom = reelSheetHeights[item.id] ?? REEL_BOTTOM_SHEET;
+            const showPreviousLeapsChip =
+              activeVideoId === item.id &&
+              firstPreviousLeapsIndex >= 0 &&
+              index === firstPreviousLeapsIndex;
+            return (
             <View style={[styles.reelPage, { height: pageHeight }]}>
-              <View style={[styles.reelVideoSlot, { bottom: REEL_BOTTOM_SHEET }]}>
+              <View style={[styles.reelVideoSlot, { bottom: sheetBottom }]}>
                 <FeedPostVideo
                   reel
                   url={item.url}
@@ -569,9 +605,9 @@ export function FeedScreen() {
               <View
                 style={[
                   styles.reelSheet,
-                  { height: REEL_BOTTOM_SHEET },
                   keyboardSheetBottom > 0 ? { bottom: keyboardSheetBottom } : undefined,
                 ]}
+                onLayout={onReelSheetLayoutFor(item.id)}
               >
                 <View style={styles.reelSheetTop}>
                   <View style={styles.reelAvatar}>
@@ -635,9 +671,23 @@ export function FeedScreen() {
                     />
                   </View>
                 ) : null}
+                {displayVideos.length > 1 ? (
+                  <View style={styles.reelSwipeRail} pointerEvents="none">
+                    <Ionicons name="chevron-down" size={13} color={colors.muted} />
+                    <Text style={styles.reelSwipeRailText}>Swipe for more leaps</Text>
+                    <Ionicons name="chevron-down" size={13} color={colors.muted} />
+                  </View>
+                ) : null}
               </View>
+              {showPreviousLeapsChip ? (
+                <View style={[styles.previousLeapsChip, { bottom: sheetBottom + 12 }]} pointerEvents="none">
+                  <Ionicons name="calendar-outline" size={15} color={colors.moss} />
+                  <Text style={styles.previousLeapsChipText}>Previous leaps</Text>
+                </View>
+              ) : null}
             </View>
-          )}
+            );
+          }}
         />
       </View>
     </Screen>
@@ -737,8 +787,50 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   reelEngagementScroll: {
-    flex: 1,
-    minHeight: 0,
+    alignSelf: 'stretch',
+  },
+  reelSwipeRail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingTop: 6,
+    paddingBottom: 2,
+    opacity: 0.85,
+  },
+  reelSwipeRailText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.muted,
+    letterSpacing: 0.3,
+  },
+  previousLeapsChip: {
+    position: 'absolute',
+    alignSelf: 'center',
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: 24,
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderWidth: 1,
+    borderColor: 'rgba(45, 90, 61, 0.25)',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  previousLeapsChipText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: colors.moss,
+    letterSpacing: 0.4,
   },
   header: {
     paddingTop: 6,

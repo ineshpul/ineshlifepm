@@ -57,6 +57,22 @@
         { "fieldPath": "type", "order": "ASCENDING" },
         { "fieldPath": "dmPairKey", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "leaperDayKey", "order": "ASCENDING" },
+        { "fieldPath": "leaperDayPoints", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "leaperWeekKey", "order": "ASCENDING" },
+        { "fieldPath": "leaperWeekPoints", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

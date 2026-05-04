@@ -2,6 +2,7 @@ import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import { onDocumentCreated, onDocumentDeleted, onDocumentWritten } from 'firebase-functions/v2/firestore';
 
+import { bumpLeaperPoints } from './leaperPoints';
 import { computeBestPostVerticalMarginal, computeVerticalScoreFromPosts } from './verticalScoreEngine';
 import type { PostMetricsSnapshot } from './verticalScoreTypes';
 
@@ -20,6 +21,41 @@ function windowStartMs(nowMs: number): number {
   return nowMs - 14 * 86400000;
 }
 
+/** Distinct non-owner commenters (each user counts once for Vertical engagement). */
+async function countUniqueNonOwnerCommenters(
+  videoRef: admin.firestore.DocumentReference,
+  ownerId: string
+): Promise<number> {
+  const snap = await videoRef.collection('comments').where('uid', '!=', ownerId).get();
+  const uids = new Set(snap.docs.map((d) => String(d.data()?.uid ?? '').trim()).filter(Boolean));
+  return uids.size;
+}
+
+async function syncNonOwnerUniqueCommentersAfterCommentChange(
+  videoRef: admin.firestore.DocumentReference,
+  ownerUid: string,
+  commenterUid: string,
+  added: boolean
+): Promise<void> {
+  if (!commenterUid || commenterUid === ownerUid) return;
+  const col = videoRef.collection('comments');
+  if (added) {
+    const q = await col.where('uid', '==', commenterUid).limit(2).get();
+    if (q.size === 1) {
+      await videoRef.update({
+        nonOwnerUniqueCommenters: admin.firestore.FieldValue.increment(1),
+      });
+    }
+  } else {
+    const q = await col.where('uid', '==', commenterUid).limit(1).get();
+    if (q.empty) {
+      await videoRef.update({
+        nonOwnerUniqueCommenters: admin.firestore.FieldValue.increment(-1),
+      });
+    }
+  }
+}
+
 /** Self-likes / self-comments on your posts are allowed but excluded from Vertical Score (views already excluded in `recordVideoView`). */
 async function buildSnapshotsForOwner(ownerId: string, db: admin.firestore.Firestore): Promise<PostMetricsSnapshot[]> {
   const q = db
@@ -32,6 +68,8 @@ async function buildSnapshotsForOwner(ownerId: string, db: admin.firestore.Fires
   const now = Date.now();
   const start = windowStartMs(now);
   const out: PostMetricsSnapshot[] = [];
+  const backfillBatch = db.batch();
+  let backfillWrites = 0;
 
   for (const d of snap.docs) {
     const data = d.data() as Record<string, unknown>;
@@ -42,19 +80,27 @@ async function buildSnapshotsForOwner(ownerId: string, db: admin.firestore.Fires
     if (effectiveCreated < start) continue;
 
     const likesCol = d.ref.collection('likes');
-    const commentsCol = d.ref.collection('comments');
-    const [likesTotalAgg, selfLikeSnap, commentsTotalAgg, selfCommentsAgg] = await Promise.all([
+    const [likesTotalAgg, selfLikeSnap] = await Promise.all([
       likesCol.count().get(),
       likesCol.doc(ownerId).get(),
-      commentsCol.count().get(),
-      commentsCol.where('uid', '==', ownerId).count().get(),
     ]);
 
     let likes = likesTotalAgg.data().count;
     if (selfLikeSnap.exists) likes = Math.max(0, likes - 1);
 
-    let comments = commentsTotalAgg.data().count - selfCommentsAgg.data().count;
-    comments = Math.max(0, comments);
+    const storedUnique = Number(data.nonOwnerUniqueCommenters);
+    let comments = Number.isFinite(storedUnique) ? Math.max(0, Math.floor(storedUnique)) : NaN;
+    if (!Number.isFinite(comments)) {
+      comments = await countUniqueNonOwnerCommenters(d.ref, ownerId);
+      if (backfillWrites < 400) {
+        backfillBatch.set(
+          d.ref,
+          { nonOwnerUniqueCommenters: comments },
+          { merge: true }
+        );
+        backfillWrites += 1;
+      }
+    }
 
     const views = Number(data.viewCount ?? data.views ?? 0);
     const shares = Number(data.shareCount ?? data.shares ?? 0);
@@ -76,6 +122,14 @@ async function buildSnapshotsForOwner(ownerId: string, db: admin.firestore.Fires
       deleted,
       challengeCompleted,
     });
+  }
+
+  if (backfillWrites > 0) {
+    try {
+      await backfillBatch.commit();
+    } catch (e) {
+      logger.warn('nonOwnerUniqueCommenters backfill batch failed', { ownerId, e });
+    }
   }
 
   return out;
@@ -161,6 +215,13 @@ export const onVerticalScoreLikeWrite = onDocumentWritten(
     // Self-likes are allowed (UI) but never affect Vertical Score — buildSnapshotsForOwner excludes them;
     // skip recompute to avoid redundant work and any risk of stale aggregate edge cases.
     if (likerId && likerId === owner) return;
+    if (!before && after) {
+      try {
+        await bumpLeaperPoints(admin.firestore(), owner, 'like', Date.now());
+      } catch (e) {
+        logger.warn('bumpLeaperPoints failed (like)', { videoId, owner, e });
+      }
+    }
     try {
       await recomputeVerticalScoreAdmin(owner);
     } catch (e) {
@@ -193,9 +254,29 @@ export const onVerticalScoreCommentWrite = onDocumentWritten(
     }
     const owner = await ownerUidFromVideoId(videoId);
     if (!owner) return;
+    const videoRef = admin.firestore().doc(`${POST_COLLECTION}/${videoId}`);
     let commenterUid = '';
     if (!before && after) commenterUid = String(snapAfter?.data()?.uid ?? '');
     else if (before && !after) commenterUid = String(snapBefore?.data()?.uid ?? '');
+    try {
+      if (delta !== 0) {
+        await syncNonOwnerUniqueCommentersAfterCommentChange(
+          videoRef,
+          owner,
+          commenterUid,
+          !before && after
+        );
+      }
+    } catch (e) {
+      logger.warn('nonOwnerUniqueCommenters sync failed', { videoId, e });
+    }
+    if (!before && after && commenterUid && commenterUid !== owner) {
+      try {
+        await bumpLeaperPoints(admin.firestore(), owner, 'comment', Date.now());
+      } catch (e) {
+        logger.warn('bumpLeaperPoints failed (comment)', { videoId, owner, e });
+      }
+    }
     if (commenterUid && commenterUid === owner) return;
     try {
       await recomputeVerticalScoreAdmin(owner);

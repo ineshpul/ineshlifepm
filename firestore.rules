@@ -464,6 +464,10 @@ service cloud.firestore {
           'bestVerticalGainPostId',
           'bestVerticalGainPoints',
           'highestJumpDisplayInches',
+          'leaperDayKey',
+          'leaperDayPoints',
+          'leaperWeekKey',
+          'leaperWeekPoints',
         ]);
       allow update: if isOwner(userId)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
@@ -475,6 +479,10 @@ service cloud.firestore {
           'bestVerticalGainPostId',
           'bestVerticalGainPoints',
           'highestJumpDisplayInches',
+          'leaperDayKey',
+          'leaperDayPoints',
+          'leaperWeekKey',
+          'leaperWeekPoints',
         ]);
       allow delete: if false;
 

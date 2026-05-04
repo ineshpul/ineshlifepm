@@ -47,6 +47,37 @@ export function nyDateKey(d = new Date()) {
   return `${y}-${String(mo).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+/** NY weekday with Sunday = 0 … Saturday = 6. */
+function nyWeekdaySun0(ms: number): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: NY_TIMEZONE,
+    weekday: 'short',
+  }).formatToParts(new Date(ms));
+  const w = (parts.find((p) => p.type === 'weekday')?.value ?? 'Sun').replace(/\./g, '').slice(0, 3);
+  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return map[w] ?? 0;
+}
+
+/**
+ * Start of the NY “TV week” (Sunday–Saturday): canonical `YYYY-MM-DD` of the Sunday that begins
+ * the week containing `ms`. Weekly leaperboard resets when this key changes (each Sunday in NY).
+ */
+export function nySundayWeekStartKey(ms: number): string {
+  let { y, mo, d } = nyCalendarPartsFromUtc(ms);
+  for (let i = 0; i < 7; i++) {
+    const noon = utcMsForNyWallClock(y, mo, d, 12, 0);
+    if (nyWeekdaySun0(noon) === 0) {
+      return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+    const prev = nyCalendarPartsFromUtc(noon - 40 * 3600000);
+    y = prev.y;
+    mo = prev.mo;
+    d = prev.d;
+  }
+  const fallback = nyDateKey(new Date(ms));
+  return fallback;
+}
+
 /** Coerce `YYYY-M-D` / `YYYY-MM-DD` to canonical `YYYY-MM-DD` (invalid → `fallback`). */
 export function normalizeNyDateKey(raw: string, fallback: string): string {
   const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(raw ?? '').trim());

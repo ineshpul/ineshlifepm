@@ -75,3 +75,12 @@ export async function unregisterPushDevice(uid: string): Promise<void> {
     // doc may not exist
   }
 }
+
+/** Syncs the iOS home-screen badge (no-op on platforms that ignore it). */
+export async function setAppBadgeCount(count: number): Promise<void> {
+  try {
+    await Notifications.setBadgeCountAsync(Math.max(0, Math.min(999, Math.floor(count))));
+  } catch {
+    // ignored
+  }
+}

@@ -1,12 +1,18 @@
 import * as React from 'react';
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { FlatList, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import { FollowButton } from '../components/FollowButton';
 import { Screen } from '../components/Screen';
 import { colors } from '../theme/colors';
 import { useAuth } from '../state/auth';
-import { markNotificationRead, subscribeNotifications, type InAppNotification } from '../services/social';
+import {
+  markAllNotificationsRead,
+  markNotificationRead,
+  subscribeNotifications,
+  type InAppNotification,
+} from '../services/social';
+import { setAppBadgeCount } from '../services/pushNotifications';
 
 function bodyFor(n: InAppNotification) {
   if (n.type === 'admin_alert') return n.snippet ? String(n.snippet) : 'Admin alert';
@@ -23,6 +29,15 @@ export function NotificationsScreen() {
   React.useEffect(() => {
     return subscribeNotifications(user?.uid, setItems);
   }, [user?.uid]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!user?.uid) return;
+      void markAllNotificationsRead(user.uid).then(() => {
+        void setAppBadgeCount(0);
+      });
+    }, [user?.uid])
+  );
 
   const openNotification = async (n: InAppNotification) => {
     if (user?.uid && !n.read) {
@@ -46,10 +61,11 @@ export function NotificationsScreen() {
   };
 
   return (
-    <Screen style={styles.screen}>
+    <Screen edges={['bottom', 'left', 'right']} style={styles.screen}>
       <FlatList
         data={items}
         keyExtractor={(x) => x.id}
+        contentInsetAdjustmentBehavior={Platform.OS === 'ios' ? 'never' : undefined}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
           <Text style={styles.empty}>No notifications yet.</Text>
@@ -92,7 +108,7 @@ export function NotificationsScreen() {
 const styles = StyleSheet.create({
   screen: {
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 0,
     flex: 1,
   },
   list: {

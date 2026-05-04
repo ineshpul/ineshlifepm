@@ -188,10 +188,10 @@ export function RootNavigator() {
   React.useEffect(() => {
     if (!authed) return;
     const open = (response: Notifications.NotificationResponse) => {
-      handleNotificationNavigation(rootNavigationRef, response);
+      void handleNotificationNavigation(rootNavigationRef, response);
     };
     void Notifications.getLastNotificationResponseAsync().then((r) => {
-      if (r) open(r);
+      if (r) void handleNotificationNavigation(rootNavigationRef, r);
     });
     const sub = Notifications.addNotificationResponseReceivedListener(open);
     return () => sub.remove();

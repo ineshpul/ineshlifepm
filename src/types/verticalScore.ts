@@ -16,6 +16,7 @@ export type PostMetricsSnapshot = {
   createdAtMs: number;
   views: number;
   likes: number;
+  /** Distinct non–self commenters (each user counts once toward engagement). */
   comments: number;
   shares: number;
   saves: number;

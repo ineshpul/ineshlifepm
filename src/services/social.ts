@@ -12,6 +12,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
@@ -57,6 +58,41 @@ export async function markNotificationRead(userId: string, notificationId: strin
   await updateDoc(doc(firestore(), 'users', userId, 'notifications', notificationId), {
     read: true,
   });
+}
+
+/** Count unread rows (recent slice) for app icon badge sync. */
+export async function countUnreadNotifications(userId: string): Promise<number> {
+  if (!isFirebaseConfigured() || !userId) return 0;
+  const snap = await getDocs(
+    query(
+      collection(firestore(), 'users', userId, 'notifications'),
+      orderBy('createdAt', 'desc'),
+      limit(120)
+    )
+  );
+  return snap.docs.filter((d) => (d.data() as { read?: boolean }).read !== true).length;
+}
+
+/** Mark recent inbox rows read (e.g. when opening the notifications screen or bell). */
+export async function markAllNotificationsRead(userId: string): Promise<void> {
+  if (!isFirebaseConfigured() || !userId) return;
+  const snap = await getDocs(
+    query(
+      collection(firestore(), 'users', userId, 'notifications'),
+      orderBy('createdAt', 'desc'),
+      limit(200)
+    )
+  );
+  const batch = writeBatch(firestore());
+  let ops = 0;
+  for (const d of snap.docs) {
+    const data = d.data() as { read?: boolean };
+    if (data.read === true) continue;
+    batch.update(d.ref, { read: true });
+    ops += 1;
+    if (ops >= 450) break;
+  }
+  if (ops > 0) await batch.commit();
 }
 
 export function subscribeNotifications(

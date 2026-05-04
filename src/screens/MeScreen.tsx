@@ -24,7 +24,8 @@ import { colors } from '../theme/colors';
 import { useAuth } from '../state/auth';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { showError } from '../utils/ui';
-import { subscribeFollowing, type FollowingRow } from '../services/social';
+import { markAllNotificationsRead, subscribeFollowing, type FollowingRow } from '../services/social';
+import { setAppBadgeCount } from '../services/pushNotifications';
 import { verticalScoreTier } from '../lib/verticalScore';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { saveUserPublicProfile } from '../services/userProfile';
@@ -219,7 +220,15 @@ export function MeScreen() {
             </View>
           </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity onPress={() => nav.navigate('Notifications')} style={styles.iconBtn}>
+            <TouchableOpacity
+              onPress={() => {
+                if (user?.uid) {
+                  void markAllNotificationsRead(user.uid).then(() => void setAppBadgeCount(0));
+                }
+                nav.navigate('Notifications');
+              }}
+              style={styles.iconBtn}
+            >
               <Ionicons name="notifications-outline" size={22} color={colors.text} />
             </TouchableOpacity>
             <TouchableOpacity onPress={() => nav.navigate('Settings')} style={styles.iconBtn}>
