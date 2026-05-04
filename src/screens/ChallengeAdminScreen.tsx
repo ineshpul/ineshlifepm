@@ -8,20 +8,40 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import {
+  DEFAULT_MAX_RECORDING_ATTEMPTS,
+  MAX_RECORDING_ATTEMPTS_CAP,
+  MAX_TASK_DURATION_SECONDS,
+  MIN_TASK_DURATION_SECONDS,
   TASK_DURATION_OPTIONS,
+  normalizeMaxRecordingAttempts,
   normalizeTaskDurationSeconds,
-  type TaskDurationSeconds,
   useChallengeWindow,
 } from '../state/challenge';
 import { showError, showInfo } from '../utils/ui';
+
+const ATTEMPT_PRESETS = [1, 2, 3, 5, 10] as const;
 
 export function ChallengeAdminScreen() {
   const nav = useNavigation<any>();
   const win = useChallengeWindow();
 
   const [title, setTitle] = React.useState('');
-  const [maxDurationSeconds, setMaxDurationSeconds] = React.useState<TaskDurationSeconds>(60);
+  const [durationInput, setDurationInput] = React.useState('60');
+  const [attemptsInput, setAttemptsInput] = React.useState(String(DEFAULT_MAX_RECORDING_ATTEMPTS));
   const [busy, setBusy] = React.useState(false);
+
+  const durationParsed = normalizeTaskDurationSeconds(durationInput);
+  const attemptsParsed = normalizeMaxRecordingAttempts(attemptsInput);
+
+  const applyDurationFromInput = React.useCallback(() => {
+    const n = normalizeTaskDurationSeconds(durationInput);
+    setDurationInput(String(n));
+  }, [durationInput]);
+
+  const applyAttemptsFromInput = React.useCallback(() => {
+    const n = normalizeMaxRecordingAttempts(attemptsInput);
+    setAttemptsInput(String(n));
+  }, [attemptsInput]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -32,7 +52,10 @@ export function ChallengeAdminScreen() {
         if (cancelled || !snap.exists()) return;
         const data: any = snap.data();
         setTitle(String(data?.title ?? ''));
-        setMaxDurationSeconds(normalizeTaskDurationSeconds(data?.maxDurationSeconds));
+        const d = normalizeTaskDurationSeconds(data?.maxDurationSeconds);
+        setDurationInput(String(d));
+        const a = normalizeMaxRecordingAttempts(data?.maxRecordingAttempts);
+        setAttemptsInput(String(a));
       } catch {
         // leave fields as-is
       }
@@ -51,6 +74,11 @@ export function ChallengeAdminScreen() {
       showError('Missing title', 'Please enter a challenge title.');
       return;
     }
+    const duration = normalizeTaskDurationSeconds(durationInput);
+    const attempts = normalizeMaxRecordingAttempts(attemptsInput);
+    setDurationInput(String(duration));
+    setAttemptsInput(String(attempts));
+
     setBusy(true);
     try {
       await setDoc(
@@ -59,7 +87,8 @@ export function ChallengeAdminScreen() {
           dateKey: win.dateKey,
           title: title.trim(),
           subtitle: deleteField(),
-          maxDurationSeconds,
+          maxDurationSeconds: duration,
+          maxRecordingAttempts: attempts,
           updatedAt: serverTimestamp(),
           publishedAt: serverTimestamp(),
         },
@@ -96,16 +125,52 @@ export function ChallengeAdminScreen() {
           {TASK_DURATION_OPTIONS.map((sec) => (
             <Pressable
               key={sec}
-              onPress={() => setMaxDurationSeconds(sec)}
-              style={[styles.durationChip, maxDurationSeconds === sec && styles.durationChipActive]}
+              onPress={() => setDurationInput(String(sec))}
+              style={[styles.durationChip, durationParsed === sec && styles.durationChipActive]}
             >
-              <Text style={[styles.durationChipText, maxDurationSeconds === sec && styles.durationChipTextActive]}>
+              <Text style={[styles.durationChipText, durationParsed === sec && styles.durationChipTextActive]}>
                 {sec}s
               </Text>
             </Pressable>
           ))}
         </View>
+        <Text style={styles.subLabel}>Custom ({MIN_TASK_DURATION_SECONDS}–{MAX_TASK_DURATION_SECONDS}s)</Text>
+        <TextInput
+          value={durationInput}
+          onChangeText={setDurationInput}
+          onBlur={applyDurationFromInput}
+          keyboardType="number-pad"
+          style={styles.input}
+          placeholder={`${MIN_TASK_DURATION_SECONDS}–${MAX_TASK_DURATION_SECONDS}`}
+        />
         <Text style={styles.durationHint}>Recording limit matches this length for everyone that day.</Text>
+      </View>
+
+      <View style={styles.field}>
+        <Text style={styles.label}>RECORDING ATTEMPTS (PER DAY)</Text>
+        <View style={styles.durationRow}>
+          {ATTEMPT_PRESETS.map((n) => (
+            <Pressable
+              key={n}
+              onPress={() => setAttemptsInput(String(n))}
+              style={[styles.durationChip, attemptsParsed === n && styles.durationChipActive]}
+            >
+              <Text style={[styles.durationChipText, attemptsParsed === n && styles.durationChipTextActive]}>
+                {n}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={styles.subLabel}>Custom (1–{MAX_RECORDING_ATTEMPTS_CAP})</Text>
+        <TextInput
+          value={attemptsInput}
+          onChangeText={setAttemptsInput}
+          onBlur={applyAttemptsFromInput}
+          keyboardType="number-pad"
+          style={styles.input}
+          placeholder="3"
+        />
+        <Text style={styles.durationHint}>Each try counts when they start recording for the day’s leap.</Text>
       </View>
 
       <PrimaryButton title={busy ? 'PUBLISHING…' : 'PUBLISH'} variant="green" onPress={onPublish} disabled={busy} />
@@ -144,6 +209,12 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: colors.muted2,
   },
+  subLabel: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.muted,
+  },
   input: {
     borderWidth: 1,
     borderColor: colors.border,
@@ -163,6 +234,7 @@ const styles = StyleSheet.create({
   },
   durationRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 10,
   },
   durationChip: {

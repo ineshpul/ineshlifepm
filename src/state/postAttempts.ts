@@ -1,9 +1,23 @@
 import * as React from 'react';
-import { doc, onSnapshot, runTransaction, serverTimestamp, setDoc } from 'firebase/firestore';
+import {
+  doc,
+  onSnapshot,
+  runTransaction,
+  serverTimestamp,
+  type Transaction,
+} from 'firebase/firestore';
 
 import { firestore } from '../firebase/firebase';
+import {
+  DEFAULT_MAX_RECORDING_ATTEMPTS,
+  normalizeMaxRecordingAttempts,
+} from './challenge';
 
-const MAX_TRIES = 3;
+async function maxAttemptsForChallengeDate(tx: Transaction, challengeDate: string) {
+  const challengeRef = doc(firestore(), 'challenges', challengeDate);
+  const challengeSnap = await tx.get(challengeRef);
+  return normalizeMaxRecordingAttempts(challengeSnap.data()?.maxRecordingAttempts);
+}
 
 export type PostedVideoPayload = {
   uid: string;
@@ -12,7 +26,7 @@ export type PostedVideoPayload = {
   challengeTitle: string;
   challengeSubtitle: string;
   prompt: string;
-  /** Matches the day’s task length (30 / 45 / 60). */
+  /** Matches the day’s task length (seconds). */
   maxDurationSeconds: number;
   source: string;
   url: string;
@@ -53,9 +67,10 @@ export async function consumeRecordingAttempt(args: { uid: string; challengeDate
   const attemptRef = doc(firestore(), 'postAttempts', `${uid}_${challengeDate}`);
 
   return await runTransaction(firestore(), async (tx) => {
+    const max = await maxAttemptsForChallengeDate(tx, challengeDate);
     const attemptSnap = await tx.get(attemptRef);
     const used = Number(attemptSnap.data()?.used ?? 0);
-    if (used >= MAX_TRIES) {
+    if (used >= max) {
       throw new Error('No attempts remaining today.');
     }
 
@@ -65,7 +80,7 @@ export async function consumeRecordingAttempt(args: { uid: string; challengeDate
         uid,
         challengeDate,
         used: used + 1,
-        max: MAX_TRIES,
+        max,
         updatedAt: serverTimestamp(),
       },
       { merge: true }
@@ -82,17 +97,20 @@ export async function consumeRecordingAttempt(args: { uid: string; challengeDate
 export async function syncAttemptLedgerAfterSuccessfulPost(args: { uid: string; challengeDate: string }) {
   const { uid, challengeDate } = args;
   const attemptRef = doc(firestore(), 'postAttempts', `${uid}_${challengeDate}`);
-  await setDoc(
-    attemptRef,
-    {
-      uid,
-      challengeDate,
-      used: MAX_TRIES,
-      max: MAX_TRIES,
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
+  await runTransaction(firestore(), async (tx) => {
+    const max = await maxAttemptsForChallengeDate(tx, challengeDate);
+    tx.set(
+      attemptRef,
+      {
+        uid,
+        challengeDate,
+        used: max,
+        max,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
 }
 
 /**
@@ -108,6 +126,7 @@ export async function refundRecordingAttemptIfNoPostedVideo(args: { uid: string;
     const videoSnap = await tx.get(videoRef);
     if (videoSnap.exists()) return;
 
+    const max = await maxAttemptsForChallengeDate(tx, challengeDate);
     const attemptSnap = await tx.get(attemptRef);
     const used = Number(attemptSnap.data()?.used ?? 0);
     if (used <= 0) return;
@@ -118,7 +137,7 @@ export async function refundRecordingAttemptIfNoPostedVideo(args: { uid: string;
         uid,
         challengeDate,
         used: Math.max(0, used - 1),
-        max: MAX_TRIES,
+        max,
         updatedAt: serverTimestamp(),
       },
       { merge: true }
@@ -126,20 +145,30 @@ export async function refundRecordingAttemptIfNoPostedVideo(args: { uid: string;
   });
 }
 
-export function useAttemptsRemaining(uid: string | undefined, challengeDate: string) {
-  const [remaining, setRemaining] = React.useState(MAX_TRIES);
+export function useAttemptsRemaining(
+  uid: string | undefined,
+  challengeDate: string,
+  dailyMaxAttempts: number = DEFAULT_MAX_RECORDING_ATTEMPTS
+) {
+  const fallbackMax = normalizeMaxRecordingAttempts(dailyMaxAttempts);
+  const [remaining, setRemaining] = React.useState(fallbackMax);
 
   React.useEffect(() => {
     if (!uid) {
-      setRemaining(MAX_TRIES);
+      setRemaining(fallbackMax);
       return;
     }
     const ref = doc(firestore(), 'postAttempts', `${uid}_${challengeDate}`);
     return onSnapshot(ref, (snap) => {
       const used = Number(snap.data()?.used ?? 0);
-      setRemaining(Math.max(0, MAX_TRIES - used));
+      const ledgerMaxRaw = snap.data()?.max;
+      const max =
+        typeof ledgerMaxRaw === 'number' && ledgerMaxRaw > 0
+          ? normalizeMaxRecordingAttempts(ledgerMaxRaw)
+          : fallbackMax;
+      setRemaining(Math.max(0, max - used));
     });
-  }, [uid, challengeDate]);
+  }, [uid, challengeDate, fallbackMax]);
 
   return remaining;
 }

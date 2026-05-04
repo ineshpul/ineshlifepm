@@ -88,7 +88,7 @@ export function RecordScreen() {
   const playerFacing = getPlayerFacingChallenge(challenge, window);
   const maxSec = challenge.maxDurationSeconds;
   const postedToday = useHasPostedToday(user?.uid, window.dateKey);
-  const attemptsRemaining = useAttemptsRemaining(user?.uid, window.dateKey);
+  const attemptsRemaining = useAttemptsRemaining(user?.uid, window.dateKey, challenge.maxRecordingAttempts);
 
   const [permission, requestPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();

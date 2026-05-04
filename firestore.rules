@@ -397,6 +397,20 @@ service cloud.firestore {
         return resource.data.used is int ? resource.data.used : 0;
       }
 
+      function maxRecordingAttemptsForChallengeDate(dateKey) {
+        return (!exists(/databases/$(database)/documents/challenges/$(dateKey))
+          || !(get(/databases/$(database)/documents/challenges/$(dateKey)).data.keys().hasAny(['maxRecordingAttempts']))
+          || !(get(/databases/$(database)/documents/challenges/$(dateKey)).data.maxRecordingAttempts is int)
+          || get(/databases/$(database)/documents/challenges/$(dateKey)).data.maxRecordingAttempts < 1
+          || get(/databases/$(database)/documents/challenges/$(dateKey)).data.maxRecordingAttempts > 50)
+          ? 3
+          : get(/databases/$(database)/documents/challenges/$(dateKey)).data.maxRecordingAttempts;
+      }
+
+      function ledgerMaxCap() {
+        return maxRecordingAttemptsForChallengeDate(request.resource.data.challengeDate);
+      }
+
       allow create: if signedIn()
         && attemptId.matches('^' + request.auth.uid + '_.+')
         && attemptDocIdMatchesFields()
@@ -405,27 +419,31 @@ service cloud.firestore {
         && request.resource.data.challengeDate is string
         && request.resource.data.used is int
         && request.resource.data.used >= 0
-        && request.resource.data.used <= 3
-        && request.resource.data.max == 3
+        && request.resource.data.used <= ledgerMaxCap()
+        && request.resource.data.max is int
+        && request.resource.data.max == ledgerMaxCap()
         && request.resource.data.updatedAt is timestamp;
 
       allow update: if signedIn()
         && attemptId.matches('^' + request.auth.uid + '_.+')
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.challengeDate == resource.data.challengeDate
-        && request.resource.data.max == resource.data.max
-        && request.resource.data.max == 3
         && postAttemptLedgerKeys()
+        && request.resource.data.max is int
+        && request.resource.data.max == ledgerMaxCap()
         && request.resource.data.used is int
         && request.resource.data.used >= 0
-        && request.resource.data.used <= 3
+        && request.resource.data.used <= request.resource.data.max
         && (
           request.resource.data.used == prevUsedCount() + 1
           || (
             request.resource.data.used == prevUsedCount() - 1
             && !exists(/databases/$(database)/documents/videos/$(attemptId))
           )
-          || (request.resource.data.used == 3 && prevUsedCount() < 3)
+          || (
+            request.resource.data.used == request.resource.data.max
+            && prevUsedCount() < request.resource.data.max
+          )
         );
 
       // Only after the daily video doc is gone (delete flow), so users cannot wipe the ledger while a post exists.
@@ -573,7 +591,15 @@ service cloud.firestore {
 
     match /challenges/{id} {
       allow read: if signedIn();
-      allow create, update: if isAdmin();
+      allow create, update: if isAdmin()
+        && (!request.resource.data.keys().hasAny(['maxRecordingAttempts'])
+          || (request.resource.data.maxRecordingAttempts is int
+            && request.resource.data.maxRecordingAttempts >= 1
+            && request.resource.data.maxRecordingAttempts <= 50))
+        && (!request.resource.data.keys().hasAny(['maxDurationSeconds'])
+          || (request.resource.data.maxDurationSeconds is int
+            && request.resource.data.maxDurationSeconds >= 10
+            && request.resource.data.maxDurationSeconds <= 600));
       allow delete: if false;
     }
   }

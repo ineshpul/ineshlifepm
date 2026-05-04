@@ -9,14 +9,26 @@ import {
 } from '../content/challengeCopy';
 import { computeChallengeWindowFromNow } from '../utils/nyTime';
 
-/** Allowed task lengths (seconds). Posts use the same value for recording and display. */
-export const TASK_DURATION_OPTIONS = [30, 45, 60] as const;
-export type TaskDurationSeconds = (typeof TASK_DURATION_OPTIONS)[number];
+/** Quick-pick lengths in MOD settings; any integer in [MIN, MAX] is allowed when saved. */
+export const TASK_DURATION_OPTIONS = [15, 30, 45, 60, 90, 120] as const;
+export type TaskDurationSeconds = number;
+
+export const MIN_TASK_DURATION_SECONDS = 10;
+export const MAX_TASK_DURATION_SECONDS = 300;
 
 export function normalizeTaskDurationSeconds(raw: unknown): TaskDurationSeconds {
-  const n = Number(raw);
-  if (n === 30 || n === 45 || n === 60) return n;
-  return 60;
+  const n = Math.round(Number(raw));
+  if (!Number.isFinite(n)) return 60;
+  return Math.min(MAX_TASK_DURATION_SECONDS, Math.max(MIN_TASK_DURATION_SECONDS, n));
+}
+
+export const DEFAULT_MAX_RECORDING_ATTEMPTS = 3;
+export const MAX_RECORDING_ATTEMPTS_CAP = 50;
+
+export function normalizeMaxRecordingAttempts(raw: unknown): number {
+  const n = Math.round(Number(raw));
+  if (!Number.isFinite(n)) return DEFAULT_MAX_RECORDING_ATTEMPTS;
+  return Math.min(MAX_RECORDING_ATTEMPTS_CAP, Math.max(1, n));
 }
 
 export type Challenge = {
@@ -24,6 +36,8 @@ export type Challenge = {
   title: string;
   subtitle: string;
   maxDurationSeconds: TaskDurationSeconds;
+  /** Recording/post tries for that calendar day (default 3). */
+  maxRecordingAttempts: number;
 };
 
 export type ChallengeWindow = {
@@ -76,6 +90,7 @@ export function useTodayChallenge() {
     title: '',
     subtitle: '',
     maxDurationSeconds: 60,
+    maxRecordingAttempts: DEFAULT_MAX_RECORDING_ATTEMPTS,
   }));
 
   React.useEffect(() => {
@@ -94,13 +109,26 @@ export function useTodayChallenge() {
             title: String(data?.title ?? 'Daily challenge'),
             subtitle: String(data?.subtitle ?? ''),
             maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
+            maxRecordingAttempts: normalizeMaxRecordingAttempts(data?.maxRecordingAttempts),
           });
         } else {
-          setChallenge((c) => ({ ...c, dateKey: win.dateKey }));
+          setChallenge({
+            dateKey: win.dateKey,
+            title: '',
+            subtitle: '',
+            maxDurationSeconds: 60,
+            maxRecordingAttempts: DEFAULT_MAX_RECORDING_ATTEMPTS,
+          });
         }
       },
       () => {
-        setChallenge((c) => ({ ...c, dateKey: win.dateKey }));
+        setChallenge({
+          dateKey: win.dateKey,
+          title: '',
+          subtitle: '',
+          maxDurationSeconds: 60,
+          maxRecordingAttempts: DEFAULT_MAX_RECORDING_ATTEMPTS,
+        });
       }
     );
     return () => unsub();
