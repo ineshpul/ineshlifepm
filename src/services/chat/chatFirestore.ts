@@ -587,29 +587,15 @@ export async function sendChatMessage(args: {
     if (!memberIds.includes(args.senderId)) throw new Error('Not a member.');
 
     /** Firestore requires every `tx.get` before any `tx.set` / `tx.update`. */
-    const convName = String(cdata.name ?? 'Chat');
-    const convAvatar = (cdata.avatarUrl as string | null | undefined) ?? null;
     const convType = (cdata.type as ConversationType) ?? 'group';
-    const memberUnread: {
-      uid: string;
-      curUnread: number;
-      convTitle: string;
-      convAvatarUrl: string | null;
-      convType: ConversationType;
-    }[] = [];
+    const memberUnread: { uid: string; curUnread: number; convType: ConversationType }[] = [];
     for (const uid of memberIds) {
       const mdoc = doc(membersCol(args.conversationId), uid);
       const msnap = await tx.get(mdoc);
       const md = msnap.data() as Record<string, unknown> | undefined;
-      const rawTitle = md?.convTitle != null ? String(md.convTitle).trim() : '';
-      const cav = md?.convAvatarUrl;
-      const rowAvatar: string | null =
-        cav === undefined ? convAvatar : cav === null ? null : String(cav);
       memberUnread.push({
         uid,
         curUnread: Number(md?.unreadCount ?? 0),
-        convTitle: rawTitle || convName,
-        convAvatarUrl: rowAvatar,
         convType: (md?.convType as ConversationType) || convType,
       });
     }
@@ -647,7 +633,7 @@ export async function sendChatMessage(args: {
       },
     });
 
-    for (const { uid, curUnread, convTitle, convAvatarUrl, convType: rowConvType } of memberUnread) {
+    for (const { uid, curUnread, convType: rowConvType } of memberUnread) {
       const mdoc = doc(membersCol(args.conversationId), uid);
       const nextUnread = uid === args.senderId ? 0 : curUnread + 1;
       tx.set(
@@ -659,13 +645,16 @@ export async function sendChatMessage(args: {
         },
         { merge: true }
       );
+      /**
+       * Do not write `convTitle` / `convAvatarUrl` here — they come from each user’s member row and were
+       * wrong on some legacy DMs; re-merging them on every message kept bad avatars stuck in the inbox mirror.
+       * Merge only activity fields; title/avatar stay as set by DM create / `ensureMyInboxRow`.
+       */
       tx.set(
         inboxDoc(uid, args.conversationId),
         {
           conversationId: args.conversationId,
           memberUid: uid,
-          convTitle,
-          convAvatarUrl,
           convType: rowConvType,
           lastActivityAt: now,
           lastMessagePreview: preview,

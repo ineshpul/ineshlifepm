@@ -221,9 +221,9 @@ export function UserLeapsScreen({ route }: Props) {
             showsVerticalScrollIndicator={false}
             nestedScrollEnabled
             removeClippedSubviews={false}
-            initialNumToRender={2}
-            maxToRenderPerBatch={2}
-            windowSize={3}
+            initialNumToRender={3}
+            maxToRenderPerBatch={4}
+            windowSize={5}
             updateCellsBatchingPeriod={50}
             viewabilityConfig={viewabilityConfig}
             onViewableItemsChanged={onViewableItemsChanged}

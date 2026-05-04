@@ -5,8 +5,8 @@ import {
   FlatList,
   InteractionManager,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
-  LayoutChangeEvent,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -16,10 +16,9 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  useWindowDimensions,
-  type KeyboardEvent,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useHeaderHeight } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -73,7 +72,7 @@ function DateSep({ d }: { d: Date }) {
 export function ConversationScreen({ navigation, route }: Props) {
   const { conversationId, threadTitle, pendingShare } = route.params;
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const headerHeight = useHeaderHeight();
   const { user } = useAuth();
   const { conversation, members, myMember } = useConversation(conversationId, user?.uid);
   const { messages, loading, loadOlder, hasMore, loadingOlder, send, markRead } = useMessages(
@@ -94,6 +93,8 @@ export function ConversationScreen({ navigation, route }: Props) {
   const [reportTarget, setReportTarget] = React.useState<ChatMessage | null>(null);
   const [typingUids, setTypingUids] = React.useState<string[]>([]);
   const typingTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Avoid a Firestore write on every key — that stalls the JS thread and makes typing feel laggy. */
+  const typingSentAtRef = React.useRef(0);
   const [videoOpen, setVideoOpen] = React.useState<string | null>(null);
   const [imageOpen, setImageOpen] = React.useState<string | null>(null);
   const reactionsUnsubs = React.useRef<Record<string, () => void>>({});
@@ -105,47 +106,25 @@ export function ConversationScreen({ navigation, route }: Props) {
   const nearBottomRef = React.useRef(true);
   const composerFocusedRef = React.useRef(false);
   const lastNewestMessageIdRef = React.useRef<string | null>(null);
-  /** Measured height of reply bar + upload row + composer — with `inverted`, use paddingTop on list content for visual bottom gap. */
-  const [bottomChromeHeight, setBottomChromeHeight] = React.useState(88);
-  /** iOS: lift thread + composer above keyboard (KAV is unreliable inside native stack + tabs). */
-  const [keyboardPadIOS, setKeyboardPadIOS] = React.useState(0);
-  /** Bottom of chat scene in window coords — keyboard overlap = anchorBottom - keyboardTop (not raw window height). */
-  const keyboardLayoutRef = React.useRef<View>(null);
 
   React.useEffect(() => {
     pendingShareHandled.current = false;
     setReactionMap({});
     lastNewestMessageIdRef.current = null;
     nearBottomRef.current = true;
+    typingSentAtRef.current = 0;
   }, [conversationId]);
 
-  /** iOS: pin composer using overlap between this screen’s bottom and the keyboard (tabs sit below; raw `height` over-lifts). */
+  /** Keep newest messages visible when the keyboard opens (Instagram-style). */
   React.useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-    const showEv = 'keyboardWillShow' as const;
-    const hideEv = 'keyboardWillHide' as const;
-    const applyShow = (e: KeyboardEvent) => {
-      const ec = e.endCoordinates;
-      const top = typeof ec.screenY === 'number' ? ec.screenY : null;
-      const fallback =
-        top != null && windowHeight > 0 ? Math.max(0, windowHeight - top) : Math.max(0, ec.height);
-      const node = keyboardLayoutRef.current;
-      if (node && top != null) {
-        node.measureInWindow((fx, fy, fw, fh) => {
-          const anchorBottom = fy + fh;
-          setKeyboardPadIOS(Math.max(0, anchorBottom - top));
-        });
-      } else {
-        setKeyboardPadIOS(fallback);
+    const show = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }));
       }
-    };
-    const show = Keyboard.addListener(showEv, applyShow);
-    const hide = Keyboard.addListener(hideEv, () => setKeyboardPadIOS(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, [windowHeight]);
+    );
+    return () => show.remove();
+  }, []);
 
   /** Only attach reaction listeners for recent messages (each sub is a live query). */
   const messagesForReactions = React.useMemo(() => messages.slice(-18), [messages]);
@@ -360,10 +339,9 @@ export function ConversationScreen({ navigation, route }: Props) {
     lastNewestMessageIdRef.current = newestId;
     if (!newestId || prevNewest === null) return;
     if (nearBottomRef.current || composerFocusedRef.current) {
-      const anim = keyboardPadIOS <= 0;
-      requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: anim }));
+      requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }));
     }
-  }, [displayMessages, keyboardPadIOS]);
+  }, [displayMessages]);
 
   React.useEffect(() => {
     return () => {
@@ -405,7 +383,11 @@ export function ConversationScreen({ navigation, route }: Props) {
 
   const onTyping = React.useCallback(() => {
     if (!user?.uid) return;
-    void setTyping(conversationId, user.uid, true);
+    const now = Date.now();
+    if (now - typingSentAtRef.current > 1400) {
+      typingSentAtRef.current = now;
+      void setTyping(conversationId, user.uid, true);
+    }
     if (typingTimer.current) clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => {
       void setTyping(conversationId, user.uid, false);
@@ -641,13 +623,8 @@ export function ConversationScreen({ navigation, route }: Props) {
     return null;
   }, [loading, messages.length]);
 
-  const onComposerLayout = React.useCallback((e: LayoutChangeEvent) => {
-    const h = e.nativeEvent.layout.height;
-    if (h > 0) setBottomChromeHeight(h);
-  }, []);
-
   const composerDock = (
-    <View style={styles.composerDock} onLayout={onComposerLayout}>
+    <View style={styles.composerDock}>
       {replyTo ? (
         <View style={styles.replyBar}>
           <Text style={styles.replyBarTxt} numberOfLines={2}>
@@ -663,12 +640,7 @@ export function ConversationScreen({ navigation, route }: Props) {
           <Text style={styles.uploadTxt}>Uploading… {uploadProgress}%</Text>
         </View>
       ) : null}
-      <View
-        style={[
-          styles.composer,
-          { paddingBottom: keyboardPadIOS > 0 ? 10 : Math.max(insets.bottom, 10) },
-        ]}
-      >
+      <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         <TouchableOpacity
           onPress={async () => {
             try {
@@ -704,9 +676,11 @@ export function ConversationScreen({ navigation, route }: Props) {
           }}
           onFocus={() => {
             composerFocusedRef.current = true;
+            requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }));
           }}
           onBlur={() => {
             composerFocusedRef.current = false;
+            if (user?.uid) void setTyping(conversationId, user.uid, false);
           }}
           multiline
           scrollEnabled
@@ -719,9 +693,22 @@ export function ConversationScreen({ navigation, route }: Props) {
     </View>
   );
 
+  const listContentStyle = React.useMemo(
+    () => [
+      styles.listContent,
+      messages.length === 0 ? styles.listContentWhenEmpty : styles.listContentWhenThread,
+    ],
+    [messages.length]
+  );
+
   return (
     <Screen style={styles.screen} edges={['top', 'left', 'right']}>
-      <View ref={keyboardLayoutRef} style={styles.flex} collapsable={false}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        enabled
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={headerHeight}
+      >
         {typingUids.length > 0 ? (
           <View style={styles.typingBanner}>
             <Text style={styles.typingTxt}>Someone is typing…</Text>
@@ -744,7 +731,7 @@ export function ConversationScreen({ navigation, route }: Props) {
           onScroll={onListScroll}
           scrollEventThrottle={32}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           onEndReached={() => {
             if (hasMore && !loadingOlder) void loadOlder();
           }}
@@ -752,21 +739,10 @@ export function ConversationScreen({ navigation, route }: Props) {
           ListFooterComponent={
             loadingOlder ? <ActivityIndicator color={colors.moss} style={{ padding: 12 }} /> : null
           }
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingTop: bottomChromeHeight + 12 },
-          ]}
+          contentContainerStyle={listContentStyle}
         />
-        {Platform.OS === 'ios' ? (
-          <View style={styles.composerOverlay} pointerEvents="box-none">
-            <View style={[styles.composerPinned, { bottom: keyboardPadIOS }]} pointerEvents="auto">
-              <View style={styles.composerAvoid}>{composerDock}</View>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.composerAvoid}>{composerDock}</View>
-        )}
-      </View>
+        <View style={styles.composerAvoid}>{composerDock}</View>
+      </KeyboardAvoidingView>
 
       <Modal visible={!!reactionMsg} transparent animationType="fade">
         <Pressable style={styles.reactionBackdrop} onPress={() => setReactionMsg(null)}>
@@ -849,7 +825,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   listEmptyTxt: { fontSize: 15, fontWeight: '600', color: colors.muted, textAlign: 'center' },
-  listContent: { paddingHorizontal: 14, paddingTop: 10 },
+  listContent: { paddingHorizontal: 14 },
+  /** Empty / loading: center in the thread area. */
+  listContentWhenEmpty: { flexGrow: 1, justifyContent: 'center', paddingVertical: 8 },
+  /** Short threads: pin bubbles to the bottom (Instagram-style); small top padding under header when scrolled up. */
+  listContentWhenThread: {
+    flexGrow: 1,
+    justifyContent: 'flex-end',
+    paddingTop: 6,
+    paddingBottom: 10,
+  },
   rowMsg: { marginBottom: 6, maxWidth: '88%' },
   rowMsgCluster: { marginTop: -2 },
   rowMine: { alignSelf: 'flex-end' },
@@ -884,7 +869,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.06)',
   },
   reactionChip: { fontSize: 13, fontWeight: '700' },
-  dateSep: { alignItems: 'center', marginTop: 16, marginBottom: 8 },
+  dateSep: { alignItems: 'center', marginTop: 10, marginBottom: 6 },
   dateSepTxt: {
     fontSize: 12,
     fontWeight: '700',
@@ -896,15 +881,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.05)',
   },
   swipeReply: { justifyContent: 'center', paddingHorizontal: 12 },
-  composerOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 30,
-  },
-  composerPinned: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-  },
   composerAvoid: {
     backgroundColor: colors.white,
     ...Platform.select({

@@ -111,11 +111,12 @@ export function ChatInboxScreen({ navigation }: Props) {
                 <View style={styles.avatar}>
                   {avatarUri ? (
                     <Image
-                      key={`inbox-avatar-${item.conversationId}-${avatarUri}`}
-                      recyclingKey={`${item.conversationId}|${avatarUri}`}
+                      key={item.conversationId}
+                      recyclingKey={item.conversationId}
                       source={{ uri: avatarUri }}
                       style={styles.avatarImg}
                       contentFit="cover"
+                      cachePolicy="memory-disk"
                     />
                   ) : (
                     <Text style={styles.avatarInitial}>{title.slice(0, 1).toUpperCase()}</Text>

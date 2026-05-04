@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
 
@@ -42,6 +42,7 @@ export function FeedPostVideo(props: {
   const videoRef = React.useRef<Video>(null);
   const [status, setStatus] = React.useState<AVPlaybackStatus | null>(null);
   const [loaded, setLoaded] = React.useState(false);
+  const lastStatusPaintRef = React.useRef(0);
   const [userPaused, setUserPaused] = React.useState(false);
   const [pauseFlash, setPauseFlash] = React.useState(false);
   const pauseFlashTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -54,6 +55,7 @@ export function FeedPostVideo(props: {
 
   React.useEffect(() => {
     setLoaded(false);
+    lastStatusPaintRef.current = 0;
   }, [url]);
 
   React.useEffect(() => {
@@ -109,10 +111,22 @@ export function FeedPostVideo(props: {
     }
   }, [effectivePlay, loaded, url]);
 
-  const onPlaybackStatusUpdate = (s: AVPlaybackStatus) => {
-    setStatus(s);
+  const onPlaybackStatusUpdate = React.useCallback((s: AVPlaybackStatus) => {
     if (s.isLoaded) setLoaded(true);
-  };
+    else setLoaded(false);
+
+    if (!s.isLoaded) {
+      setStatus(s);
+      lastStatusPaintRef.current = 0;
+      return;
+    }
+    const now = Date.now();
+    const justLoaded = lastStatusPaintRef.current === 0;
+    if (justLoaded || now - lastStatusPaintRef.current >= 750) {
+      lastStatusPaintRef.current = now;
+      setStatus(s);
+    }
+  }, []);
 
   const onReelTap = React.useCallback(() => {
     if (!shouldPlay && onReelActivate) {
@@ -190,13 +204,18 @@ export function FeedPostVideo(props: {
         isLooping={reel}
         volume={1.0}
         useNativeControls={nativeControls}
-        progressUpdateIntervalMillis={dataSaver ? 1000 : 250}
+        progressUpdateIntervalMillis={dataSaver ? 1200 : 600}
         onPlaybackStatusUpdate={onPlaybackStatusUpdate}
         onError={() => {
           setLoaded(false);
           setUserPaused(false);
         }}
       />
+      {reel && url && !loaded ? (
+        <View style={styles.reelLoading} pointerEvents="none">
+          <ActivityIndicator size="large" color={colors.white} />
+        </View>
+      ) : null}
       {reelTapLayer}
       <View style={styles.timerBar} pointerEvents="none">
         <Text style={styles.timerText}>{formatTimeLeft(remainingSec)} left</Text>
@@ -210,6 +229,13 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
     backgroundColor: '#0B1020',
+  },
+  reelLoading: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
   },
   reelTouchLayer: {
     ...StyleSheet.absoluteFillObject,
