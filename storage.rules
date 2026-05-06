@@ -18,14 +18,29 @@ service firebase.storage {
           && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin == true;
       }
 
+      function requestUserIsModerator() {
+        return firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+          && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.isModerator == true;
+      }
+
+      function requestUserIsStaff() {
+        return requestUserIsAdmin() || requestUserIsModerator();
+      }
+
       allow read: if request.auth != null
         && (
           request.auth.uid == userId
           || videoIsApprovedInFirestore()
-          || requestUserIsAdmin()
+          || requestUserIsStaff()
         );
 
-      allow write, delete: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.uid == userId;
+
+      allow delete: if request.auth != null
+        && (
+          request.auth.uid == userId
+          || requestUserIsStaff()
+        );
     }
 
     match /avatars/{userId}/{allPaths=**} {

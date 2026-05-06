@@ -21,6 +21,7 @@ import { subscribeFollowing, syncFollowingProfilePhotos, type FollowingRow } fro
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { getOrCreateDm } from '../services/chat/chatFirestore';
 import { showError } from '../utils/ui';
+import { UsernameLink } from '../components/UsernameLink';
 
 type Props = NativeStackScreenProps<ChatStackParamList, 'NewChat'>;
 
@@ -112,29 +113,32 @@ export function NewChatScreen({ navigation, route }: Props) {
         renderItem={({ item }) => {
           const photo = (item.targetPhotoUrl ?? '').trim();
           return (
-            <TouchableOpacity
-              style={styles.row}
-              onPress={() => void openDm(item.targetUid, item.targetUsername)}
-              disabled={busy === item.targetUid}
-            >
-              <View style={styles.avatar}>
-                {photo ? (
-                  <Image
-                    key={`newchat-${item.targetUid}`}
-                    recyclingKey={item.targetUid}
-                    source={{ uri: photo }}
-                    style={styles.avatarImg}
-                    contentFit="cover"
-                  />
-                ) : (
-                  <Text style={styles.avatarTxt}>{item.targetUsername.slice(0, 1).toUpperCase()}</Text>
-                )}
-              </View>
-              <Text style={styles.name} numberOfLines={1}>
-                @{item.targetUsername}
-              </Text>
-              {busy === item.targetUid ? <ActivityIndicator color={colors.moss} /> : null}
-            </TouchableOpacity>
+            <View style={styles.row}>
+              <TouchableOpacity
+                style={styles.rowTap}
+                onPress={() => void openDm(item.targetUid, item.targetUsername)}
+                disabled={busy === item.targetUid}
+                accessibilityRole="button"
+                accessibilityLabel={`Message ${item.targetUsername}`}
+              >
+                <View style={styles.avatar}>
+                  {photo ? (
+                    <Image
+                      key={`newchat-${item.targetUid}`}
+                      recyclingKey={item.targetUid}
+                      source={{ uri: photo }}
+                      style={styles.avatarImg}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <Text style={styles.avatarTxt}>{item.targetUsername.slice(0, 1).toUpperCase()}</Text>
+                  )}
+                </View>
+                <Text style={styles.chatAction}>Message</Text>
+                {busy === item.targetUid ? <ActivityIndicator color={colors.moss} /> : null}
+              </TouchableOpacity>
+              <UsernameLink uid={item.targetUid} username={item.targetUsername} style={styles.name} />
+            </View>
           );
         }}
       />
@@ -180,11 +184,23 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border2,
+  },
+  rowTap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flexShrink: 0,
+  },
+  chatAction: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.moss,
+    minWidth: 72,
   },
   avatar: {
     width: 44,
@@ -199,6 +215,6 @@ const styles = StyleSheet.create({
   },
   avatarImg: { width: 44, height: 44 },
   avatarTxt: { fontSize: 16, fontWeight: '900', color: colors.moss },
-  name: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: '800', color: colors.text },
+  name: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: '800' },
   empty: { padding: 24, textAlign: 'center', color: colors.muted, fontWeight: '600' },
 });

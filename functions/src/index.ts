@@ -6,11 +6,13 @@ import { sendLoginOtp, verifyLoginOtp } from './loginOtp';
 import {
   onVerticalScoreCommentWrite,
   onVerticalScoreLikeWrite,
+  onVerticalScoreVideoApprovedLeaper,
   onVerticalScoreVideoCreated,
   onVerticalScoreVideoDeleted,
 } from './verticalScoreRecompute';
 import { recomputeVerticalScoreCallable } from './verticalScoreCallable';
 import { recordVideoViewCallable } from './recordVideoView';
+import { backfillLeapLeaperPointsCallable } from './backfillLeapLeaperPointsCallable';
 
 admin.initializeApp();
 
@@ -18,10 +20,12 @@ export { sendLoginOtp, verifyLoginOtp };
 export {
   onVerticalScoreCommentWrite,
   onVerticalScoreLikeWrite,
+  onVerticalScoreVideoApprovedLeaper,
   onVerticalScoreVideoCreated,
   onVerticalScoreVideoDeleted,
   recomputeVerticalScoreCallable,
   recordVideoViewCallable,
+  backfillLeapLeaperPointsCallable,
 };
 
 type ChatMessagePayload = {

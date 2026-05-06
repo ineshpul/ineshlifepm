@@ -26,7 +26,10 @@ import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/fireb
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { showError } from '../utils/ui';
 import { FeedPostVideo } from '../components/FeedPostVideo';
+import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
+import { UsernameLink } from '../components/UsernameLink';
 import { useSettingsPreferences } from '../state/settingsPreferences';
+import { useHasPostedAnyVideo } from '../state/posting';
 import type { MainStackParamList } from '../navigation/types';
 
 type LeapVideo = {
@@ -71,7 +74,10 @@ export function UserLeapsScreen({ route }: Props) {
 
   const viewerUid = user?.uid ?? firebaseAuth().currentUser?.uid ?? '';
   const isOwnerViewer = Boolean(viewerUid && viewerUid === targetUid);
-
+  const hasPostedAnyVideo = useHasPostedAnyVideo(viewerUid || undefined);
+  const viewerMayWatchOthers = Boolean(
+    hasPostedAnyVideo || user?.isAdmin || user?.isModerator
+  );
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !targetUid) {
       setVideos([]);
@@ -171,6 +177,10 @@ export function UserLeapsScreen({ route }: Props) {
     (usernameHint != null ? String(usernameHint).replace(/^@+/u, '').trim() : '') ||
     'user';
 
+  if (!isOwnerViewer && Boolean(viewerUid) && !viewerMayWatchOthers) {
+    return <TakeTheLeapGate variant="social" />;
+  }
+
   return (
     <Screen style={styles.screen}>
       <View style={styles.headerWrap}>
@@ -189,7 +199,11 @@ export function UserLeapsScreen({ route }: Props) {
           <View style={styles.headerLeft}>
             <Brandmark size={36} />
             <View>
-              <Text style={styles.headerTitle}>@{displayName}</Text>
+              {isOwnerViewer ? (
+                <Text style={styles.headerTitle}>@{displayName}</Text>
+              ) : (
+                <UsernameLink uid={targetUid} username={displayName} style={styles.headerTitle} />
+              )}
               <Text style={styles.headerSub}>Leaps · newest first</Text>
             </View>
           </View>

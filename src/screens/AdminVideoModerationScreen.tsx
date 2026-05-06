@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Audio, Video, ResizeMode } from 'expo-av';
-import { collection, deleteDoc, doc, getDoc, limit, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, getDoc, limit, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -20,6 +20,7 @@ import { colors } from '../theme/colors';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
+import { deleteStaffVideo } from '../services/deleteVideo';
 import { showError, showInfo } from '../utils/ui';
 
 type QueueItem = {
@@ -36,6 +37,7 @@ type QueueItem = {
 export function AdminVideoModerationScreen() {
   const nav = useNavigation<any>();
   const { user } = useAuth();
+  const canMod = Boolean(user?.isAdmin || user?.isModerator);
   const [items, setItems] = React.useState<QueueItem[]>([]);
   const [hydrated, setHydrated] = React.useState(false);
   const [refreshing, setRefreshing] = React.useState(false);
@@ -49,7 +51,7 @@ export function AdminVideoModerationScreen() {
   }, []);
 
   React.useEffect(() => {
-    if (!user?.isAdmin || !isFirebaseConfigured()) {
+    if (!canMod || !isFirebaseConfigured()) {
       setItems([]);
       setHydrated(true);
       return;
@@ -94,7 +96,7 @@ export function AdminVideoModerationScreen() {
         showError('Queue failed', err);
       }
     );
-  }, [user?.isAdmin]);
+  }, [canMod]);
 
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
@@ -103,8 +105,8 @@ export function AdminVideoModerationScreen() {
   }, []);
 
   const setStatus = async (id: string, next: 'approved' | 'rejected') => {
-    if (!user?.isAdmin || !isFirebaseConfigured()) {
-      showError('Not allowed', new Error('Admin only.'));
+    if (!canMod || !isFirebaseConfigured()) {
+      showError('Not allowed', new Error('Moderator access required.'));
       return;
     }
     setActingOn(id);
@@ -119,14 +121,14 @@ export function AdminVideoModerationScreen() {
   };
 
   const deleteVideoDoc = async (id: string) => {
-    if (!user?.isAdmin || !isFirebaseConfigured()) {
-      showError('Not allowed', new Error('Admin only.'));
+    if (!canMod || !isFirebaseConfigured()) {
+      showError('Not allowed', new Error('Moderator access required.'));
       return;
     }
     setActingOn(id);
     try {
-      await deleteDoc(doc(firestore(), 'videos', id));
-      showInfo('Deleted', `Video ${id} was deleted.`);
+      await deleteStaffVideo({ videoId: id });
+      showInfo('Deleted', `Video ${id} was removed (Firestore + Storage when allowed).`);
       if (manualId.trim() === id) {
         setManualMeta('Deleted.');
       }
@@ -140,7 +142,7 @@ export function AdminVideoModerationScreen() {
   const confirmDelete = (id: string) => {
     Alert.alert(
       'Delete this video?',
-      'This deletes the Firestore video document. It does not remove the file from Storage yet.',
+      'Removes likes/comments, the video doc, and the Storage file when your account has access.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => void deleteVideoDoc(id) },
@@ -199,11 +201,11 @@ export function AdminVideoModerationScreen() {
     }
   };
 
-  if (!user?.isAdmin) {
+  if (!canMod) {
     return (
       <Screen style={styles.screen}>
         <Text style={styles.title}>Moderation</Text>
-        <Text style={styles.helper}>This area is only available to admins.</Text>
+        <Text style={styles.helper}>This area is only available to admins and moderators.</Text>
         <PrimaryButton title="Back" variant="outline" onPress={() => nav.goBack()} style={{ marginTop: 16 }} />
       </Screen>
     );

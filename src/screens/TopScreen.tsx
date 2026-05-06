@@ -7,111 +7,253 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
-import { collection, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import {
+  collection,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
+} from 'firebase/firestore';
 
 import { Brandmark } from '../components/Brandmark';
 import { Screen } from '../components/Screen';
 import { colors } from '../theme/colors';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
-import { nyDateKey, nySundayWeekStartKey } from '../utils/nyTime';
+import {
+  initialsFromDisplayName,
+  leaderboardAvatarUrl,
+  leaderboardDisplayName,
+  sortLeaderboardDocs,
+  wireRowsFromSorted,
+  type LeaderboardTimeframe,
+  type LeaderboardWireRow,
+} from '../lib/leaderboardRows';
+import {
+  challengeDateKeysForFirestoreIn,
+  computeChallengeWindowFromNow,
+  computeFeedViewingFromNow,
+} from '../utils/nyTime';
+import { UsernameLink } from '../components/UsernameLink';
+import { navigateToUserProfile } from '../navigation/navigationHelpers';
 
-type Board = 'daily' | 'weekly' | 'alltime';
+function formatLeaderboardPoints(n: number): string {
+  const x = Math.round(Number.isFinite(n) ? n : 0);
+  return x.toLocaleString('en-US');
+}
 
-type Row = { id: string; username: string; points: number };
+/** Human-readable countdown to the next Eastern noon leap boundary (same semantics as `msUntilNextLock`). */
+function formatMsUntilNextDrop(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return 'soon';
+}
+
+const LIST_LIMIT = 100;
 
 export function TopScreen() {
   const nav = useNavigation<any>();
   const { user } = useAuth();
-  const [board, setBoard] = React.useState<Board>('daily');
-  const [rows, setRows] = React.useState<Row[]>([]);
+  const [timeframe, setTimeframe] = React.useState<LeaderboardTimeframe>('daily');
+  const [rows, setRows] = React.useState<LeaderboardWireRow[]>([]);
   const [leaderboardHydrated, setLeaderboardHydrated] = React.useState(false);
+  const [leaderboardError, setLeaderboardError] = React.useState<string | null>(null);
   const [clock, setClock] = React.useState(() => Date.now());
+  /**
+   * All-time ranks by **vertical score** first (same rolling leap window as server `verticalScoreRecompute`).
+   * Only if that query is empty do we fall back to lifetime Leap inches — few users had `leaperLifetimePoints`
+   * only, which made the board look “wiped” vs the old vertical leaderboard.
+   */
+  const [allTimeSortKey, setAllTimeSortKey] = React.useState<
+    'leaperLifetimePoints' | 'verticalScore'
+  >('verticalScore');
+  const subscriptionIdRef = React.useRef(0);
 
   React.useEffect(() => {
-    const t = setInterval(() => setClock(Date.now()), 60_000);
+    if (timeframe === 'all_time') setAllTimeSortKey('verticalScore');
+  }, [timeframe]);
+
+  React.useEffect(() => {
+    const t = setInterval(() => setClock(Date.now()), 15_000);
     return () => clearInterval(t);
   }, []);
 
-  const dayKey = React.useMemo(() => nyDateKey(new Date(clock)), [clock]);
-  const weekKey = React.useMemo(() => nySundayWeekStartKey(clock), [clock]);
+  /**
+   * Same window as the feed / `videos` leap cycle: **noon ET → next noon ET**, not a calendar day.
+   * `viewingChallengeDateKey` matches server `leapChallengeDateKeyFromMs` for `leaperDayKey`.
+   */
+  const leapWindow = React.useMemo(() => computeFeedViewingFromNow(clock), [clock]);
+  const leapDayKey = leapWindow.viewingChallengeDateKey;
+
+  /** Fire `clock` right after the next Eastern noon so daily rankings reset immediately when the leap drops. */
+  React.useEffect(() => {
+    const ms = leapWindow.msUntilNextLock;
+    if (!Number.isFinite(ms) || ms <= 0) return;
+    const delay = Math.min(ms + 400, 86_400_000);
+    const id = setTimeout(() => setClock(Date.now()), delay);
+    return () => clearTimeout(id);
+  }, [leapWindow.msUntilNextLock, leapDayKey]);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !user?.uid) {
       setRows([]);
+      setLeaderboardError(null);
       setLeaderboardHydrated(true);
       return;
     }
 
+    const subId = ++subscriptionIdRef.current;
+    setRows([]);
+    setLeaderboardError(null);
     setLeaderboardHydrated(false);
+
     let cancelled = false;
     let unsub: (() => void) | undefined;
-    let firstSnap = false;
 
     const safetyTimer = setTimeout(() => {
-      if (!cancelled) setLeaderboardHydrated(true);
+      if (!cancelled && subscriptionIdRef.current === subId) {
+        setLeaderboardHydrated(true);
+      }
     }, 15_000);
 
     void firebaseAuth()
       .authStateReady()
       .then(() => {
-        if (cancelled) return;
+        if (cancelled || subscriptionIdRef.current !== subId) return;
 
         let q;
-        if (board === 'alltime') {
-          q = query(collection(firestore(), 'users'), orderBy('verticalScore', 'desc'), limit(50));
-        } else {
-          const keyField = board === 'daily' ? 'leaperDayKey' : 'leaperWeekKey';
-          const pointsField = board === 'daily' ? 'leaperDayPoints' : 'leaperWeekPoints';
-          const keyValue = board === 'daily' ? dayKey : weekKey;
+        if (timeframe === 'all_time') {
           q = query(
             collection(firestore(), 'users'),
-            where(keyField, '==', keyValue),
-            orderBy(pointsField, 'desc'),
-            limit(50)
+            orderBy(allTimeSortKey, 'desc'),
+            limit(LIST_LIMIT)
+          );
+        } else {
+          /** Equality on a single string misses `2024-05-05` vs `2024-5-5` stored by older writes. */
+          const dayIn = challengeDateKeysForFirestoreIn([leapDayKey]);
+          q = query(
+            collection(firestore(), 'users'),
+            where('leaperDayKey', 'in', dayIn),
+            orderBy('leaperDayPoints', 'desc'),
+            limit(LIST_LIMIT)
           );
         }
 
         unsub = onSnapshot(
           q,
           (snap) => {
-            setRows(
-              snap.docs.map((d) => {
-                const data: any = d.data();
-                if (board === 'alltime') {
-                  const vs = Number(data?.verticalScore ?? 0);
-                  return {
-                    id: d.id,
-                    username: String(data?.username ?? 'user'),
-                    points: Number.isFinite(vs) ? vs : 0,
-                  };
+            if (subscriptionIdRef.current !== subId) return;
+
+            type Acc = { id: string; score: number; name: string; username: string; avatarUrl?: string };
+            const acc: Acc[] = [];
+            const tf = timeframe;
+
+            snap.docs.forEach((d) => {
+              const data = d.data() as Record<string, unknown>;
+              let score = 0;
+              if (tf === 'all_time') {
+                score =
+                  allTimeSortKey === 'leaperLifetimePoints'
+                    ? Number(data.leaperLifetimePoints ?? 0)
+                    : Number(data.verticalScore ?? 0);
+              } else {
+                score = Number(data.leaperDayPoints ?? 0);
+              }
+              if (!Number.isFinite(score)) score = 0;
+              acc.push({
+                id: d.id,
+                score,
+                name: leaderboardDisplayName(data),
+                username: String(data.username ?? '').trim(),
+                avatarUrl: leaderboardAvatarUrl(data),
+              });
+            });
+
+            /**
+             * Daily shows leap-window engagement **only for people who actually posted an approved leap**
+             * whose `challengeDate` matches the active leap or the calendar challenge day (how `videos` are keyed).
+             * Otherwise anyone with legacy engagement on old posts could rank without posting this cycle.
+             */
+            if (tf === 'daily') {
+              void (async () => {
+                const sid = subId;
+                try {
+                  const calendarChallengeKey = computeChallengeWindowFromNow(clock).dateKey;
+                  const inKeys = challengeDateKeysForFirestoreIn([leapDayKey, calendarChallengeKey]);
+                  if (inKeys.length === 0) {
+                    if (subscriptionIdRef.current !== sid) return;
+                    setRows([]);
+                    setLeaderboardError(null);
+                    setLeaderboardHydrated(true);
+                    return;
+                  }
+                  const vq = query(
+                    collection(firestore(), 'videos'),
+                    where('challengeDate', 'in', inKeys.slice(0, 30)),
+                    where('moderationStatus', '==', 'approved'),
+                    limit(500)
+                  );
+                  const vs = await getDocs(vq);
+                  if (subscriptionIdRef.current !== sid) return;
+                  const postedUid = new Set<string>();
+                  vs.forEach((doc) => {
+                    const data = doc.data() as Record<string, unknown>;
+                    const u = String(data.uid ?? '').trim();
+                    if (u) postedUid.add(u);
+                  });
+                  const filtered = acc.filter((row) => postedUid.has(row.id));
+                  const sorted = sortLeaderboardDocs(filtered);
+                  setRows(wireRowsFromSorted(sorted, user?.uid));
+                  setLeaderboardError(null);
+                  setLeaderboardHydrated(true);
+                } catch {
+                  if (subscriptionIdRef.current !== sid) return;
+                  const sorted = sortLeaderboardDocs(acc);
+                  setRows(wireRowsFromSorted(sorted, user?.uid));
+                  setLeaderboardHydrated(true);
                 }
-                const pointsField = board === 'daily' ? 'leaperDayPoints' : 'leaperWeekPoints';
-                const pts = Number(data?.[pointsField] ?? 0);
-                return {
-                  id: d.id,
-                  username: String(data?.username ?? 'user'),
-                  points: Number.isFinite(pts) ? pts : 0,
-                };
-              })
-            );
-            if (!firstSnap) {
-              firstSnap = true;
-              setLeaderboardHydrated(true);
+              })();
+              return;
             }
+
+            if (
+              tf === 'all_time' &&
+              allTimeSortKey === 'verticalScore' &&
+              snap.docs.length === 0
+            ) {
+              setAllTimeSortKey('leaperLifetimePoints');
+              return;
+            }
+
+            const sorted = sortLeaderboardDocs(acc);
+            setRows(wireRowsFromSorted(sorted, user?.uid));
+            setLeaderboardError(null);
+            setLeaderboardHydrated(true);
           },
           () => {
-            setRows([]);
-            if (!firstSnap) {
-              firstSnap = true;
-              setLeaderboardHydrated(true);
+            if (subscriptionIdRef.current !== subId) return;
+            if (timeframe === 'all_time' && allTimeSortKey === 'verticalScore') {
+              setAllTimeSortKey('leaperLifetimePoints');
+              return;
             }
+            setRows([]);
+            setLeaderboardError('Could not load the leaperboard. Pull to refresh or try again.');
+            setLeaderboardHydrated(true);
           }
         );
       })
       .catch(() => {
-        if (!cancelled) setLeaderboardHydrated(true);
+        if (cancelled || subscriptionIdRef.current !== subId) return;
+        setRows([]);
+        setLeaderboardError('Could not load the leaperboard. Pull to refresh or try again.');
+        setLeaderboardHydrated(true);
       });
 
     return () => {
@@ -119,14 +261,14 @@ export function TopScreen() {
       clearTimeout(safetyTimer);
       unsub?.();
     };
-  }, [user?.uid, board, dayKey, weekKey]);
+  }, [user?.uid, timeframe, leapDayKey, allTimeSortKey]);
 
   const subTitle =
-    board === 'daily'
-      ? `Daily leaperboard · NY today (${dayKey})`
-      : board === 'weekly'
-        ? `Weekly leaperboard · week of Sun ${weekKey} (NY, resets each Sunday)`
-        : 'All-time · Vertical score (last 14 days of leaps)';
+    timeframe === 'daily'
+      ? `Daily · inches this leap (${leapDayKey}). Posted leaps only · resets in ${formatMsUntilNextDrop(leapWindow.msUntilNextLock)}`
+      : allTimeSortKey === 'leaperLifetimePoints'
+        ? 'All-time · total inches (lifetime Leap points)'
+        : 'All-time · leap inches · recent leaps (~14 days)';
 
   return (
     <Screen style={styles.screen}>
@@ -142,34 +284,39 @@ export function TopScreen() {
 
       <View style={styles.segment}>
         <Pressable
-          style={[styles.segBtn, board === 'daily' && styles.segBtnOn]}
-          onPress={() => setBoard('daily')}
+          style={[styles.segBtn, timeframe === 'daily' && styles.segBtnOn]}
+          onPress={() => {
+            setClock(Date.now());
+            setTimeframe('daily');
+          }}
           accessibilityRole="tab"
-          accessibilityState={{ selected: board === 'daily' }}
+          accessibilityState={{ selected: timeframe === 'daily' }}
         >
-          <Text style={[styles.segLabel, board === 'daily' && styles.segLabelOn]}>Daily</Text>
+          <Text style={[styles.segLabel, timeframe === 'daily' && styles.segLabelOn]}>Daily</Text>
         </Pressable>
         <Pressable
-          style={[styles.segBtn, board === 'weekly' && styles.segBtnOn]}
-          onPress={() => setBoard('weekly')}
+          style={[styles.segBtn, timeframe === 'all_time' && styles.segBtnOn]}
+          onPress={() => {
+            setClock(Date.now());
+            setTimeframe('all_time');
+          }}
           accessibilityRole="tab"
-          accessibilityState={{ selected: board === 'weekly' }}
+          accessibilityState={{ selected: timeframe === 'all_time' }}
         >
-          <Text style={[styles.segLabel, board === 'weekly' && styles.segLabelOn]}>Weekly</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.segBtn, board === 'alltime' && styles.segBtnOn]}
-          onPress={() => setBoard('alltime')}
-          accessibilityRole="tab"
-          accessibilityState={{ selected: board === 'alltime' }}
-        >
-          <Text style={[styles.segLabel, board === 'alltime' && styles.segLabelOn]}>All-time</Text>
+          <Text style={[styles.segLabel, timeframe === 'all_time' && styles.segLabelOn]}>All-time</Text>
         </Pressable>
       </View>
 
+      {leaderboardError ? (
+        <Text style={styles.errorBanner} accessibilityRole="alert">
+          {leaderboardError}
+        </Text>
+      ) : null}
+
       <FlatList
         data={rows}
-        keyExtractor={(x) => x.id}
+        keyExtractor={(x) => x.userId}
+        extraData={{ timeframe, allTimeSortKey }}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
           !leaderboardHydrated ? (
@@ -177,35 +324,60 @@ export function TopScreen() {
               <ActivityIndicator size="large" color={colors.moss} />
               <Text style={styles.emptyLoadingText}>Loading leaperboard…</Text>
             </View>
-          ) : (
-            <Text style={styles.empty}>
-              {board === 'daily'
-                ? 'No scores for today yet — likes and comments on your leaps earn daily points.'
-                : board === 'weekly'
-                  ? 'No scores for this week yet — keep posting and engaging.'
-                  : 'No leaperboard yet. Post and engage to climb the board.'}
+          ) : leaderboardError ? null : (
+            <Text style={styles.empty} accessibilityRole="text">
+              {timeframe === 'daily'
+                ? 'No daily standings yet — post an approved leap for this period to appear; inches come from engagement on your posts.'
+                : 'No leaderboard data yet.'}
             </Text>
           )
         }
-        renderItem={({ item, index }) => {
-          const isMe = Boolean(user?.uid && item.id === user.uid);
-          const scoreLabel = board === 'alltime' ? `${item.points} in` : `${item.points} pts`;
+        renderItem={({ item }) => {
+          /** “in” is figurative for ranking points (leap / vertical score), not literal body inches. */
+          const scoreLabel = `${formatLeaderboardPoints(item.score)} in`;
+          const topThree = item.rank <= 3;
+          const podiumRow = topThree ? styles.rowGold : item.isCurrentUser ? styles.rowMe : null;
+          const podiumRank = topThree ? styles.rankGold : item.isCurrentUser ? styles.rankMe : null;
+          const openProfile = () =>
+            navigateToUserProfile(nav, {
+              uid: item.userId,
+              username: item.username?.trim() || undefined,
+            });
           return (
             <Pressable
-              style={({ pressed }) => [styles.row, isMe && styles.rowMe, pressed && { opacity: 0.92 }]}
-              onPress={() =>
-                nav.navigate('UserProfile', {
-                  uid: item.id,
-                  username: item.username,
-                })
-              }
+              style={({ pressed }) => [
+                styles.row,
+                podiumRow,
+                pressed && { opacity: 0.92 },
+              ]}
+              onPress={openProfile}
               accessibilityRole="button"
-              accessibilityLabel={`Open ${item.username} profile`}
+              accessibilityLabel={`Rank ${item.rank}, ${item.name}`}
             >
-              <Text style={[styles.rank, isMe && styles.rankMe]}>{index + 1}</Text>
+              <Text style={[styles.rank, podiumRank]}>
+                {item.rank}
+              </Text>
+              <View style={styles.avatarWrap}>
+                {item.avatarUrl ? (
+                  <Image source={{ uri: item.avatarUrl }} style={styles.avatarImg} contentFit="cover" />
+                ) : (
+                  <View style={styles.avatarFallback}>
+                    <Text style={styles.avatarInitials}>{initialsFromDisplayName(item.name)}</Text>
+                  </View>
+                )}
+              </View>
               <View style={styles.rowBody}>
-                <Text style={styles.name}>{item.username}</Text>
-                <Text style={[styles.score, isMe && styles.scoreMe]}>{scoreLabel}</Text>
+                <View style={styles.rowBodyMain}>
+                  <View style={styles.nameScoreRow}>
+                    <Text style={styles.name} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text style={[styles.score, item.isCurrentUser && styles.scoreMe]}>{scoreLabel}</Text>
+                  </View>
+                  {item.username?.trim() ? (
+                    <UsernameLink uid={item.userId} username={item.username.trim()} style={styles.handle} />
+                  ) : null}
+                </View>
               </View>
             </Pressable>
           );
@@ -246,6 +418,16 @@ const styles = StyleSheet.create({
   },
   segLabel: { fontSize: 13, fontWeight: '800', color: colors.muted },
   segLabelOn: { color: colors.text },
+  errorBanner: {
+    marginBottom: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(231, 76, 60, 0.12)',
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
   list: { paddingBottom: 24, gap: 10 },
   empty: { marginTop: 24, fontSize: 14, fontWeight: '600', color: colors.muted },
   emptyLoading: {
@@ -257,13 +439,18 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
+  },
+  rowGold: {
+    borderColor: '#C9A227',
+    borderWidth: 2,
+    backgroundColor: 'rgba(255, 215, 0, 0.16)',
   },
   rowMe: {
     borderColor: colors.moss,
@@ -278,8 +465,34 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   rankMe: { color: colors.moss },
-  rowBody: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  name: { fontSize: 15, fontWeight: '800', color: colors.text },
+  rankGold: { color: '#B8860B' },
+  avatarWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: colors.cardTint,
+  },
+  avatarImg: { width: 40, height: 40, borderRadius: 20 },
+  avatarFallback: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.cardTint,
+  },
+  avatarInitials: { fontSize: 14, fontWeight: '900', color: colors.text },
+  rowBody: { flex: 1, minWidth: 0 },
+  rowBodyMain: { flex: 1, gap: 2 },
+  nameScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  name: { flex: 1, fontSize: 15, fontWeight: '800', color: colors.text, minWidth: 0 },
+  handle: { fontSize: 12, fontWeight: '700', color: colors.muted },
   score: { fontSize: 15, fontWeight: '900', color: colors.moss },
   scoreMe: { color: colors.moss },
 });

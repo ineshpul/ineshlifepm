@@ -75,7 +75,8 @@ export function useChallengeWindow(): ChallengeWindow {
   const [tick, setTick] = React.useState(0);
 
   React.useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 250);
+    /** 1s keeps countdown/challenge UI fresh without ~4 global re-renders/sec (tabs + gestures compete with the JS thread). */
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(id);
   }, []);
 

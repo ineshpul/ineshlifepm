@@ -15,7 +15,7 @@ import {
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
-import { isAdminUid, parseProfileIsAdmin } from '../config/admin';
+import { isAdminUid, parseProfileIsAdmin, parseProfileIsModerator } from '../config/admin';
 import { unregisterPushDevice } from '../services/pushNotifications';
 import { usernameToSearchPrefixKey } from '../utils/usernameSearch';
 
@@ -24,6 +24,8 @@ export type AuthUser = {
   email: string;
   username: string;
   isAdmin?: boolean;
+  /** Set in Firestore `users/{uid}.isModerator` (staff; cannot self-grant). */
+  isModerator?: boolean;
   /** Firebase email/password account whose email is not verified yet (user is still signed in). */
   needsEmailVerification?: boolean;
 };
@@ -118,7 +120,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const username = user.displayName ?? (user.email?.split('@')[0] ?? 'user');
-      // Preserve fields hydrated from Firestore (e.g. `isAdmin`). `applyFirebaseSession` runs
+      // Preserve fields hydrated from Firestore (e.g. `isAdmin`, `isModerator`). `applyFirebaseSession` runs
       // multiple times (initial commit, final commit after reload loops, and on AppState active);
       // replacing the whole object would clear `isAdmin` while the profile effect only re-runs on uid change.
       setUser((prev) => {
@@ -289,6 +291,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const applyProfile = (d: Record<string, unknown> | undefined, exists: boolean) => {
       const fromUidList = isAdminUid(uid);
       const isAdmin = exists && d ? parseProfileIsAdmin(d.isAdmin) || fromUidList : fromUidList;
+      const isModerator = exists && d ? parseProfileIsModerator(d.isModerator) : false;
       const fromDoc = d?.username;
       const usernameFromDoc = typeof fromDoc === 'string' && fromDoc.length > 0 ? fromDoc : null;
       setUser((prev) => {
@@ -296,6 +299,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return {
           ...prev,
           isAdmin,
+          isModerator,
           username: usernameFromDoc ?? prev.username,
         };
       });

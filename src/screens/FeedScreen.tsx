@@ -20,6 +20,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import { collection, doc, limit, onSnapshot, query, where } from 'firebase/firestore';
 
+import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
+import { UsernameLink } from '../components/UsernameLink';
 import { Brandmark } from '../components/Brandmark';
 import { FollowButton } from '../components/FollowButton';
 import { FeedPostEngagement } from '../components/FeedPostEngagement';
@@ -30,12 +32,11 @@ import { colors } from '../theme/colors';
 import { deleteOwnedVideo } from '../services/deleteVideo';
 import { navigateToRecord } from '../navigation/navigationHelpers';
 import { useAppState } from '../state/appState';
-import { normalizeTaskDurationSeconds, useChallengeWindow } from '../state/challenge';
+import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
-import { todayVideoDocId } from '../state/posting';
+import { todayVideoDocId, useHasPostedAnyVideo } from '../state/posting';
 import { showError } from '../utils/ui';
-import { useCanViewEveryoneFeed } from '../state/posting';
 import {
   markAllNotificationsRead,
   subscribeFollowing,
@@ -109,10 +110,23 @@ export function FeedScreen() {
   const { preferences, patch } = useSettingsPreferences();
   const { clearPostedOverride } = useAppState();
   const { user } = useAuth();
-  const win = useChallengeWindow();
-  /** Noon-to-noon “post to unlock” cycle — must match `useCanViewEveryoneFeed` / `todayVideoDocId` for your draft. */
+  /**
+   * NY calendar day for queries — not `useChallengeWindow()` (that ticked 250ms and re-rendered this whole screen constantly).
+   * Poll lightly so we still roll over after midnight without starving the JS thread.
+   */
+  const [nyCalendarDay, setNyCalendarDay] = React.useState(() => nyDateKey());
+  React.useEffect(() => {
+    const id = setInterval(() => {
+      const next = nyDateKey();
+      setNyCalendarDay((prev) => (prev === next ? prev : next));
+    }, 30_000);
+    return () => clearInterval(id);
+  }, []);
   const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
-  const canViewEveryoneFeed = useCanViewEveryoneFeed(user?.uid);
+  const hasPostedAnyVideo = useHasPostedAnyVideo(user?.uid);
+  const canViewOthersVideos = Boolean(
+    hasPostedAnyVideo || user?.isAdmin || user?.isModerator
+  );
 
   React.useEffect(() => {
     void Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
@@ -181,6 +195,17 @@ export function FeedScreen() {
     [displayVideos, viewingChallengeDateKey]
   );
 
+  const flatListExtraData = React.useMemo(
+    () => ({
+      pageHeight,
+      activeVideoId,
+      feedHydrated,
+      focused: isFocused ? 1 : 0,
+      reelSheetHeights,
+    }),
+    [pageHeight, activeVideoId, feedHydrated, isFocused, reelSheetHeights]
+  );
+
   React.useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
@@ -228,7 +253,7 @@ export function FeedScreen() {
 
   React.useEffect(() => {
     setActiveVideoId(null);
-  }, [win.dateKey, viewingChallengeDateKey]);
+  }, [nyCalendarDay, viewingChallengeDateKey]);
 
   React.useEffect(() => {
     if (displayVideos.length === 0) {
@@ -243,7 +268,7 @@ export function FeedScreen() {
   /** After posting (or first load), reel rows can mount before viewability runs; sync scroll + active id once. */
   const prevFeedNonEmptyCountRef = React.useRef(0);
   React.useEffect(() => {
-    if (!canViewEveryoneFeed) {
+    if (!canViewOthersVideos) {
       prevFeedNonEmptyCountRef.current = 0;
       return;
     }
@@ -267,7 +292,7 @@ export function FeedScreen() {
       });
     });
     return () => handle.cancel?.();
-  }, [canViewEveryoneFeed, feedHydrated, pageHeight, displayVideos]);
+  }, [canViewOthersVideos, feedHydrated, pageHeight, displayVideos]);
 
   const confirmDelete = (item: FeedVideo) => {
     if (!user?.uid || item.ownerUid !== user.uid) return;
@@ -297,7 +322,7 @@ export function FeedScreen() {
   };
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured() || !user?.uid || !canViewEveryoneFeed) {
+    if (!isFirebaseConfigured() || !user?.uid || !canViewOthersVideos) {
       setVideos([]);
       setFeedHydrated(true);
       return;
@@ -349,7 +374,7 @@ export function FeedScreen() {
 
         const calToday = nyDateKey();
         const anchorCandidates = [
-          normalizeNyDateKey(win.dateKey, calToday),
+          normalizeNyDateKey(nyCalendarDay, calToday),
           normalizeNyDateKey(calToday, calToday),
           normalizeNyDateKey(viewingChallengeDateKey, calToday),
         ];
@@ -460,27 +485,10 @@ export function FeedScreen() {
       approvedUnsub?.();
       mineUnsub?.();
     };
-  }, [win.dateKey, viewingChallengeDateKey, user?.uid, canViewEveryoneFeed]);
+  }, [nyCalendarDay, viewingChallengeDateKey, user?.uid, canViewOthersVideos]);
 
-  if (!canViewEveryoneFeed) {
-    return (
-      <Screen style={styles.gateScreen}>
-        <View style={styles.lockIcon}>
-          <Text style={styles.lockEmoji}>🔒</Text>
-        </View>
-        <Text style={styles.gateTitle}>Take the leap to continue</Text>
-        <Text style={styles.gateBody}>
-          Post the current challenge (noon–noon Eastern) to unlock the feed. It locks again at the next 12:00
-          PM ET until you post for that new cycle.
-        </Text>
-        <PrimaryButton
-          title="Leap"
-          variant="green"
-          onPress={() => navigateToRecord(nav)}
-          style={styles.gateCta}
-        />
-      </Screen>
-    );
+  if (!canViewOthersVideos) {
+    return <TakeTheLeapGate variant="feed" />;
   }
 
   return (
@@ -537,7 +545,7 @@ export function FeedScreen() {
           style={styles.reelList}
           data={displayVideos}
           keyExtractor={(x) => x.id}
-          extraData={`${pageHeight}-${activeVideoId}-${feedHydrated}-${isFocused ? 1 : 0}-${Object.keys(reelSheetHeights).length}`}
+          extraData={flatListExtraData}
           viewabilityConfig={FEED_VIEWABILITY_CONFIG}
           onViewableItemsChanged={onViewableItemsChanged}
           contentContainerStyle={displayVideos.length === 0 ? { flexGrow: 1 } : undefined}
@@ -614,16 +622,7 @@ export function FeedScreen() {
                     <Text style={styles.reelAvatarText}>{item.username[0]?.toUpperCase()}</Text>
                   </View>
                   <View style={styles.reelTextCol}>
-                    <TouchableOpacity
-                      onPress={() =>
-                        nav.navigate('UserProfile', { uid: item.ownerUid, username: item.username })
-                      }
-                      activeOpacity={0.75}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Open @${item.username} profile`}
-                    >
-                      <Text style={styles.reelUser}>@{item.username}</Text>
-                    </TouchableOpacity>
+                    <UsernameLink uid={item.ownerUid} username={item.username} style={styles.reelUser} />
                     {item.challengeDate && item.challengeDate !== viewingChallengeDateKey ? (
                       <Text style={styles.reelDayTag}>
                         {item.challengeDate === previousChallengeDateKey
@@ -767,7 +766,6 @@ const styles = StyleSheet.create({
   reelUser: {
     fontSize: 14,
     fontWeight: '900',
-    color: colors.text,
   },
   reelDayTag: {
     fontSize: 11,
@@ -961,45 +959,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: colors.muted,
-  },
-  gateScreen: {
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  lockIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 18,
-    backgroundColor: colors.cardTint,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E6F4D7',
-    marginBottom: 8,
-  },
-  lockEmoji: {
-    fontSize: 26,
-  },
-  gateTitle: {
-    fontSize: 26,
-    fontWeight: '900',
-    color: colors.text,
-    textAlign: 'center',
-  },
-  gateBody: {
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: 'center',
-    color: colors.muted,
-    fontWeight: '600',
-    paddingHorizontal: 10,
-  },
-  gateCta: {
-    width: 220,
-    borderRadius: 30,
-    marginTop: 8,
   },
 });
 

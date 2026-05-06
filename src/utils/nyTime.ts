@@ -61,21 +61,30 @@ function nyWeekdaySun0(ms: number): number {
 /**
  * Start of the NY “TV week” (Sunday–Saturday): canonical `YYYY-MM-DD` of the Sunday that begins
  * the week containing `ms`. Weekly leaperboard resets when this key changes (each Sunday in NY).
+ *
+ * Steps back **one NY calendar day at a time** from today's noon. Using `noon - 40h` was wrong
+ * around DST and could land on Tue/Wed while reporting "Sun", breaking weekly Firestore queries.
  */
 export function nySundayWeekStartKey(ms: number): string {
   let { y, mo, d } = nyCalendarPartsFromUtc(ms);
-  for (let i = 0; i < 7; i++) {
-    const noon = utcMsForNyWallClock(y, mo, d, 12, 0);
+  let noon = utcMsForNyWallClock(y, mo, d, 12, 0);
+  for (let i = 0; i < 8; i++) {
     if (nyWeekdaySun0(noon) === 0) {
-      return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const p = nyCalendarPartsFromUtc(noon);
+      return `${p.y}-${String(p.mo).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`;
     }
-    const prev = nyCalendarPartsFromUtc(noon - 40 * 3600000);
-    y = prev.y;
-    mo = prev.mo;
-    d = prev.d;
+    noon -= 86_400_000;
   }
-  const fallback = nyDateKey(new Date(ms));
-  return fallback;
+  return nyDateKey(new Date(ms));
+}
+
+/** The NY Sunday week that immediately precedes `currentWeekStartKey` (another Sunday `YYYY-MM-DD`). */
+export function prevNySundayWeekStartKey(currentWeekStartKey: string): string | null {
+  const n = normalizeNyDateKey(currentWeekStartKey, '');
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(n);
+  if (!m) return null;
+  const noon = utcMsForNyWallClock(Number(m[1]), Number(m[2]), Number(m[3]), 12, 0);
+  return nySundayWeekStartKey(noon - 7 * 86_400_000);
 }
 
 /** Coerce `YYYY-M-D` / `YYYY-MM-DD` to canonical `YYYY-MM-DD` (invalid → `fallback`). */
@@ -164,6 +173,11 @@ export function computeFeedViewingFromNow(nowMs: number): FeedViewingWindow {
     viewingChallengeDateKey,
     msUntilNextLock: safeMax0(nextNoon - nowMs),
   };
+}
+
+/** Same challenge / "leap" `YYYY-MM-DD` as server `leapChallengeDateKeyFromMs` (noon ET boundaries). */
+export function leapChallengeDateKeyFromNow(ms: number): string {
+  return computeFeedViewingFromNow(ms).viewingChallengeDateKey;
 }
 
 /** Next UTC ms at or after `nowMs + 15s` for NY wall clock hour:minute today or a future NY day. */

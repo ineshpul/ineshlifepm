@@ -3,6 +3,7 @@ import { FlatList, Platform, StyleSheet, Text, TouchableOpacity, View } from 're
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import { FollowButton } from '../components/FollowButton';
+import { UsernameLink } from '../components/UsernameLink';
 import { Screen } from '../components/Screen';
 import { colors } from '../theme/colors';
 import { useAuth } from '../state/auth';
@@ -13,6 +14,7 @@ import {
   type InAppNotification,
 } from '../services/social';
 import { setAppBadgeCount } from '../services/pushNotifications';
+import { navigateToUserProfile } from '../navigation/navigationHelpers';
 
 function bodyFor(n: InAppNotification) {
   if (n.type === 'admin_alert') return n.snippet ? String(n.snippet) : 'Admin alert';
@@ -50,14 +52,14 @@ export function NotificationsScreen() {
     }
     if (n.type === 'admin_alert') return;
     if (n.type === 'follow') {
-      nav.navigate('UserProfile', { uid: n.fromUid, username: n.fromUsername });
+      navigateToUserProfile(nav, { uid: n.fromUid, username: n.fromUsername });
       return;
     }
     if ((n.type === 'like' || n.type === 'comment') && n.videoId) {
       nav.navigate('VideoPost', { videoId: n.videoId });
       return;
     }
-    nav.navigate('UserProfile', { uid: n.fromUid, username: n.fromUsername });
+    navigateToUserProfile(nav, { uid: n.fromUid, username: n.fromUsername });
   };
 
   return (
@@ -72,24 +74,36 @@ export function NotificationsScreen() {
         }
         renderItem={({ item }) => (
           <View style={[styles.row, !item.read && styles.rowUnread]}>
-            <TouchableOpacity
-              style={styles.rowMain}
-              onPress={() => void openNotification(item)}
-              activeOpacity={0.85}
-            >
-              <View style={styles.dotWrap}>{!item.read ? <View style={styles.dot} /> : null}</View>
-              <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={styles.rowMain}>
+              <TouchableOpacity
+                onPress={() => void openNotification(item)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={item.read ? 'Notification' : 'Unread notification'}
+              >
+                <View style={styles.dotWrap}>{!item.read ? <View style={styles.dot} /> : null}</View>
+              </TouchableOpacity>
+              <View style={styles.rowBody}>
                 {item.type === 'admin_alert' ? (
-                  <Text style={styles.line}>
-                    <Text style={styles.name}>Leap</Text> · {bodyFor(item)}
-                  </Text>
+                  <TouchableOpacity onPress={() => void openNotification(item)} activeOpacity={0.85}>
+                    <Text style={styles.line}>
+                      <Text style={styles.name}>Leap</Text> · {bodyFor(item)}
+                    </Text>
+                  </TouchableOpacity>
                 ) : (
-                  <Text style={styles.line}>
-                    <Text style={styles.name}>@{item.fromUsername}</Text> {bodyFor(item)}
-                  </Text>
+                  <View style={styles.rowTextRow}>
+                    <UsernameLink uid={item.fromUid} username={item.fromUsername} style={styles.name} />
+                    <TouchableOpacity
+                      onPress={() => void openNotification(item)}
+                      activeOpacity={0.85}
+                      style={styles.rowBodyTail}
+                    >
+                      <Text style={styles.line}> {bodyFor(item)}</Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
               </View>
-            </TouchableOpacity>
+            </View>
             {item.type === 'follow' && user?.uid && item.fromUid && item.fromUid !== user.uid ? (
               <FollowButton
                 viewerUid={user.uid}
@@ -140,6 +154,19 @@ const styles = StyleSheet.create({
     gap: 8,
     minWidth: 0,
   },
+  rowBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  rowTextRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
+  rowBodyTail: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
   rowUnread: {
     backgroundColor: 'rgba(255, 107, 84, 0.06)',
     borderColor: 'rgba(255, 107, 84, 0.25)',
@@ -162,6 +189,6 @@ const styles = StyleSheet.create({
   },
   name: {
     fontWeight: '900',
-    color: colors.text,
+    fontSize: 14,
   },
 });

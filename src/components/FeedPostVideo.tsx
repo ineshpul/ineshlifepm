@@ -13,7 +13,7 @@ function formatTimeLeft(totalSeconds: number) {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
-export function FeedPostVideo(props: {
+function FeedPostVideoInner(props: {
   url: string;
   shouldPlay: boolean;
   isMuted: boolean;
@@ -223,6 +223,9 @@ export function FeedPostVideo(props: {
     </View>
   );
 }
+
+/** Memoized so parent feed re-renders don’t recreate expo-av instances unless props meaningfully change. */
+export const FeedPostVideo = React.memo(FeedPostVideoInner);
 
 const styles = StyleSheet.create({
   videoStageReel: {

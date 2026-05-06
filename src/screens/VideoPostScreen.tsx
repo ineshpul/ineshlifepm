@@ -15,11 +15,14 @@ import { Audio, Video, ResizeMode } from 'expo-av';
 import { doc, onSnapshot } from 'firebase/firestore';
 
 import { FeedPostEngagement } from '../components/FeedPostEngagement';
+import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
+import { UsernameLink } from '../components/UsernameLink';
 import { Screen } from '../components/Screen';
 import { colors } from '../theme/colors';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import type { RootStackParamList } from '../navigation/types';
 import { useAuth } from '../state/auth';
+import { useHasPostedAnyVideo } from '../state/posting';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { recordVideoView } from '../services/recordVideoView';
 import { useSettingsPreferences } from '../state/settingsPreferences';
@@ -31,7 +34,12 @@ export function VideoPostScreen({ route }: Props) {
   const isFocused = useIsFocused();
   const nav = useNavigation<any>();
   const { user } = useAuth();
+  const viewerUid = user?.uid ?? '';
   const { preferences } = useSettingsPreferences();
+  const hasPostedAnyVideo = useHasPostedAnyVideo(user?.uid);
+  const viewerMayWatchOthers = Boolean(
+    hasPostedAnyVideo || user?.isAdmin || user?.isModerator
+  );
 
   const [loadState, setLoadState] = React.useState<'loading' | 'missing' | 'error' | 'ready'>('loading');
   const [row, setRow] = React.useState<{
@@ -86,10 +94,17 @@ export function VideoPostScreen({ route }: Props) {
     );
   }, [videoId]);
 
+  const blockOtherPeoplesPost =
+    loadState === 'ready' &&
+    row != null &&
+    Boolean(viewerUid) &&
+    String(row.ownerUid) !== String(viewerUid) &&
+    !viewerMayWatchOthers;
+
   React.useEffect(() => {
-    if (!isFocused || loadState !== 'ready' || !videoId) return;
+    if (!isFocused || loadState !== 'ready' || !videoId || blockOtherPeoplesPost) return;
     void recordVideoView(videoId);
-  }, [isFocused, loadState, videoId]);
+  }, [isFocused, loadState, videoId, blockOtherPeoplesPost]);
 
   const [keyboardPad, setKeyboardPad] = React.useState(0);
   React.useEffect(() => {
@@ -104,6 +119,10 @@ export function VideoPostScreen({ route }: Props) {
   }, []);
 
   const scrollRef = React.useRef<ScrollView>(null);
+
+  if (blockOtherPeoplesPost) {
+    return <TakeTheLeapGate variant="social" />;
+  }
 
   return (
     <Screen style={styles.screen}>
@@ -151,14 +170,7 @@ export function VideoPostScreen({ route }: Props) {
               />
             </View>
 
-            <TouchableOpacity
-              onPress={() => nav.navigate('UserProfile', { uid: row.ownerUid, username: row.username })}
-              activeOpacity={0.75}
-              accessibilityRole="button"
-              accessibilityLabel={`Open @${row.username} profile`}
-            >
-              <Text style={styles.userLine}>@{row.username}</Text>
-            </TouchableOpacity>
+            <UsernameLink uid={row.ownerUid} username={row.username} style={styles.userLine} />
             <Text style={styles.prompt}>{row.prompt || 'Leap'}</Text>
             <Text style={styles.meta}>
               {row.maxDurationSeconds}s · {row.moderationStatus || 'posted'}
@@ -205,7 +217,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   video: { width: '100%', height: '100%' },
-  userLine: { marginTop: 4, fontSize: 15, fontWeight: '900', color: colors.moss },
+  userLine: { marginTop: 4, fontSize: 15, fontWeight: '900' },
   prompt: { fontSize: 15, fontWeight: '800', color: colors.text, lineHeight: 20 },
   meta: { fontSize: 12, fontWeight: '700', color: colors.muted },
 });

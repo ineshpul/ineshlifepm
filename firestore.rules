@@ -14,6 +14,15 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
     }
 
+    function isModerator() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isModerator == true;
+    }
+
+    function isStaff() {
+      return isAdmin() || isModerator();
+    }
+
     function videoDoc(videoId) {
       return get(/databases/$(database)/documents/videos/$(videoId)).data;
     }
@@ -22,7 +31,7 @@ service cloud.firestore {
       return signedIn()
         && exists(/databases/$(database)/documents/videos/$(videoId))
         && (
-          isAdmin()
+          isStaff()
           || videoDoc(videoId).moderationStatus == 'approved'
           || videoDoc(videoId).uid == request.auth.uid
         );
@@ -261,7 +270,7 @@ service cloud.firestore {
           !exists(/databases/$(database)/documents/videos/$(videoId))
           || resource.data.moderationStatus == 'approved'
           || resource.data.uid == request.auth.uid
-          || isAdmin()
+          || isStaff()
         );
 
       allow create: if signedIn()
@@ -328,11 +337,11 @@ service cloud.firestore {
         && request.resource.data.challengeCompleted == true
         && request.resource.data.createdAt is timestamp;
 
-      allow update: if isAdmin()
+      allow update: if isStaff()
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['moderationStatus'])
         && request.resource.data.moderationStatus in ['approved', 'pending', 'rejected'];
-      allow delete: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow delete: if isStaff() || (signedIn() && resource.data.uid == request.auth.uid);
 
       // Server-managed throttling ledger for view counting (callable uses Admin SDK).
       match /viewMarks/{viewerId} {
@@ -349,6 +358,7 @@ service cloud.firestore {
               exists(/databases/$(database)/documents/videos/$(videoId))
               && get(/databases/$(database)/documents/videos/$(videoId)).data.uid == request.auth.uid
             )
+            || isStaff()
           );
         allow update: if false;
       }
@@ -365,7 +375,7 @@ service cloud.firestore {
         allow delete: if signedIn()
           && exists(/databases/$(database)/documents/videos/$(videoId))
           && (
-            isAdmin()
+            isStaff()
             || get(/databases/$(database)/documents/videos/$(videoId)).data.uid == request.auth.uid
             || resource.data.uid == request.auth.uid
           );
@@ -449,6 +459,7 @@ service cloud.firestore {
       allow create: if isOwner(userId)
         && !request.resource.data.keys().hasAny([
           'isAdmin',
+          'isModerator',
           'email',
           'verticalScore',
           'verticalScoreBreakdown',
@@ -460,10 +471,12 @@ service cloud.firestore {
           'leaperDayPoints',
           'leaperWeekKey',
           'leaperWeekPoints',
+          'leaperLifetimePoints',
         ]);
       allow update: if isOwner(userId)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'isAdmin',
+          'isModerator',
           'email',
           'verticalScore',
           'verticalScoreBreakdown',
@@ -475,6 +488,7 @@ service cloud.firestore {
           'leaperDayPoints',
           'leaperWeekKey',
           'leaperWeekPoints',
+          'leaperLifetimePoints',
         ]);
       allow delete: if false;
 

@@ -1,8 +1,26 @@
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 
 import { rootNavigationRef } from './RootNavigator';
+import type { MainStackParamList } from './types';
 
 /** Record lives on the root stack (modal), not inside tabs — resolve the stack that owns `Record`. */
+/** Opens `UserProfile` on the root stack (works from nested tab routes like Top). */
+export function navigateToUserProfile(
+  navigation: NavigationProp<ParamListBase>,
+  params: MainStackParamList['UserProfile']
+) {
+  if (rootNavigationRef.isReady()) {
+    rootNavigationRef.navigate('UserProfile', params);
+    return;
+  }
+  const parent = navigation.getParent?.();
+  const nav = parent ?? navigation;
+  (nav as { navigate: (name: 'UserProfile', p: MainStackParamList['UserProfile']) => void }).navigate(
+    'UserProfile',
+    params
+  );
+}
+
 export function navigateToRecord(navigation: NavigationProp<ParamListBase>) {
   const parent = navigation.getParent?.();
   if (parent?.navigate) {

@@ -9,6 +9,20 @@ export function nyDateKeyFromMs(ms: number): string {
   return s;
 }
 
+/**
+ * Challenge / "leap" day key (noon ET → next noon ET), matches client `computeFeedViewingFromNow`.
+ * Daily leaper points must use this so the board matches "today's leap", not calendar midnight.
+ */
+export function leapChallengeDateKeyFromMs(ms: number): string {
+  const { y, mo, d } = nyCalendarPartsFromUtc(ms);
+  const todayNoon = utcMsForNyWallClock(y, mo, d, 12, 0);
+  if (ms >= todayNoon) {
+    return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  const prev = nyCalendarPartsFromUtc(todayNoon - 36 * 3600000);
+  return `${prev.y}-${String(prev.mo).padStart(2, '0')}-${String(prev.d).padStart(2, '0')}`;
+}
+
 function nyCalendarPartsFromUtc(ms: number) {
   const s = new Intl.DateTimeFormat('sv-SE', {
     timeZone: 'America/New_York',
@@ -55,15 +69,13 @@ function nyWeekdaySun0(ms: number): number {
 /** `YYYY-MM-DD` of the Sunday (NY) that starts the week containing `ms`. Must match app `nySundayWeekStartKey`. */
 export function nySundayWeekStartKey(ms: number): string {
   let { y, mo, d } = nyCalendarPartsFromUtc(ms);
-  for (let i = 0; i < 7; i++) {
-    const noon = utcMsForNyWallClock(y, mo, d, 12, 0);
+  let noon = utcMsForNyWallClock(y, mo, d, 12, 0);
+  for (let i = 0; i < 8; i++) {
     if (nyWeekdaySun0(noon) === 0) {
-      return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const p = nyCalendarPartsFromUtc(noon);
+      return `${p.y}-${String(p.mo).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`;
     }
-    const prev = nyCalendarPartsFromUtc(noon - 40 * 3600000);
-    y = prev.y;
-    mo = prev.mo;
-    d = prev.d;
+    noon -= 86_400_000;
   }
   return nyDateKeyFromMs(ms);
 }

@@ -218,6 +218,7 @@ export function FeedPostEngagement({
                 data?.replyToCommentId != null ? String(data.replyToCommentId) : undefined;
               const replyToUsername =
                 data?.replyToUsername != null ? String(data.replyToUsername) : undefined;
+              const replyToUid = data?.replyToUid != null ? String(data.replyToUid) : undefined;
               const replyPreview = data?.replyPreview != null ? String(data.replyPreview) : undefined;
               return {
                 id: d.id,
@@ -226,6 +227,7 @@ export function FeedPostEngagement({
                 text: String(data?.text ?? ''),
                 at,
                 replyToCommentId,
+                replyToUid,
                 replyToUsername,
                 replyPreview,
               };
@@ -375,13 +377,6 @@ export function FeedPostEngagement({
     [viewerUid, videoId]
   );
 
-  const onOpenProfile = React.useCallback(
-    (uid: string, username: string) => {
-      navigation.navigate('UserProfile', { uid, username });
-    },
-    [navigation]
-  );
-
   const onReply = React.useCallback((target: ReplyTargetPayload) => {
     setReplyTarget(target);
   }, []);
@@ -411,13 +406,12 @@ export function FeedPostEngagement({
           viewerUid={viewerUid}
           videoOwnerUid={videoOwnerUid}
           deletingCommentId={deletingCommentId}
-          onOpenProfile={onOpenProfile}
           onReply={onReply}
           onRequestDelete={confirmDeleteComment}
         />
       );
     },
-    [viewerUid, videoOwnerUid, deletingCommentId, onOpenProfile, onReply, confirmDeleteComment, onExpandThread]
+    [viewerUid, videoOwnerUid, deletingCommentId, onReply, confirmDeleteComment, onExpandThread]
   );
 
   const displayLikes = Math.max(likeCount, docLikeCount ?? 0);

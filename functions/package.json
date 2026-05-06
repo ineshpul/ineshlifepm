@@ -8,7 +8,8 @@
   "scripts": {
     "build": "tsc",
     "serve": "firebase emulators:start --only functions",
-    "deploy": "firebase deploy --only functions"
+    "deploy": "firebase deploy --only functions",
+    "backfill:leap": "npm run build && node lib/runBackfillLeapLeaperPointsScript.js"
   },
   "dependencies": {
     "firebase-admin": "^12.6.0",

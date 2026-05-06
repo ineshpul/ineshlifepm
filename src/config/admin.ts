@@ -7,6 +7,11 @@ export function parseProfileIsAdmin(value: unknown): boolean {
   return false;
 }
 
+/** Same truthiness rules as {@link parseProfileIsAdmin} — hand-edited Firestore may use string `"true"`. */
+export function parseProfileIsModerator(value: unknown): boolean {
+  return parseProfileIsAdmin(value);
+}
+
 export function getAdminUids(): string[] {
   const extra = getExpoExtra();
   const raw = extra?.adminUids;

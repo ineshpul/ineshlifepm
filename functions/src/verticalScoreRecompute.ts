@@ -189,6 +189,45 @@ export const onVerticalScoreVideoDeleted = onDocumentDeleted(
   }
 );
 
+/**
+ * Weekly/daily leaperboard `leaperWeekPoints` were previously only updated by likes/comments.
+ * Award inches when a post first becomes `approved` so leap activity appears without engagement.
+ */
+export const onVerticalScoreVideoApprovedLeaper = onDocumentWritten(
+  { document: `${POST_COLLECTION}/{videoId}`, region: REGION },
+  async (event) => {
+    const afterSnap = event.data?.after;
+    if (!afterSnap?.exists) return;
+    const beforeSnap = event.data?.before;
+    const after = afterSnap.data() as Record<string, unknown>;
+    if (String(after.moderationStatus ?? '') !== 'approved') return;
+    if (beforeSnap?.exists) {
+      const prev = beforeSnap.data() as Record<string, unknown>;
+      if (String(prev.moderationStatus ?? '') === 'approved') return;
+    }
+    const owner = String(after.uid ?? '').trim();
+    if (!owner) return;
+    const videoId = String(event.params.videoId ?? '');
+    const videoRef = admin.firestore().doc(`${POST_COLLECTION}/${videoId}`);
+    try {
+      await bumpLeaperPoints(admin.firestore(), owner, 'leap_approved', Date.now());
+      await videoRef.set(
+        {
+          leapLeaperPointsBackfilled: true,
+          leapLeaperPointsBackfilledAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      logger.warn('bumpLeaperPoints failed (leap approved)', {
+        videoId,
+        owner,
+        e,
+      });
+    }
+  }
+);
+
 export const onVerticalScoreLikeWrite = onDocumentWritten(
   { document: `${POST_COLLECTION}/{videoId}/likes/{likerId}`, region: REGION },
   async (event) => {

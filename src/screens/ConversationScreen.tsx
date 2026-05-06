@@ -52,6 +52,7 @@ import {
 import { BlockReportModal } from '../chat/components/BlockReportModal';
 import { setForegroundChatConversationId } from '../chat/activeConversationRef';
 import { showError, showInfo } from '../utils/ui';
+import { navigateToUserProfile } from '../navigation/navigationHelpers';
 
 type Props = NativeStackScreenProps<ChatStackParamList, 'Conversation'>;
 
@@ -175,7 +176,7 @@ export function ConversationScreen({ navigation, route }: Props) {
         ''
       ).trim();
       const uname = raw.replace(/^@+/u, '');
-      navigation.getParent()?.navigate('UserProfile', {
+      navigateToUserProfile(navigation, {
         uid: dmPeer.memberUid,
         username: uname || undefined,
       });

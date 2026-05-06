@@ -1,5 +1,14 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Image } from 'expo-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
@@ -10,8 +19,12 @@ import { Screen } from '../components/Screen';
 import { colors } from '../theme/colors';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import type { MainStackParamList } from '../navigation/types';
+import { navigateToRecord } from '../navigation/navigationHelpers';
 import { useAuth } from '../state/auth';
+import { useHasPostedAnyVideo } from '../state/posting';
 import { FollowButton } from '../components/FollowButton';
+import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
+import { UsernameLink } from '../components/UsernameLink';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { getOrCreateDm } from '../services/chat/chatFirestore';
 import { subscribeFollowing, type FollowingRow } from '../services/social';
@@ -65,6 +78,21 @@ export function UserProfileScreen({ route, navigation }: Props) {
 
   const viewerUid = user?.uid ?? firebaseAuth().currentUser?.uid ?? '';
   const isSelf = Boolean(viewerUid && viewerUid === uid);
+  const hasPostedAny = useHasPostedAnyVideo(viewerUid || undefined);
+  const viewerMaySeeOthersVideos =
+    isSelf || hasPostedAny || Boolean(user?.isAdmin || user?.isModerator);
+  const leapGateForOthers = !isSelf && !viewerMaySeeOthersVideos;
+
+  const promptLeapToContinue = React.useCallback(() => {
+    Alert.alert(
+      'Take the leap to continue',
+      'Post your first leap on Leap to watch other people’s videos.',
+      [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Leap', onPress: () => navigateToRecord(nav) },
+      ]
+    );
+  }, [nav]);
 
   React.useEffect(() => {
     if (!isSelf || !user?.uid) {
@@ -81,6 +109,10 @@ export function UserProfileScreen({ route, navigation }: Props) {
     }
     const vUid = user?.uid ?? firebaseAuth().currentUser?.uid ?? '';
     const isViewerOwner = Boolean(vUid && vUid === uid);
+    if (!isViewerOwner && !viewerMaySeeOthersVideos) {
+      setVideos([]);
+      return;
+    }
     const col = collection(firestore(), 'videos');
     const q = isViewerOwner
       ? query(col, where('uid', '==', uid), limit(120))
@@ -113,7 +145,7 @@ export function UserProfileScreen({ route, navigation }: Props) {
       },
       () => setVideos([])
     );
-  }, [uid, user?.uid, usernameHint, profile?.username]);
+  }, [uid, user?.uid, usernameHint, profile?.username, viewerMaySeeOthersVideos]);
 
   const username = String(profile?.username ?? usernameHint ?? 'user');
   const openDmWithUser = React.useCallback(async () => {
@@ -144,8 +176,12 @@ export function UserProfileScreen({ route, navigation }: Props) {
       nav.navigate('MyLeaps');
       return;
     }
+    if (viewerUid && leapGateForOthers) {
+      promptLeapToContinue();
+      return;
+    }
     nav.navigate('UserLeaps', { uid, username: usernameHint ?? username });
-  }, [isSelf, nav, uid, usernameHint, username]);
+  }, [isSelf, nav, uid, usernameHint, username, viewerUid, leapGateForOthers, promptLeapToContinue]);
 
   const bio = String(profile?.bio ?? '').trim();
   const photoUrl = String(
@@ -185,7 +221,11 @@ export function UserProfileScreen({ route, navigation }: Props) {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.name}>{username}</Text>
-            <Text style={styles.handle}>@{username}</Text>
+            {isSelf ? (
+              <Text style={styles.handle}>@{username}</Text>
+            ) : (
+              <UsernameLink uid={uid} username={username} style={styles.handle} />
+            )}
             {bio ? <Text style={styles.bio}>{bio}</Text> : null}
           </View>
           {!isSelf && user?.uid ? (
@@ -219,23 +259,34 @@ export function UserProfileScreen({ route, navigation }: Props) {
             <Text style={styles.statNum}>{verticalScore}</Text>
             <Text style={styles.statLabel}>Vertical</Text>
           </View>
-          <Pressable
-            disabled={!canOpenBestLeap}
-            onPress={() => {
-              if (canOpenBestLeap) nav.navigate('VideoPost', { videoId: bestVerticalGainPostId });
-            }}
-            style={({ pressed }) => [styles.stat, canOpenBestLeap && pressed && styles.statPressed]}
-            accessibilityRole={canOpenBestLeap ? 'button' : undefined}
-            accessibilityLabel={canOpenBestLeap ? 'Watch the leap for Highest Leap' : undefined}
-          >
-            <Text style={styles.statNum}>{highestJumpDisplayInches} in</Text>
-            <Text style={styles.statLabel}>Highest Leap</Text>
-            {bestVerticalGainPoints > 0 ? (
-              <Text style={styles.statSub}>+{bestVerticalGainPoints} pts from one leap</Text>
-            ) : null}
-            {canOpenBestLeap ? <Text style={styles.statLink}>Tap to watch leap</Text> : null}
-          </Pressable>
+          {leapGateForOthers ? (
+            <View style={[styles.stat, styles.statLocked]}>
+              <Text style={styles.statNum}>—</Text>
+              <Text style={styles.statLabel}>Highest Leap</Text>
+              <Text style={styles.statSub}>Locked until you post your first leap</Text>
+            </View>
+          ) : (
+            <Pressable
+              disabled={!canOpenBestLeap}
+              onPress={() => {
+                if (!canOpenBestLeap) return;
+                nav.navigate('VideoPost', { videoId: bestVerticalGainPostId });
+              }}
+              style={({ pressed }) => [styles.stat, canOpenBestLeap && pressed && styles.statPressed]}
+              accessibilityRole={canOpenBestLeap ? 'button' : undefined}
+              accessibilityLabel={canOpenBestLeap ? 'Watch the leap for Highest Leap' : undefined}
+            >
+              <Text style={styles.statNum}>{highestJumpDisplayInches} in</Text>
+              <Text style={styles.statLabel}>Highest Leap</Text>
+              {bestVerticalGainPoints > 0 ? (
+                <Text style={styles.statSub}>+{bestVerticalGainPoints} pts from one leap</Text>
+              ) : null}
+              {canOpenBestLeap ? <Text style={styles.statLink}>Tap to watch leap</Text> : null}
+            </Pressable>
+          )}
         </View>
+
+        {leapGateForOthers ? <TakeTheLeapGate variant="social" embedded /> : null}
 
         <View style={styles.followingSection}>
           <Text style={styles.followingTitle}>FOLLOWING</Text>
@@ -268,30 +319,32 @@ export function UserProfileScreen({ route, navigation }: Props) {
           )}
         </View>
 
-        <View style={styles.leapsSection}>
-          <Text style={styles.leapsTitle}>{isSelf ? 'YOUR LEAPS' : `LEAPS · @${username}`}</Text>
-          <Text style={styles.leapsHint}>
-            {isSelf
-              ? 'Full-screen reel of your posts (same look as the main feed).'
-              : `Full-screen reel of @${username}'s approved posts.`}
-          </Text>
-          <TouchableOpacity
-            style={styles.openLeapsCta}
-            onPress={() => openLeapsFeed()}
-            activeOpacity={0.85}
-            accessibilityRole="button"
-            accessibilityLabel={isSelf ? 'Open your leaps feed' : `Open @${username} leaps feed`}
-          >
-            <Text style={styles.openLeapsCtaText}>
-              {videos.length === 0
-                ? isSelf
-                  ? 'Open your leaps'
-                  : 'No posts yet'
-                : `Open feed · ${videos.length} leap${videos.length === 1 ? '' : 's'}`}
+        {!leapGateForOthers ? (
+          <View style={styles.leapsSection}>
+            <Text style={styles.leapsTitle}>{isSelf ? 'YOUR LEAPS' : `LEAPS · @${username}`}</Text>
+            <Text style={styles.leapsHint}>
+              {isSelf
+                ? 'Full-screen reel of your posts (same look as the main feed).'
+                : `Full-screen reel of @${username}'s approved posts.`}
             </Text>
-            <Ionicons name="chevron-forward" size={18} color={colors.coral} />
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity
+              style={styles.openLeapsCta}
+              onPress={() => openLeapsFeed()}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={isSelf ? 'Open your leaps feed' : `Open @${username} leaps feed`}
+            >
+              <Text style={styles.openLeapsCtaText}>
+                {videos.length === 0
+                  ? isSelf
+                    ? 'Open your leaps'
+                    : 'No posts yet'
+                  : `Open feed · ${videos.length} leap${videos.length === 1 ? '' : 's'}`}
+              </Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.coral} />
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </ScrollView>
     </Screen>
   );
@@ -353,6 +406,7 @@ const styles = StyleSheet.create({
   statSub: { marginTop: 4, fontSize: 11, fontWeight: '700', color: colors.muted },
   statLink: { marginTop: 6, fontSize: 11, fontWeight: '900', color: colors.coral },
   statPressed: { opacity: 0.92 },
+  statLocked: { opacity: 0.85, backgroundColor: colors.cardTint },
   followingSection: {
     marginTop: 10,
     borderRadius: 18,

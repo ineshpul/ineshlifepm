@@ -20,7 +20,7 @@ import { useLiveCount } from '../state/live';
 import { LEAP_BOTTOM_TAGLINE } from '../content/challengeCopy';
 import { useAuth } from '../state/auth';
 import { showInfo } from '../utils/ui';
-import { navigateToRecord } from '../navigation/navigationHelpers';
+import { navigateToRecord, navigateToUserProfile } from '../navigation/navigationHelpers';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { subscribeUsersByUsernamePrefix, type UserSearchHit } from '../services/userSearch';
 
@@ -87,16 +87,18 @@ export function TodayScreen() {
           </View>
         </View>
         <View style={styles.headerRight}>
-          {user?.isAdmin && (
+          {(user?.isAdmin || user?.isModerator) ? (
             <View style={styles.adminBtns}>
-              <TouchableOpacity onPress={() => nav.navigate('ChallengeAdmin')} style={styles.adminBtn}>
-                <Text style={styles.adminBtnText}>SET</Text>
-              </TouchableOpacity>
+              {user?.isAdmin ? (
+                <TouchableOpacity onPress={() => nav.navigate('ChallengeAdmin')} style={styles.adminBtn}>
+                  <Text style={styles.adminBtnText}>SET</Text>
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity onPress={() => nav.navigate('AdminVideoModeration')} style={styles.adminBtn}>
                 <Text style={styles.adminBtnText}>MOD</Text>
               </TouchableOpacity>
             </View>
-          )}
+          ) : null}
           <View style={styles.pill}>
             <View style={styles.redDot} />
             <Text style={styles.pillText}>{formatHMS(headerCountdown)}</Text>
@@ -143,13 +145,13 @@ export function TodayScreen() {
                         setProfileQ('');
                         setDebouncedProfileQ('');
                         setProfileHits([]);
-                        nav.navigate('UserProfile', { uid: item.uid, username: item.username });
+                        navigateToUserProfile(nav, { uid: item.uid, username: item.username });
                       }}
                       accessibilityRole="button"
                       accessibilityLabel={`Open ${item.username} profile`}
                     >
                       <Text style={styles.findRowName}>@{item.username}</Text>
-                      <Text style={styles.findRowHint}>Watch videos</Text>
+                      <Text style={styles.findRowHint}>Open profile</Text>
                     </TouchableOpacity>
                   )}
                 />
@@ -321,7 +323,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border2,
   },
-  findRowName: { fontSize: 15, fontWeight: '800', color: colors.text, flexShrink: 1 },
+  findRowName: { fontSize: 15, fontWeight: '800', color: colors.coral, flexShrink: 1 },
   findRowHint: { fontSize: 12, fontWeight: '700', color: colors.moss, marginLeft: 10 },
   findEmpty: {
     padding: 14,

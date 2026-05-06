@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import { UsernameLink } from './UsernameLink';
 import { colors } from '../theme/colors';
 import type { VideoComment } from '../types/videoComment';
 import { formatCommentTime } from '../utils/formatCommentTime';
@@ -16,7 +17,6 @@ type Props = {
   viewerUid?: string;
   videoOwnerUid: string;
   deletingCommentId: string | null;
-  onOpenProfile: (uid: string, username: string) => void;
   onReply: (target: ReplyTargetPayload) => void;
   onRequestDelete: (commentId: string) => void;
 };
@@ -32,7 +32,6 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
   viewerUid,
   videoOwnerUid,
   deletingCommentId,
-  onOpenProfile,
   onReply,
   onRequestDelete,
 }: Props) {
@@ -70,20 +69,31 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
       </View>
       <View style={styles.commentBody}>
         {showNestedReplyTarget ? (
-          <Text style={styles.nestedReplyTo} numberOfLines={1}>
+          <View style={[styles.replyMetaRow, styles.nestedReplySpacing]} accessibilityRole="text">
             <Text style={styles.nestedReplyToIcon}>↳ </Text>
-            <Text style={styles.nestedReplyToStrong}>@{c.replyToUsername}</Text>
-          </Text>
+            {c.replyToUid && c.replyToUsername ? (
+              <UsernameLink uid={c.replyToUid} username={c.replyToUsername} style={styles.nestedReplyToStrong} />
+            ) : (
+              <Text style={styles.nestedReplyToStrong}>@{c.replyToUsername}</Text>
+            )}
+          </View>
         ) : null}
         {showTopReplyMeta ? (
-          <Text style={styles.replyMeta} numberOfLines={1}>
-            Replying to <Text style={styles.replyMetaStrong}>@{c.replyToUsername}</Text>
-          </Text>
+          <View style={styles.replyMetaRow} accessibilityRole="text">
+            <Text style={styles.replyMeta}>Replying to </Text>
+            {c.replyToUid && c.replyToUsername ? (
+              <UsernameLink uid={c.replyToUid} username={c.replyToUsername} style={styles.replyMetaStrong} />
+            ) : (
+              <Text style={styles.replyMetaStrong}>@{c.replyToUsername}</Text>
+            )}
+          </View>
         ) : null}
         <View style={styles.commentTopLine}>
-          <TouchableOpacity onPress={() => c.uid && onOpenProfile(c.uid, c.username)} activeOpacity={0.7}>
+          {c.uid ? (
+            <UsernameLink uid={c.uid} username={c.username} style={styles.commentUser} />
+          ) : (
             <Text style={styles.commentUser}>{c.username}</Text>
-          </TouchableOpacity>
+          )}
           <View style={styles.commentTopRight}>
             {timeLabel ? <Text style={styles.commentTime}>{timeLabel}</Text> : null}
             {viewerUid ? (
@@ -171,22 +181,24 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  replyMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    marginBottom: 2,
+    gap: 2,
+  },
   replyMeta: {
     fontSize: 11,
     fontWeight: '600',
     color: colors.muted,
-    marginBottom: 2,
   },
   replyMetaStrong: {
     fontWeight: '800',
     color: colors.text,
   },
-  nestedReplyTo: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.muted,
+  nestedReplySpacing: {
     marginBottom: 4,
-    lineHeight: 16,
   },
   nestedReplyToIcon: {
     fontWeight: '700',

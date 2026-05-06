@@ -5,6 +5,7 @@ export type VideoComment = {
   text: string;
   at: number;
   replyToCommentId?: string;
+  replyToUid?: string;
   replyToUsername?: string;
   replyPreview?: string;
 };

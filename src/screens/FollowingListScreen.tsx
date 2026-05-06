@@ -15,6 +15,7 @@ import {
   type FollowingRow,
 } from '../services/social';
 import type { MainStackParamList } from '../navigation/types';
+import { navigateToUserProfile } from '../navigation/navigationHelpers';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'FollowingList'>;
 
@@ -56,7 +57,10 @@ export function FollowingListScreen({ navigation }: Props) {
           <Pressable
             style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
             onPress={() =>
-              navigation.navigate('UserProfile', { uid: item.targetUid, username: item.targetUsername })
+              navigateToUserProfile(navigation, {
+                uid: item.targetUid,
+                username: item.targetUsername,
+              })
             }
             accessibilityRole="button"
             accessibilityLabel={`Open @${item.targetUsername} profile`}
@@ -117,5 +121,5 @@ const styles = StyleSheet.create({
   },
   avatarImg: { width: 40, height: 40 },
   avatarTxt: { fontSize: 15, fontWeight: '900', color: colors.moss },
-  name: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: '800', color: colors.text },
+  name: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: '800', color: colors.coral },
 });

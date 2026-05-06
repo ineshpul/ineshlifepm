@@ -20,6 +20,34 @@ export async function deleteOwnedVideo(args: { videoId: string; viewerUid: strin
     throw new Error('You can only delete your own videos.');
   }
 
+  await deleteVideoByRef(vref, data, viewerUid);
+}
+
+/**
+ * Same cleanup as {@link deleteOwnedVideo}, for admins/moderators deleting another user's post.
+ * Firestore/Storage rules must allow `isStaff` for this path.
+ */
+export async function deleteStaffVideo(args: { videoId: string }) {
+  const { videoId } = args;
+  const vref = doc(firestore(), 'videos', videoId);
+  const snap = await getDoc(vref);
+  if (!snap.exists()) {
+    throw new Error('Video not found.');
+  }
+  const data: Record<string, unknown> = snap.data() as Record<string, unknown>;
+  const ownerUid = String(data.uid ?? '').trim();
+  if (!ownerUid) {
+    throw new Error('Invalid video owner.');
+  }
+  await deleteVideoByRef(vref, data, ownerUid);
+}
+
+async function deleteVideoByRef(
+  vref: ReturnType<typeof doc>,
+  data: Record<string, unknown>,
+  ownerUidForLedger: string
+) {
+  const videoId = vref.id;
   const challengeDate = String(data.challengeDate ?? '');
   const storagePath = String(data.storagePath ?? '');
 
@@ -43,13 +71,13 @@ export async function deleteOwnedVideo(args: { videoId: string; viewerUid: strin
     }
   }
 
-  if (challengeDate && videoId === `${viewerUid}_${challengeDate}`) {
+  if (challengeDate && videoId === `${ownerUidForLedger}_${challengeDate}`) {
     try {
-      await deleteDoc(doc(firestore(), 'postAttempts', `${viewerUid}_${challengeDate}`));
+      await deleteDoc(doc(firestore(), 'postAttempts', `${ownerUidForLedger}_${challengeDate}`));
     } catch {
       // optional ledger
     }
   }
 
-  scheduleVerticalScoreRecompute(viewerUid, 500);
+  scheduleVerticalScoreRecompute(ownerUidForLedger, 500);
 }
