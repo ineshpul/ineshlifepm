@@ -35,7 +35,7 @@ import { useAppState } from '../state/appState';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
-import { todayVideoDocId, useHasPostedAnyVideo } from '../state/posting';
+import { todayVideoDocId, useCanViewEveryoneFeed } from '../state/posting';
 import { showError } from '../utils/ui';
 import {
   markAllNotificationsRead,
@@ -123,10 +123,7 @@ export function FeedScreen() {
     return () => clearInterval(id);
   }, []);
   const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
-  const hasPostedAnyVideo = useHasPostedAnyVideo(user?.uid);
-  const canViewOthersVideos = Boolean(
-    hasPostedAnyVideo || user?.isAdmin || user?.isModerator
-  );
+  const canViewEveryoneFeed = useCanViewEveryoneFeed(user?.uid);
 
   React.useEffect(() => {
     void Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
@@ -189,10 +186,10 @@ export function FeedScreen() {
     followingRows,
   ]);
 
-  /** First reel in feed order that is not “today’s” viewing challenge — show Previous leaps chip only here (once at the boundary). */
+  /** First reel for the immediate prior leap day (T−1) — do not jump to older days. */
   const firstPreviousLeapsIndex = React.useMemo(
-    () => displayVideos.findIndex((v) => v.challengeDate !== viewingChallengeDateKey),
-    [displayVideos, viewingChallengeDateKey]
+    () => displayVideos.findIndex((v) => v.challengeDate === previousChallengeDateKey),
+    [displayVideos, previousChallengeDateKey]
   );
 
   const flatListExtraData = React.useMemo(
@@ -268,7 +265,7 @@ export function FeedScreen() {
   /** After posting (or first load), reel rows can mount before viewability runs; sync scroll + active id once. */
   const prevFeedNonEmptyCountRef = React.useRef(0);
   React.useEffect(() => {
-    if (!canViewOthersVideos) {
+    if (!canViewEveryoneFeed) {
       prevFeedNonEmptyCountRef.current = 0;
       return;
     }
@@ -292,7 +289,7 @@ export function FeedScreen() {
       });
     });
     return () => handle.cancel?.();
-  }, [canViewOthersVideos, feedHydrated, pageHeight, displayVideos]);
+  }, [canViewEveryoneFeed, feedHydrated, pageHeight, displayVideos]);
 
   const confirmDelete = (item: FeedVideo) => {
     if (!user?.uid || item.ownerUid !== user.uid) return;
@@ -322,7 +319,7 @@ export function FeedScreen() {
   };
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured() || !user?.uid || !canViewOthersVideos) {
+    if (!isFirebaseConfigured() || !user?.uid || !canViewEveryoneFeed) {
       setVideos([]);
       setFeedHydrated(true);
       return;
@@ -485,9 +482,9 @@ export function FeedScreen() {
       approvedUnsub?.();
       mineUnsub?.();
     };
-  }, [nyCalendarDay, viewingChallengeDateKey, user?.uid, canViewOthersVideos]);
+  }, [nyCalendarDay, viewingChallengeDateKey, user?.uid, canViewEveryoneFeed]);
 
-  if (!canViewOthersVideos) {
+  if (!canViewEveryoneFeed) {
     return <TakeTheLeapGate variant="feed" />;
   }
 

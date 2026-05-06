@@ -265,10 +265,10 @@ export function TopScreen() {
 
   const subTitle =
     timeframe === 'daily'
-      ? `Daily · inches this leap (${leapDayKey}). Posted leaps only · resets in ${formatMsUntilNextDrop(leapWindow.msUntilNextLock)}`
+      ? 'Leaperboard'
       : allTimeSortKey === 'leaperLifetimePoints'
-        ? 'All-time · total inches (lifetime Leap points)'
-        : 'All-time · leap inches · recent leaps (~14 days)';
+        ? 'Leaperboard'
+        : 'Leaperboard';
 
   return (
     <Screen style={styles.screen}>

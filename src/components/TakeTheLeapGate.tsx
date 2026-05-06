@@ -10,7 +10,7 @@ import { navigateToRecord } from '../navigation/navigationHelpers';
 export type TakeTheLeapGateVariant = 'feed' | 'social';
 
 const COPY: Record<TakeTheLeapGateVariant, string> = {
-  feed: 'Post your first leap to unlock the feed and watch other people’s videos.',
+  feed: 'Post the current challenge (noon–noon Eastern) to unlock the feed. It locks again at the next 12:00 PM ET until you post for that new cycle.',
   social: 'Post your first leap to watch other people’s videos on Leap.',
 };
 
