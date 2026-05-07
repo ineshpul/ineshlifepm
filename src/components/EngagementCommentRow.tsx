@@ -1,15 +1,20 @@
 import * as React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 import { UsernameLink } from './UsernameLink';
 import { colors } from '../theme/colors';
 import type { VideoComment } from '../types/videoComment';
 import { formatCommentTime } from '../utils/formatCommentTime';
 import { THREAD_INDENT } from '../utils/commentThread';
+import { firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { toggleCommentLike } from '../services/videoLikes';
 
 export type ReplyTargetPayload = { id: string; uid: string; username: string; textSnippet: string };
 
 type Props = {
+  videoId: string;
   comment: VideoComment;
   layout: 'inline' | 'modal';
   /** Nesting level when shown under a parent thread (0 = top-level). */
@@ -26,6 +31,7 @@ function canDelete(c: VideoComment, viewerUid: string | undefined, videoOwnerUid
 }
 
 export const EngagementCommentRow = React.memo(function EngagementCommentRow({
+  videoId,
   comment: c,
   layout,
   threadDepth = 0,
@@ -42,6 +48,21 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
   const showTopReplyMeta = Boolean(c.replyToUsername && !nested);
   const showNestedReplyTarget = Boolean(nested && c.replyToUsername);
   const timeLabel = formatCommentTime(c.at);
+  const [liked, setLiked] = React.useState(false);
+  const [likeBusy, setLikeBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!viewerUid || !videoId || !c.id || !isFirebaseConfigured()) {
+      setLiked(false);
+      return;
+    }
+    const ref = doc(firestore(), 'videos', videoId, 'comments', c.id, 'likes', viewerUid);
+    return onSnapshot(
+      ref,
+      (snap) => setLiked(snap.exists()),
+      () => setLiked(false)
+    );
+  }, [viewerUid, videoId, c.id]);
 
   const deleteColumnPadTop = showTopReplyMeta
     ? isModal
@@ -96,6 +117,26 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
           )}
           <View style={styles.commentTopRight}>
             {timeLabel ? <Text style={styles.commentTime}>{timeLabel}</Text> : null}
+            {viewerUid ? (
+              <TouchableOpacity
+                onPress={() => {
+                  if (likeBusy) return;
+                  setLikeBusy(true);
+                  void toggleCommentLike({ videoId, commentId: c.id, viewerUid })
+                    .catch(() => {})
+                    .finally(() => setLikeBusy(false));
+                }}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel={liked ? 'Unlike comment' : 'Like comment'}
+              >
+                <Ionicons
+                  name={liked ? 'heart' : 'heart-outline'}
+                  size={15}
+                  color={liked ? colors.coral : colors.muted}
+                />
+              </TouchableOpacity>
+            ) : null}
             {viewerUid ? (
               <TouchableOpacity
                 onPress={() =>

@@ -5,6 +5,7 @@ import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
 
 import { colors } from '../theme/colors';
 import { recordVideoView } from '../services/recordVideoView';
+import { ensureVideoLiked } from '../services/videoLikes';
 
 function formatTimeLeft(totalSeconds: number) {
   const s = Math.max(0, totalSeconds);
@@ -25,6 +26,7 @@ function FeedPostVideoInner(props: {
   analyticsVideoId?: string;
   videoOwnerUid?: string;
   viewerUid?: string;
+  viewerUsername?: string;
 }) {
   const {
     url,
@@ -38,6 +40,7 @@ function FeedPostVideoInner(props: {
     analyticsVideoId,
     videoOwnerUid,
     viewerUid,
+    viewerUsername,
   } = props;
   const videoRef = React.useRef<Video>(null);
   const [status, setStatus] = React.useState<AVPlaybackStatus | null>(null);
@@ -48,6 +51,10 @@ function FeedPostVideoInner(props: {
   const pauseFlashTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const viewTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const viewRecordedKeyRef = React.useRef<string | null>(null);
+  const singleTapTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTapMsRef = React.useRef(0);
+  const [likeFlash, setLikeFlash] = React.useState(false);
+  const likeFlashTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   React.useEffect(() => {
     viewRecordedKeyRef.current = null;
@@ -66,6 +73,8 @@ function FeedPostVideoInner(props: {
     () => () => {
       if (pauseFlashTimerRef.current) clearTimeout(pauseFlashTimerRef.current);
       if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
+      if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+      if (likeFlashTimerRef.current) clearTimeout(likeFlashTimerRef.current);
     },
     []
   );
@@ -128,7 +137,7 @@ function FeedPostVideoInner(props: {
     }
   }, []);
 
-  const onReelTap = React.useCallback(() => {
+  const doSingleTap = React.useCallback(() => {
     if (!shouldPlay && onReelActivate) {
       onReelActivate();
       setUserPaused(false);
@@ -147,6 +156,50 @@ function FeedPostVideoInner(props: {
       setPauseFlash(false);
     }, 550);
   }, [shouldPlay, userPaused, onReelActivate]);
+
+  const doDoubleTapLike = React.useCallback(() => {
+    if (!analyticsVideoId || !viewerUid || !viewerUsername || !videoOwnerUid) return;
+    void (async () => {
+      try {
+        const didLike = await ensureVideoLiked({
+          videoId: analyticsVideoId,
+          viewerUid,
+          viewerUsername,
+          videoOwnerUid,
+        });
+        if (didLike) {
+          setLikeFlash(true);
+          if (likeFlashTimerRef.current) clearTimeout(likeFlashTimerRef.current);
+          likeFlashTimerRef.current = setTimeout(() => {
+            likeFlashTimerRef.current = null;
+            setLikeFlash(false);
+          }, 450);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, [analyticsVideoId, viewerUid, viewerUsername, videoOwnerUid]);
+
+  const onReelTap = React.useCallback(() => {
+    const now = Date.now();
+    const dt = now - lastTapMsRef.current;
+    lastTapMsRef.current = now;
+    const isDouble = dt > 0 && dt < 260;
+    if (isDouble) {
+      if (singleTapTimerRef.current) {
+        clearTimeout(singleTapTimerRef.current);
+        singleTapTimerRef.current = null;
+      }
+      doDoubleTapLike();
+      return;
+    }
+    if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+    singleTapTimerRef.current = setTimeout(() => {
+      singleTapTimerRef.current = null;
+      doSingleTap();
+    }, 230);
+  }, [doDoubleTapLike, doSingleTap]);
 
   let remainingSec = maxDurationSeconds;
   if (status?.isLoaded) {
@@ -217,6 +270,11 @@ function FeedPostVideoInner(props: {
         </View>
       ) : null}
       {reelTapLayer}
+      {reel && likeFlash ? (
+        <View style={styles.likeFlash} pointerEvents="none">
+          <Ionicons name="heart" size={92} color="rgba(255,255,255,0.92)" />
+        </View>
+      ) : null}
       <View style={styles.timerBar} pointerEvents="none">
         <Text style={styles.timerText}>{formatTimeLeft(remainingSec)} left</Text>
       </View>
@@ -243,6 +301,13 @@ const styles = StyleSheet.create({
   reelTouchLayer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 2,
+  },
+  likeFlash: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.05)',
   },
   reelIconCenter: {
     ...StyleSheet.absoluteFillObject,

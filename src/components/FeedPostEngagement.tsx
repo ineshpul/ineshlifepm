@@ -400,6 +400,7 @@ export function FeedPostEngagement({
       const { comment: c, depth } = item.entry;
       return (
         <EngagementCommentRow
+          videoId={videoId}
           comment={c}
           layout="modal"
           threadDepth={depth}
@@ -411,7 +412,7 @@ export function FeedPostEngagement({
         />
       );
     },
-    [viewerUid, videoOwnerUid, deletingCommentId, onReply, confirmDeleteComment, onExpandThread]
+    [videoId, viewerUid, videoOwnerUid, deletingCommentId, onReply, confirmDeleteComment, onExpandThread]
   );
 
   const displayLikes = Math.max(likeCount, docLikeCount ?? 0);

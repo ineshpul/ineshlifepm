@@ -380,6 +380,13 @@ service cloud.firestore {
             || resource.data.uid == request.auth.uid
           );
         allow update: if false;
+
+        match /likes/{likerId} {
+          allow read: if canReadVideoDoc(videoId);
+          allow create: if canReadVideoDoc(videoId) && signedIn() && request.auth.uid == likerId;
+          allow delete: if signedIn() && request.auth.uid == likerId;
+          allow update: if false;
+        }
       }
     }
 
