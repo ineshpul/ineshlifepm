@@ -22,7 +22,7 @@ import { colors } from '../theme/colors';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import type { RootStackParamList } from '../navigation/types';
 import { useAuth } from '../state/auth';
-import { useHasPostedAnyVideo } from '../state/posting';
+import { useCanViewOtherUsersVideos } from '../state/posting';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { recordVideoView } from '../services/recordVideoView';
 import { useSettingsPreferences } from '../state/settingsPreferences';
@@ -36,10 +36,20 @@ export function VideoPostScreen({ route }: Props) {
   const { user } = useAuth();
   const viewerUid = user?.uid ?? '';
   const { preferences } = useSettingsPreferences();
-  const hasPostedAnyVideo = useHasPostedAnyVideo(user?.uid);
-  const viewerMayWatchOthers = Boolean(
-    hasPostedAnyVideo || user?.isAdmin || user?.isModerator
-  );
+  const canViewOthersVideos = useCanViewOtherUsersVideos({
+    uid: user?.uid,
+    isAdmin: user?.isAdmin,
+    isModerator: user?.isModerator,
+  });
+
+  const ownerFromId = React.useMemo<string>(() => {
+    const raw = String(videoId ?? '');
+    const idx = raw.indexOf('_');
+    if (idx <= 0) return '';
+    return raw.slice(0, idx);
+  }, [videoId]);
+  const isOwnById = Boolean(viewerUid && ownerFromId && ownerFromId === viewerUid);
+  const gateById = !isOwnById && !canViewOthersVideos;
 
   const [loadState, setLoadState] = React.useState<'loading' | 'missing' | 'error' | 'ready'>('loading');
   const [row, setRow] = React.useState<{
@@ -56,6 +66,7 @@ export function VideoPostScreen({ route }: Props) {
   }, []);
 
   React.useEffect(() => {
+    if (gateById) return;
     if (!isFirebaseConfigured() || !videoId) {
       setRow(null);
       setLoadState('missing');
@@ -95,11 +106,12 @@ export function VideoPostScreen({ route }: Props) {
   }, [videoId]);
 
   const blockOtherPeoplesPost =
-    loadState === 'ready' &&
-    row != null &&
-    Boolean(viewerUid) &&
-    String(row.ownerUid) !== String(viewerUid) &&
-    !viewerMayWatchOthers;
+    gateById ||
+    (loadState === 'ready' &&
+      row != null &&
+      Boolean(viewerUid) &&
+      String(row.ownerUid) !== String(viewerUid) &&
+      !canViewOthersVideos);
 
   React.useEffect(() => {
     if (!isFocused || loadState !== 'ready' || !videoId || blockOtherPeoplesPost) return;
@@ -121,7 +133,7 @@ export function VideoPostScreen({ route }: Props) {
   const scrollRef = React.useRef<ScrollView>(null);
 
   if (blockOtherPeoplesPost) {
-    return <TakeTheLeapGate variant="social" />;
+    return <TakeTheLeapGate variant="feed" />;
   }
 
   return (

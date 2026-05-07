@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, onSnapshot } from 'firebase/firestore';
 
@@ -51,6 +51,16 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
   const [liked, setLiked] = React.useState(false);
   const [likeBusy, setLikeBusy] = React.useState(false);
 
+  const startReply = React.useCallback(() => {
+    if (!viewerUid) return;
+    onReply({
+      id: c.id,
+      uid: c.uid,
+      username: c.username,
+      textSnippet: c.text,
+    });
+  }, [viewerUid, onReply, c.id, c.uid, c.username, c.text]);
+
   React.useEffect(() => {
     if (!viewerUid || !videoId || !c.id || !isFirebaseConfigured()) {
       setLiked(false);
@@ -88,7 +98,13 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
       <View style={[styles.avatar, isModal && styles.avatarModal, nested && styles.avatarNested]}>
         <Text style={styles.avatarTxt}>{initial}</Text>
       </View>
-      <View style={styles.commentBody}>
+      <Pressable
+        style={styles.commentBody}
+        onPress={startReply}
+        disabled={!viewerUid}
+        accessibilityRole={viewerUid ? 'button' : undefined}
+        accessibilityLabel={viewerUid ? `Reply to ${c.username}` : undefined}
+      >
         {showNestedReplyTarget ? (
           <View style={[styles.replyMetaRow, styles.nestedReplySpacing]} accessibilityRole="text">
             <Text style={styles.nestedReplyToIcon}>↳ </Text>
@@ -115,8 +131,11 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
           ) : (
             <Text style={styles.commentUser}>{c.username}</Text>
           )}
-          <View style={styles.commentTopRight}>
-            {timeLabel ? <Text style={styles.commentTime}>{timeLabel}</Text> : null}
+        </View>
+        <Text style={[styles.commentText, isModal && styles.commentTextModal]}>{c.text}</Text>
+        <View style={styles.commentActionsRow}>
+          {timeLabel ? <Text style={styles.commentTime}>{timeLabel}</Text> : <View />}
+          <View style={styles.actionsRight}>
             {viewerUid ? (
               <TouchableOpacity
                 onPress={() => {
@@ -132,34 +151,24 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
               >
                 <Ionicons
                   name={liked ? 'heart' : 'heart-outline'}
-                  size={15}
+                  size={16}
                   color={liked ? colors.coral : colors.muted}
                 />
               </TouchableOpacity>
             ) : null}
             {viewerUid ? (
               <TouchableOpacity
-                onPress={() =>
-                  onReply({
-                    id: c.id,
-                    uid: c.uid,
-                    username: c.username,
-                    textSnippet: c.text,
-                  })
-                }
+                onPress={startReply}
                 hitSlop={10}
                 accessibilityRole="button"
-                accessibilityLabel={
-                  c.uid === viewerUid ? 'Reply to your comment' : `Reply to ${c.username}`
-                }
+                accessibilityLabel={c.uid === viewerUid ? 'Reply to your comment' : `Reply to ${c.username}`}
               >
                 <Text style={styles.replyLink}>Reply</Text>
               </TouchableOpacity>
             ) : null}
           </View>
         </View>
-        <Text style={[styles.commentText, isModal && styles.commentTextModal]}>{c.text}</Text>
-      </View>
+      </Pressable>
       <View style={[styles.deleteColumn, { paddingTop: deleteColumnPadTop }]}>
         {showDelete ? (
           <TouchableOpacity
@@ -255,10 +264,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8,
   },
-  commentTopRight: {
+  commentActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'space-between',
+    marginTop: 6,
+  },
+  actionsRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     flexShrink: 0,
   },
   commentTime: {

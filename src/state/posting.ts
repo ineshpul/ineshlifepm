@@ -41,6 +41,21 @@ export function useCanViewEveryoneFeed(uid: string | undefined) {
 }
 
 /**
+ * Centralized gate for viewing other users' video content.
+ * Primary rule: must have posted for the current noon→noon cycle (`useCanViewEveryoneFeed`).
+ * Staff override: admins/moderators may view regardless (moderation/support).
+ */
+export function useCanViewOtherUsersVideos(args: {
+  uid: string | undefined;
+  isAdmin?: boolean;
+  isModerator?: boolean;
+}): boolean {
+  const { uid, isAdmin, isModerator } = args;
+  const canView = useCanViewEveryoneFeed(uid);
+  return Boolean(canView || isAdmin || isModerator);
+}
+
+/**
  * True if this user has at least one non-deleted video doc (any challenge).
  * Used to gate watching **other** users’ videos / feed / reels consistently.
  */

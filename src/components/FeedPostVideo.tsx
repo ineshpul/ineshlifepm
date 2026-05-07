@@ -1,7 +1,8 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import { colors } from '../theme/colors';
 import { recordVideoView } from '../services/recordVideoView';
@@ -47,12 +48,8 @@ function FeedPostVideoInner(props: {
   const [loaded, setLoaded] = React.useState(false);
   const lastStatusPaintRef = React.useRef(0);
   const [userPaused, setUserPaused] = React.useState(false);
-  const [pauseFlash, setPauseFlash] = React.useState(false);
-  const pauseFlashTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const viewTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const viewRecordedKeyRef = React.useRef<string | null>(null);
-  const singleTapTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastTapMsRef = React.useRef(0);
   const [likeFlash, setLikeFlash] = React.useState(false);
   const likeFlashTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -71,15 +68,36 @@ function FeedPostVideoInner(props: {
 
   React.useEffect(
     () => () => {
-      if (pauseFlashTimerRef.current) clearTimeout(pauseFlashTimerRef.current);
       if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
-      if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
       if (likeFlashTimerRef.current) clearTimeout(likeFlashTimerRef.current);
     },
     []
   );
 
   const effectivePlay = shouldPlay && !userPaused;
+  const prevShouldPlayRef = React.useRef(shouldPlay);
+
+  // Required: when a reel leaves the active viewport, reset it to the beginning.
+  React.useEffect(() => {
+    if (!reel) {
+      prevShouldPlayRef.current = shouldPlay;
+      return;
+    }
+    const prev = prevShouldPlayRef.current;
+    prevShouldPlayRef.current = shouldPlay;
+    if (prev && !shouldPlay) {
+      const player = videoRef.current;
+      if (!player) return;
+      void (async () => {
+        try {
+          await player.pauseAsync();
+          await player.setPositionAsync(0);
+        } catch {
+          // best-effort
+        }
+      })();
+    }
+  }, [reel, shouldPlay, url]);
 
   React.useEffect(() => {
     if (viewTimerRef.current) {
@@ -140,22 +158,34 @@ function FeedPostVideoInner(props: {
   const doSingleTap = React.useCallback(() => {
     if (!shouldPlay && onReelActivate) {
       onReelActivate();
-      setUserPaused(false);
       return;
     }
-    if (!shouldPlay) return;
-    if (userPaused) {
-      setUserPaused(false);
-      return;
-    }
-    setUserPaused(true);
-    setPauseFlash(true);
-    if (pauseFlashTimerRef.current) clearTimeout(pauseFlashTimerRef.current);
-    pauseFlashTimerRef.current = setTimeout(() => {
-      pauseFlashTimerRef.current = null;
-      setPauseFlash(false);
-    }, 550);
-  }, [shouldPlay, userPaused, onReelActivate]);
+    // TikTok-style: single tap does not pause; only used to activate a non-playing reel.
+  }, [shouldPlay, onReelActivate]);
+
+  const longPressActiveRef = React.useRef(false);
+  const [longPressing, setLongPressing] = React.useState(false);
+  const longPress = React.useMemo(
+    () =>
+      Gesture.LongPress()
+        .minDuration(220)
+        .onStart(() => {
+          longPressActiveRef.current = true;
+          setLongPressing(true);
+          setUserPaused(true);
+        })
+        .onEnd(() => {
+          longPressActiveRef.current = false;
+          setLongPressing(false);
+          setUserPaused(false);
+        })
+        .onFinalize(() => {
+          longPressActiveRef.current = false;
+          setLongPressing(false);
+          setUserPaused(false);
+        }),
+    []
+  );
 
   const doDoubleTapLike = React.useCallback(() => {
     if (!analyticsVideoId || !viewerUid || !viewerUsername || !videoOwnerUid) return;
@@ -181,25 +211,14 @@ function FeedPostVideoInner(props: {
     })();
   }, [analyticsVideoId, viewerUid, viewerUsername, videoOwnerUid]);
 
-  const onReelTap = React.useCallback(() => {
-    const now = Date.now();
-    const dt = now - lastTapMsRef.current;
-    lastTapMsRef.current = now;
-    const isDouble = dt > 0 && dt < 260;
-    if (isDouble) {
-      if (singleTapTimerRef.current) {
-        clearTimeout(singleTapTimerRef.current);
-        singleTapTimerRef.current = null;
-      }
-      doDoubleTapLike();
-      return;
-    }
-    if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
-    singleTapTimerRef.current = setTimeout(() => {
-      singleTapTimerRef.current = null;
-      doSingleTap();
-    }, 230);
-  }, [doDoubleTapLike, doSingleTap]);
+  // Native gesture recognition (snappier than JS timers, feels closer to TikTok).
+  const singleTap = React.useMemo(() => Gesture.Tap().numberOfTaps(1).onEnd(() => doSingleTap()), [doSingleTap]);
+  const doubleTap = React.useMemo(
+    () => Gesture.Tap().numberOfTaps(2).maxDelay(190).onEnd(() => doDoubleTapLike()),
+    [doDoubleTapLike]
+  );
+  const tapGesture = React.useMemo(() => Gesture.Exclusive(doubleTap, singleTap), [doubleTap, singleTap]);
+  const reelGesture = React.useMemo(() => Gesture.Simultaneous(longPress, tapGesture), [longPress, tapGesture]);
 
   let remainingSec = maxDurationSeconds;
   if (status?.isLoaded) {
@@ -217,23 +236,17 @@ function FeedPostVideoInner(props: {
 
   const reelTapLayer =
     reel && (shouldPlay || onReelActivate) ? (
-      <Pressable
-        style={styles.reelTouchLayer}
-        onPress={onReelTap}
-        accessibilityRole="button"
-        accessibilityLabel={
-          !shouldPlay && onReelActivate ? 'Play video' : userPaused ? 'Play video' : 'Pause video'
-        }
-      >
-        {pauseFlash ? (
+      <GestureDetector gesture={reelGesture}>
+        <View
+          style={styles.reelTouchLayer}
+          accessibilityRole="button"
+          accessibilityLabel={
+            !shouldPlay && onReelActivate ? 'Play video' : userPaused ? 'Play video' : 'Pause video'
+          }
+        >
+        {shouldPlay && longPressing ? (
           <View style={styles.reelIconCenter} pointerEvents="none">
             <Ionicons name="pause" size={58} color="rgba(255,255,255,0.92)" />
-          </View>
-        ) : shouldPlay && userPaused ? (
-          <View style={styles.reelIconCenter} pointerEvents="none">
-            <View style={styles.reelPlayCircle}>
-              <Ionicons name="play" size={42} color="rgba(255,255,255,0.96)" style={{ marginLeft: 4 }} />
-            </View>
           </View>
         ) : !shouldPlay && onReelActivate ? (
           <View style={styles.reelIconCenter} pointerEvents="none">
@@ -242,7 +255,8 @@ function FeedPostVideoInner(props: {
             </View>
           </View>
         ) : null}
-      </Pressable>
+        </View>
+      </GestureDetector>
     ) : null;
 
   return (

@@ -76,7 +76,7 @@ const FEED_DAY_WINDOW = 14;
 
 /** Must be a stable reference — `viewabilityConfigCallbackPairs` cannot change after mount (RN FlatList). */
 const FEED_VIEWABILITY_CONFIG = {
-  itemVisiblePercentThreshold: 35,
+  itemVisiblePercentThreshold: 70,
   minimumViewTime: 80,
   waitForInteraction: false,
 } as const;
@@ -135,6 +135,7 @@ export function FeedScreen() {
   const [activeVideoId, setActiveVideoId] = React.useState<string | null>(null);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [unreadNotifications, setUnreadNotifications] = React.useState(0);
+  const [showScrollTop, setShowScrollTop] = React.useState(false);
   /** Lifts the reel bottom sheet above the keyboard (fixed-height KAV was ineffective here). */
   const [keyboardSheetBottom, setKeyboardSheetBottom] = React.useState(0);
   const flatListRef = React.useRef<FlatList<FeedVideo>>(null);
@@ -154,6 +155,16 @@ export function FeedScreen() {
     if (slotHeight > 0) return slotHeight;
     return Math.max(380, windowHeight - insets.top - insets.bottom - TAB_BAR_HEIGHT - 52);
   }, [slotHeight, windowHeight, insets.top, insets.bottom]);
+
+  const scrollTopThreshold = Math.max(800, pageHeight * 2.2);
+  const onFeedScroll = React.useCallback(
+    (e: any) => {
+      const y = Number(e?.nativeEvent?.contentOffset?.y ?? 0);
+      const on = y >= scrollTopThreshold;
+      setShowScrollTop((prev) => (prev === on ? prev : on));
+    },
+    [scrollTopThreshold]
+  );
 
   const previousChallengeDateKey = React.useMemo(
     () => prevNyDateKey(viewingChallengeDateKey),
@@ -185,6 +196,12 @@ export function FeedScreen() {
     user?.uid,
     followingRows,
   ]);
+
+  const scrollToTop = React.useCallback(() => {
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+    const firstId = displayVideos[0]?.id;
+    if (firstId) setActiveVideoId(firstId);
+  }, [displayVideos]);
 
   /** First reel for the immediate prior leap day (T−1) — do not jump to older days. */
   const firstPreviousLeapsIndex = React.useMemo(
@@ -545,6 +562,8 @@ export function FeedScreen() {
           extraData={flatListExtraData}
           viewabilityConfig={FEED_VIEWABILITY_CONFIG}
           onViewableItemsChanged={onViewableItemsChanged}
+          onScroll={onFeedScroll}
+          scrollEventThrottle={16}
           contentContainerStyle={displayVideos.length === 0 ? { flexGrow: 1 } : undefined}
           pagingEnabled
           snapToInterval={pageHeight}
@@ -686,6 +705,29 @@ export function FeedScreen() {
             );
           }}
         />
+        {showScrollTop ? (
+          <TouchableOpacity
+            style={styles.scrollTopFab}
+            onPress={scrollToTop}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Scroll to top"
+          >
+            <View style={styles.scrollTopFrog}>
+              <View style={styles.scrollTopFrogBody}>
+                <View style={styles.scrollTopFrogBelly} />
+                <View style={styles.scrollTopFrogEyes}>
+                  <View style={styles.scrollTopFrogEye}>
+                    <View style={styles.scrollTopFrogPupil} />
+                  </View>
+                  <View style={styles.scrollTopFrogEye}>
+                    <View style={styles.scrollTopFrogPupil} />
+                  </View>
+                </View>
+              </View>
+            </View>
+          </TouchableOpacity>
+        ) : null}
       </View>
     </Screen>
   );
@@ -707,6 +749,65 @@ const styles = StyleSheet.create({
   },
   reelList: {
     flex: 1,
+  },
+  scrollTopFab: {
+    position: 'absolute',
+    right: 14,
+    bottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: colors.moss,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
+  },
+  scrollTopFrog: {
+    width: 34,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scrollTopFrogBody: {
+    width: 28,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#5AD98A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  scrollTopFrogBelly: {
+    position: 'absolute',
+    bottom: 2,
+    width: 14,
+    height: 10,
+    borderRadius: 6,
+    backgroundColor: '#A7F3D0',
+    opacity: 0.65,
+  },
+  scrollTopFrogEyes: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: -2,
+  },
+  scrollTopFrogEye: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scrollTopFrogPupil: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#111827',
   },
   reelPage: {
     width: '100%',

@@ -21,7 +21,7 @@ import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/fireb
 import type { MainStackParamList } from '../navigation/types';
 import { navigateToRecord } from '../navigation/navigationHelpers';
 import { useAuth } from '../state/auth';
-import { useHasPostedAnyVideo } from '../state/posting';
+import { useCanViewOtherUsersVideos } from '../state/posting';
 import { FollowButton } from '../components/FollowButton';
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
 import { UsernameLink } from '../components/UsernameLink';
@@ -78,15 +78,17 @@ export function UserProfileScreen({ route, navigation }: Props) {
 
   const viewerUid = user?.uid ?? firebaseAuth().currentUser?.uid ?? '';
   const isSelf = Boolean(viewerUid && viewerUid === uid);
-  const hasPostedAny = useHasPostedAnyVideo(viewerUid || undefined);
-  const viewerMaySeeOthersVideos =
-    isSelf || hasPostedAny || Boolean(user?.isAdmin || user?.isModerator);
-  const leapGateForOthers = !isSelf && !viewerMaySeeOthersVideos;
+  const canViewOthersVideos = useCanViewOtherUsersVideos({
+    uid: viewerUid || undefined,
+    isAdmin: user?.isAdmin,
+    isModerator: user?.isModerator,
+  });
+  const leapGateForOthers = !isSelf && !canViewOthersVideos;
 
   const promptLeapToContinue = React.useCallback(() => {
     Alert.alert(
       'Take the leap to continue',
-      'Post your first leap on Leap to watch other people’s videos.',
+      'Post the current challenge (noon–noon Eastern) to watch other people’s videos.',
       [
         { text: 'Not now', style: 'cancel' },
         { text: 'Leap', onPress: () => navigateToRecord(nav) },
@@ -109,7 +111,7 @@ export function UserProfileScreen({ route, navigation }: Props) {
     }
     const vUid = user?.uid ?? firebaseAuth().currentUser?.uid ?? '';
     const isViewerOwner = Boolean(vUid && vUid === uid);
-    if (!isViewerOwner && !viewerMaySeeOthersVideos) {
+    if (!isViewerOwner && !canViewOthersVideos) {
       setVideos([]);
       return;
     }
@@ -145,7 +147,7 @@ export function UserProfileScreen({ route, navigation }: Props) {
       },
       () => setVideos([])
     );
-  }, [uid, user?.uid, usernameHint, profile?.username, viewerMaySeeOthersVideos]);
+  }, [uid, user?.uid, usernameHint, profile?.username, canViewOthersVideos]);
 
   const username = String(profile?.username ?? usernameHint ?? 'user');
   const openDmWithUser = React.useCallback(async () => {
@@ -286,7 +288,7 @@ export function UserProfileScreen({ route, navigation }: Props) {
           )}
         </View>
 
-        {leapGateForOthers ? <TakeTheLeapGate variant="social" embedded /> : null}
+        {leapGateForOthers ? <TakeTheLeapGate variant="feed" embedded /> : null}
 
         <View style={styles.followingSection}>
           <Text style={styles.followingTitle}>FOLLOWING</Text>

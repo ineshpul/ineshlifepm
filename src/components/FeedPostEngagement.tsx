@@ -506,7 +506,7 @@ export function FeedPostEngagement({
           ) : (
             <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={colors.coral} />
           )}
-          <Text style={styles.actionLabel}>{displayLikes}</Text>
+          <Text style={styles.actionCount}>{displayLikes}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -516,7 +516,7 @@ export function FeedPostEngagement({
           accessibilityLabel="View comments"
         >
           <Ionicons name="chatbubble-outline" size={20} color={colors.text} />
-          <Text style={styles.actionLabel}>{displayComments}</Text>
+          <Text style={styles.actionCount}>{displayComments}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -538,7 +538,6 @@ export function FeedPostEngagement({
           accessibilityLabel="Send this clip to someone in Leap"
         >
           <Ionicons name="paper-plane-outline" size={21} color={colors.text} />
-          <Text style={styles.actionLabel}>Send</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -548,7 +547,6 @@ export function FeedPostEngagement({
           accessibilityLabel="Share link outside Leap"
         >
           <Ionicons name="share-outline" size={22} color={colors.text} />
-          <Text style={styles.actionLabel}>Share link</Text>
         </TouchableOpacity>
 
         {viewerUid && viewerUid !== videoOwnerUid ? (
@@ -559,7 +557,6 @@ export function FeedPostEngagement({
             accessibilityLabel="Report or block"
           >
             <Ionicons name="flag-outline" size={21} color={colors.text} />
-            <Text style={styles.actionLabel}>Safety</Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -703,16 +700,23 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 18,
+    gap: 10,
   },
   actionBtn: {
+    width: 44,
+    height: 36,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border2,
+    backgroundColor: colors.white,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
   },
-  actionLabel: {
-    fontSize: 13,
-    fontWeight: '800',
+  actionCount: {
+    marginLeft: 6,
+    fontSize: 12,
+    fontWeight: '900',
     color: colors.text,
   },
   modalKb: {

@@ -29,7 +29,7 @@ import { FeedPostVideo } from '../components/FeedPostVideo';
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
 import { UsernameLink } from '../components/UsernameLink';
 import { useSettingsPreferences } from '../state/settingsPreferences';
-import { useHasPostedAnyVideo } from '../state/posting';
+import { useCanViewOtherUsersVideos } from '../state/posting';
 import type { MainStackParamList } from '../navigation/types';
 
 type LeapVideo = {
@@ -74,11 +74,18 @@ export function UserLeapsScreen({ route }: Props) {
 
   const viewerUid = user?.uid ?? firebaseAuth().currentUser?.uid ?? '';
   const isOwnerViewer = Boolean(viewerUid && viewerUid === targetUid);
-  const hasPostedAnyVideo = useHasPostedAnyVideo(viewerUid || undefined);
-  const viewerMayWatchOthers = Boolean(
-    hasPostedAnyVideo || user?.isAdmin || user?.isModerator
-  );
+  const canViewOthersVideos = useCanViewOtherUsersVideos({
+    uid: viewerUid || undefined,
+    isAdmin: user?.isAdmin,
+    isModerator: user?.isModerator,
+  });
+  const leapGateForOthers = !isOwnerViewer && !canViewOthersVideos;
   React.useEffect(() => {
+    if (leapGateForOthers) {
+      setVideos([]);
+      setHydrated(true);
+      return;
+    }
     if (!isFirebaseConfigured() || !targetUid) {
       setVideos([]);
       setHydrated(true);
@@ -122,7 +129,7 @@ export function UserLeapsScreen({ route }: Props) {
       }
     );
     return () => unsub();
-  }, [targetUid, usernameHint, isOwnerViewer]);
+  }, [targetUid, usernameHint, isOwnerViewer, leapGateForOthers]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -177,9 +184,7 @@ export function UserLeapsScreen({ route }: Props) {
     (usernameHint != null ? String(usernameHint).replace(/^@+/u, '').trim() : '') ||
     'user';
 
-  if (!isOwnerViewer && Boolean(viewerUid) && !viewerMayWatchOthers) {
-    return <TakeTheLeapGate variant="social" />;
-  }
+  if (leapGateForOthers) return <TakeTheLeapGate variant="feed" />;
 
   return (
     <Screen style={styles.screen}>
