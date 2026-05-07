@@ -36,6 +36,28 @@ export function NewChatScreen({ navigation, route }: Props) {
   }, [navigation]);
 
   React.useEffect(() => {
+    // When sharing, use the native stack header (avoid double headers).
+    if (!sharePost) return;
+    navigation.setOptions({
+      title: 'Share',
+      headerLeft: () => (
+        <TouchableOpacity
+          onPress={cancelShare}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel sharing"
+          hitSlop={10}
+          style={styles.headerCloseBtn}
+        >
+          <Ionicons name="close" size={20} color={colors.text} />
+        </TouchableOpacity>
+      ),
+    });
+    return () => {
+      navigation.setOptions({ title: 'New message', headerLeft: undefined });
+    };
+  }, [navigation, sharePost, cancelShare]);
+
+  React.useEffect(() => {
     if (!isFirebaseConfigured() || !user?.uid) return;
     return subscribeFollowing(user.uid, setRows);
   }, [user?.uid]);
@@ -77,27 +99,15 @@ export function NewChatScreen({ navigation, route }: Props) {
   return (
     <Screen style={styles.screen} dismissKeyboardOnTap>
       {sharePost ? (
-        <View style={styles.topBar}>
-          <TouchableOpacity
-            onPress={cancelShare}
-            accessibilityRole="button"
-            accessibilityLabel="Cancel sharing"
-            hitSlop={10}
-            style={styles.closeBtn}
-          >
-            <Ionicons name="close" size={22} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={styles.topTitle}>Share</Text>
-          <View style={styles.topRightSpacer} />
-        </View>
-      ) : null}
-      {sharePost ? (
         <View style={styles.shareBanner}>
-          <Text style={styles.shareTxt}>Sharing: {sharePost.title || 'Leap clip'}</Text>
+          <Text style={styles.shareLabel}>Sharing</Text>
+          <Text style={styles.shareTxt} numberOfLines={1}>
+            {sharePost.title || 'Leap clip'}
+          </Text>
         </View>
       ) : null}
       <TextInput
-        style={styles.search}
+        style={[styles.search, sharePost ? styles.searchAfterShare : undefined]}
         placeholder="Search people you follow"
         placeholderTextColor={colors.muted2}
         value={q}
@@ -148,17 +158,9 @@ export function NewChatScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  topBar: {
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  closeBtn: {
-    width: 40,
-    height: 40,
+  headerCloseBtn: {
+    width: 34,
+    height: 34,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
@@ -166,12 +168,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  topTitle: { fontSize: 15, fontWeight: '900', color: colors.text },
-  topRightSpacer: { width: 40, height: 40 },
-  shareBanner: { padding: 14, backgroundColor: colors.cardTint, borderBottomWidth: 1, borderBottomColor: colors.border },
-  shareTxt: { fontWeight: '800', color: colors.text },
+  shareBanner: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 12,
+    backgroundColor: colors.cardTint,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: 2,
+  },
+  shareLabel: { fontSize: 12, fontWeight: '900', color: colors.muted, letterSpacing: 0.4 },
+  shareTxt: { fontSize: 14, fontWeight: '900', color: colors.text },
   search: {
-    margin: 16,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 12,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.border,
@@ -180,6 +191,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     backgroundColor: colors.white,
+  },
+  searchAfterShare: {
+    marginTop: 10,
   },
   row: {
     flexDirection: 'row',

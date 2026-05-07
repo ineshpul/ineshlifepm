@@ -30,6 +30,7 @@ import { verticalScoreTier } from '../lib/verticalScore';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { saveUserPublicProfile } from '../services/userProfile';
 import type { VerticalScoreBreakdownFirestore } from '../types/verticalScore';
+import { computeFeedViewingFromNow, normalizeNyDateKey, prevNyDateKey } from '../utils/nyTime';
 
 function ScoreBar({ label, value }: { label: string; value: number }) {
   const pct = Math.max(0, Math.min(100, value));
@@ -136,9 +137,41 @@ export function MeScreen() {
   const bestVerticalGainPoints = Math.round(Number(profile?.bestVerticalGainPoints ?? 0));
   const bestVerticalGainPostId = String(profile?.bestVerticalGainPostId ?? '').trim();
   const canOpenBestLeap = Boolean(bestVerticalGainPostId);
-  const streakDays = Number(profile?.streakDays ?? 0);
   const challengesCompleted = Number(profile?.challengesCompleted ?? 0);
-  const likesReceived = Number(profile?.likesReceived ?? 0);
+  const likesReceivedStored = Number(profile?.likesReceived ?? 0);
+  const streakDaysStored = Number(profile?.streakDays ?? 0);
+
+  const { viewingChallengeDateKey } = React.useMemo(() => computeFeedViewingFromNow(Date.now()), []);
+
+  const likesReceivedDerived = React.useMemo(() => {
+    // `videos.likesCount` is maintained by Cloud Functions; summing here keeps the profile UI correct
+    // even if we haven't backfilled user-level aggregates.
+    return myVideos.reduce((sum, v) => sum + (Number.isFinite(v.likesCount) ? v.likesCount : 0), 0);
+  }, [myVideos]);
+
+  const streakDaysDerived = React.useMemo(() => {
+    if (myVideos.length === 0) return 0;
+    const postedKeys = new Set<string>();
+    for (const v of myVideos) {
+      const k = normalizeNyDateKey(v.challengeDate, viewingChallengeDateKey);
+      if (k) postedKeys.add(k);
+    }
+    // If user hasn't posted for the active noon→noon cycle yet, show streak through yesterday (T−1),
+    // since the user can still post today without losing streak until noon.
+    let cursor = postedKeys.has(viewingChallengeDateKey)
+      ? viewingChallengeDateKey
+      : prevNyDateKey(viewingChallengeDateKey);
+    let count = 0;
+    for (let i = 0; i < 500; i++) {
+      if (!postedKeys.has(cursor)) break;
+      count += 1;
+      cursor = prevNyDateKey(cursor);
+    }
+    return count;
+  }, [myVideos, viewingChallengeDateKey]);
+
+  const likesReceived = likesReceivedDerived > 0 ? likesReceivedDerived : likesReceivedStored;
+  const streakDays = streakDaysDerived > 0 ? streakDaysDerived : streakDaysStored;
 
   const initials =
     (username.split(/[\s_]+/).filter(Boolean)[0]?.[0] ?? 'U').toUpperCase() +
