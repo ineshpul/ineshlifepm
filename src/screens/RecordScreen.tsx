@@ -39,6 +39,7 @@ import { useSettingsPreferences } from '../state/settingsPreferences';
 import * as MediaLibrary from 'expo-media-library';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { getExpoExtra } from '../config/expoExtra';
+import { computeFeedViewingFromNow } from '../utils/nyTime';
 
 async function setAudioSessionForRecording() {
   await Audio.setAudioModeAsync({
@@ -85,10 +86,15 @@ export function RecordScreen() {
   const { markPostedToday } = useAppState();
   const { user } = useAuth();
   const { challenge, window } = useTodayChallenge();
+  const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
   const playerFacing = getPlayerFacingChallenge(challenge, window);
   const maxSec = challenge.maxDurationSeconds;
-  const postedToday = useHasPostedToday(user?.uid, window.dateKey);
-  const attemptsRemaining = useAttemptsRemaining(user?.uid, window.dateKey, challenge.maxRecordingAttempts);
+  const postedToday = useHasPostedToday(user?.uid, viewingChallengeDateKey);
+  const attemptsRemaining = useAttemptsRemaining(
+    user?.uid,
+    viewingChallengeDateKey,
+    challenge.maxRecordingAttempts
+  );
 
   const [permission, requestPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
@@ -375,7 +381,7 @@ export function RecordScreen() {
       const blob = await clipUriToBlob(clipUri);
       const ext = 'mp4';
       const contentType = 'video/mp4';
-      const path = `videos/${user.uid}/${window.dateKey}/${Date.now()}.${ext}`;
+      const path = `videos/${user.uid}/${viewingChallengeDateKey}/${Date.now()}.${ext}`;
       const rref = ref(storage(), path);
       setUploadPct(0);
       const task = uploadBytesResumable(rref, blob, { contentType });
@@ -401,7 +407,7 @@ export function RecordScreen() {
           payload: {
             uid: user.uid,
             username: String(user.username ?? 'user').trim() || 'user',
-            challengeDate: window.dateKey,
+            challengeDate: viewingChallengeDateKey,
             challengeTitle: challenge.title,
             challengeSubtitle: CHALLENGE_INSTRUCTIONS,
             prompt: challenge.title,
@@ -415,7 +421,7 @@ export function RecordScreen() {
         try {
           await syncAttemptLedgerAfterSuccessfulPost({
             uid: user.uid,
-            challengeDate: window.dateKey,
+            challengeDate: viewingChallengeDateKey,
           });
         } catch {
           // Best-effort; video doc is the source of truth for “posted today”.
@@ -459,7 +465,7 @@ export function RecordScreen() {
         try {
           await refundRecordingAttemptIfNoPostedVideo({
             uid: user.uid,
-            challengeDate: window.dateKey,
+            challengeDate: viewingChallengeDateKey,
           });
         } catch {
           // ignore ledger cleanup failures
