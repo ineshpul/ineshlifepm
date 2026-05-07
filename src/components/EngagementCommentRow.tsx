@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 
 import { UsernameLink } from './UsernameLink';
 import { colors } from '../theme/colors';
@@ -66,12 +66,20 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
       setLiked(false);
       return;
     }
+    let alive = true;
     const ref = doc(firestore(), 'videos', videoId, 'comments', c.id, 'likes', viewerUid);
-    return onSnapshot(
-      ref,
-      (snap) => setLiked(snap.exists()),
-      () => setLiked(false)
-    );
+    void getDoc(ref)
+      .then((snap) => {
+        if (!alive) return;
+        setLiked(snap.exists());
+      })
+      .catch(() => {
+        if (!alive) return;
+        setLiked(false);
+      });
+    return () => {
+      alive = false;
+    };
   }, [viewerUid, videoId, c.id]);
 
   const deleteColumnPadTop = showTopReplyMeta
@@ -142,6 +150,7 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
                   if (likeBusy) return;
                   setLikeBusy(true);
                   void toggleCommentLike({ videoId, commentId: c.id, viewerUid })
+                    .then((res) => setLiked(res === 'liked'))
                     .catch(() => {})
                     .finally(() => setLikeBusy(false));
                 }}

@@ -120,23 +120,7 @@ function FeedPostVideoInner(props: {
     };
   }, [effectivePlay, analyticsVideoId, viewerUid, videoOwnerUid]);
 
-  React.useEffect(() => {
-    const player = videoRef.current;
-    if (!player) return;
-    if (effectivePlay && loaded) {
-      void (async () => {
-        try {
-          await player.setIsMutedAsync(false);
-          await player.setVolumeAsync(1.0);
-          await player.playAsync();
-        } catch {
-          /* native race */
-        }
-      })();
-    } else if (!effectivePlay) {
-      void player.pauseAsync?.();
-    }
-  }, [effectivePlay, loaded, url]);
+  // Rely on `shouldPlay`/`isMuted` props to control playback; avoid extra native calls here.
 
   const onPlaybackStatusUpdate = React.useCallback((s: AVPlaybackStatus) => {
     if (s.isLoaded) setLoaded(true);

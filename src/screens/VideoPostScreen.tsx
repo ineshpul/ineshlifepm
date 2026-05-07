@@ -12,7 +12,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { Audio, Video, ResizeMode } from 'expo-av';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 
 import { FeedPostEngagement } from '../components/FeedPostEngagement';
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
@@ -73,9 +73,11 @@ export function VideoPostScreen({ route }: Props) {
       return;
     }
     const ref = doc(firestore(), 'videos', videoId);
-    return onSnapshot(
-      ref,
-      (snap) => {
+    let alive = true;
+    setLoadState('loading');
+    void getDoc(ref)
+      .then((snap) => {
+        if (!alive) return;
         if (!snap.exists()) {
           setRow(null);
           setLoadState('missing');
@@ -97,13 +99,16 @@ export function VideoPostScreen({ route }: Props) {
           maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
         });
         setLoadState('ready');
-      },
-      () => {
+      })
+      .catch(() => {
+        if (!alive) return;
         setRow(null);
         setLoadState('error');
-      }
-    );
-  }, [videoId]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [videoId, gateById]);
 
   const blockOtherPeoplesPost =
     gateById ||
