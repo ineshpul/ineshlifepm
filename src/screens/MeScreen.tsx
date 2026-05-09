@@ -30,6 +30,7 @@ import { verticalScoreTier } from '../lib/verticalScore';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { saveUserPublicProfile } from '../services/userProfile';
 import type { VerticalScoreBreakdownFirestore } from '../types/verticalScore';
+import { useChallengeWindow } from '../state/challenge';
 import { computeFeedViewingFromNow, normalizeNyDateKey, prevNyDateKey } from '../utils/nyTime';
 
 function ScoreBar({ label, value }: { label: string; value: number }) {
@@ -139,9 +140,9 @@ export function MeScreen() {
   const canOpenBestLeap = Boolean(bestVerticalGainPostId);
   const challengesCompleted = Number(profile?.challengesCompleted ?? 0);
   const likesReceivedStored = Number(profile?.likesReceived ?? 0);
-  const streakDaysStored = Number(profile?.streakDays ?? 0);
+  useChallengeWindow();
 
-  const { viewingChallengeDateKey } = React.useMemo(() => computeFeedViewingFromNow(Date.now()), []);
+  const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
 
   const likesReceivedDerived = React.useMemo(() => {
     // `videos.likesCount` is maintained by Cloud Functions; summing here keeps the profile UI correct
@@ -149,18 +150,17 @@ export function MeScreen() {
     return myVideos.reduce((sum, v) => sum + (Number.isFinite(v.likesCount) ? v.likesCount : 0), 0);
   }, [myVideos]);
 
+  /** Consecutive leap days with an **approved** video, ending at the current cycle. Missing the current cycle ⇒ 0. */
   const streakDaysDerived = React.useMemo(() => {
     if (myVideos.length === 0) return 0;
     const postedKeys = new Set<string>();
     for (const v of myVideos) {
+      if (String(v.moderationStatus ?? '').toLowerCase() !== 'approved') continue;
       const k = normalizeNyDateKey(v.challengeDate, viewingChallengeDateKey);
       if (k) postedKeys.add(k);
     }
-    // If user hasn't posted for the active noon→noon cycle yet, show streak through yesterday (T−1),
-    // since the user can still post today without losing streak until noon.
-    let cursor = postedKeys.has(viewingChallengeDateKey)
-      ? viewingChallengeDateKey
-      : prevNyDateKey(viewingChallengeDateKey);
+    if (!postedKeys.has(viewingChallengeDateKey)) return 0;
+    let cursor = viewingChallengeDateKey;
     let count = 0;
     for (let i = 0; i < 500; i++) {
       if (!postedKeys.has(cursor)) break;
@@ -171,7 +171,7 @@ export function MeScreen() {
   }, [myVideos, viewingChallengeDateKey]);
 
   const likesReceived = likesReceivedDerived > 0 ? likesReceivedDerived : likesReceivedStored;
-  const streakDays = streakDaysDerived > 0 ? streakDaysDerived : streakDaysStored;
+  const streakDays = streakDaysDerived;
 
   const initials =
     (username.split(/[\s_]+/).filter(Boolean)[0]?.[0] ?? 'U').toUpperCase() +

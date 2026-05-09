@@ -42,6 +42,12 @@ export function nextNyCalendarDay(y: number, mo: number, d: number) {
   return nyCalendarPartsFromUtc(t);
 }
 
+/** Previous calendar date in NY before y-mo-d (approx. via −25h from local noon). Mirrors {@link nextNyCalendarDay}. */
+export function prevNyCalendarDay(y: number, mo: number, d: number) {
+  const t = utcMsForNyWallClock(y, mo, d, 12, 0) - 25 * 3600000;
+  return nyCalendarPartsFromUtc(t);
+}
+
 export function nyDateKey(d = new Date()) {
   const { y, mo, d: day } = nyCalendarPartsFromUtc(d.getTime());
   return `${y}-${String(mo).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -157,7 +163,8 @@ export function computeFeedViewingFromNow(nowMs: number): FeedViewingWindow {
     vm = mo;
     vd = d;
   } else {
-    const prev = nyCalendarPartsFromUtc(todayNoon - 36 * 3600000);
+    /** Before noon ET: still in “yesterday’s” noon→noon leap — label is the **previous NY calendar date**. */
+    const prev = prevNyCalendarDay(y, mo, d);
     vy = prev.y;
     vm = prev.mo;
     vd = prev.d;
@@ -198,26 +205,44 @@ export function challengeDateKeysForFirestoreIn(dateKeys: readonly string[]): st
   return Array.from(set).slice(0, 30);
 }
 
+/**
+ * Walk backward along consecutive NY **calendar** dates (newest first). Matches how streaks and
+ * `videos.challengeDate` labels advance — **not** `noon−40h`, which skips a calendar day and broke streaks.
+ */
+export function nyLeapDayChainBackward(fromDateKey: string, count: number): string[] {
+  const keys: string[] = [];
+  let cur = normalizeNyDateKey(fromDateKey, '');
+  if (!cur) return keys;
+  for (let i = 0; i < count; i++) {
+    keys.push(cur);
+    cur = prevNyDateKey(cur);
+  }
+  return keys;
+}
+
+/** Previous `YYYY-MM-DD` label in NY (one calendar day back). Used for streaks and prior-leap UI. */
 export function prevNyDateKey(dateKey: string): string {
   const n = normalizeNyDateKey(dateKey, '');
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(n);
   if (!m) return dateKey;
-  const noon = utcMsForNyWallClock(Number(m[1]), Number(m[2]), Number(m[3]), 12, 0);
-  const prev = nyCalendarPartsFromUtc(noon - 40 * 3600000);
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const prev = prevNyCalendarDay(y, mo, d);
   return `${prev.y}-${String(prev.mo).padStart(2, '0')}-${String(prev.d).padStart(2, '0')}`;
 }
 
 export function nyRecentChallengeDateKeys(anchorDateKey: string, totalDays: number): string[] {
   const keys: string[] = [];
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(anchorDateKey.trim());
+  const n0 = normalizeNyDateKey(anchorDateKey.trim(), '');
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(n0);
   if (!m || totalDays <= 0) return keys;
   let y = Number(m[1]);
   let mo = Number(m[2]);
   let d = Number(m[3]);
   for (let i = 0; i < totalDays; i++) {
     keys.push(`${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
-    const noon = utcMsForNyWallClock(y, mo, d, 12, 0);
-    const prev = nyCalendarPartsFromUtc(noon - 40 * 3600000);
+    const prev = prevNyCalendarDay(y, mo, d);
     y = prev.y;
     mo = prev.mo;
     d = prev.d;

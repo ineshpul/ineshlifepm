@@ -23,6 +23,18 @@ service cloud.firestore {
       return isAdmin() || isModerator();
     }
 
+    /** Matches client noon→noon cycle; maintained by `scheduledLeapViewingMeta` Cloud Function. */
+    function leapMetaKey() {
+      return get(/databases/$(database)/documents/config/leapViewing).data.viewingChallengeDateKey;
+    }
+
+    function viewerPostedCurrentLeap() {
+      return exists(/databases/$(database)/documents/config/leapViewing)
+        && exists(/databases/$(database)/documents/videos/$(request.auth.uid + '_' + leapMetaKey()))
+        && get(/databases/$(database)/documents/videos/$(request.auth.uid + '_' + leapMetaKey())).data.uid
+          == request.auth.uid;
+    }
+
     function videoDoc(videoId) {
       return get(/databases/$(database)/documents/videos/$(videoId)).data;
     }
@@ -32,8 +44,11 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/videos/$(videoId))
         && (
           isStaff()
-          || videoDoc(videoId).moderationStatus == 'approved'
           || videoDoc(videoId).uid == request.auth.uid
+          || (
+            videoDoc(videoId).moderationStatus == 'approved'
+            && viewerPostedCurrentLeap()
+          )
         );
     }
 
@@ -261,6 +276,12 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Active leap cycle key (noon→noon ET) — used only by security rules for feed/video access.
+    match /config/{docId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
     // Daily post is unique per user per challenge day (doc id `${uid}_${challengeDate}`).
     match /videos/{videoId} {
       // Allow read when the doc is missing so `onSnapshot` (e.g. “posted today?”) does not throw
@@ -268,9 +289,12 @@ service cloud.firestore {
       allow read: if signedIn()
         && (
           !exists(/databases/$(database)/documents/videos/$(videoId))
-          || resource.data.moderationStatus == 'approved'
-          || resource.data.uid == request.auth.uid
           || isStaff()
+          || resource.data.uid == request.auth.uid
+          || (
+            resource.data.moderationStatus == 'approved'
+            && viewerPostedCurrentLeap()
+          )
         );
 
       allow create: if signedIn()
@@ -471,6 +495,7 @@ service cloud.firestore {
           'verticalScore',
           'verticalScoreBreakdown',
           'verticalScoreUpdatedAt',
+          'verticalScoreAdjustment',
           'bestVerticalGainPostId',
           'bestVerticalGainPoints',
           'highestJumpDisplayInches',
@@ -488,6 +513,7 @@ service cloud.firestore {
           'verticalScore',
           'verticalScoreBreakdown',
           'verticalScoreUpdatedAt',
+          'verticalScoreAdjustment',
           'bestVerticalGainPostId',
           'bestVerticalGainPoints',
           'highestJumpDisplayInches',

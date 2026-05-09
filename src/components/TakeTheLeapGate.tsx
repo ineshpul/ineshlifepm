@@ -9,13 +9,8 @@ import { navigateToRecord } from '../navigation/navigationHelpers';
 
 export type TakeTheLeapGateVariant = 'feed' | 'social';
 
-const COPY: Record<TakeTheLeapGateVariant, string> = {
-  feed: 'Post the current challenge (noon–noon Eastern) to unlock the feed. It locks again at the next 12:00 PM ET until you post for that new cycle.',
-  social: 'Post your first leap to watch other people’s videos on Leap.',
-};
-
 export function TakeTheLeapGate({
-  variant = 'social',
+  variant: _variant = 'social',
   embedded = false,
 }: {
   variant?: TakeTheLeapGateVariant;
@@ -30,7 +25,6 @@ export function TakeTheLeapGate({
         <Text style={[styles.lockEmoji, embedded && styles.lockEmojiEmbedded]}>🔒</Text>
       </View>
       <Text style={[styles.gateTitle, embedded && styles.gateTitleEmbedded]}>Take the leap to continue</Text>
-      <Text style={[styles.gateBody, embedded && styles.gateBodyEmbedded]}>{COPY[variant]}</Text>
       <PrimaryButton
         title="Leap"
         variant="green"
@@ -78,14 +72,6 @@ const styles = StyleSheet.create({
     color: colors.text,
     textAlign: 'center',
   },
-  gateBody: {
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: 'center',
-    color: colors.muted,
-    fontWeight: '600',
-    paddingHorizontal: 10,
-  },
   gateCta: {
     width: 220,
     borderRadius: 30,
@@ -109,7 +95,6 @@ const styles = StyleSheet.create({
   },
   lockEmojiEmbedded: { fontSize: 22 },
   gateTitleEmbedded: { fontSize: 18, marginTop: 4 },
-  gateBodyEmbedded: { fontSize: 13, lineHeight: 18 },
   gateCtaEmbedded: {
     width: '100%',
     maxWidth: 260,

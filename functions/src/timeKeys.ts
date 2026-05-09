@@ -13,13 +13,19 @@ export function nyDateKeyFromMs(ms: number): string {
  * Challenge / "leap" day key (noon ET → next noon ET), matches client `computeFeedViewingFromNow`.
  * Daily leaper points must use this so the board matches "today's leap", not calendar midnight.
  */
+function prevNyCalendarDay(y: number, mo: number, d: number) {
+  const t = utcMsForNyWallClock(y, mo, d, 12, 0) - 25 * 3600000;
+  return nyCalendarPartsFromUtc(t);
+}
+
 export function leapChallengeDateKeyFromMs(ms: number): string {
   const { y, mo, d } = nyCalendarPartsFromUtc(ms);
   const todayNoon = utcMsForNyWallClock(y, mo, d, 12, 0);
   if (ms >= todayNoon) {
     return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   }
-  const prev = nyCalendarPartsFromUtc(todayNoon - 36 * 3600000);
+  /** Before noon ET: same label as previous NY calendar date (matches app `computeFeedViewingFromNow`). */
+  const prev = prevNyCalendarDay(y, mo, d);
   return `${prev.y}-${String(prev.mo).padStart(2, '0')}-${String(prev.d).padStart(2, '0')}`;
 }
 

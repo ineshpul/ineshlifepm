@@ -7,7 +7,7 @@ import {
   CHALLENGE_PRE_DROP_INSTRUCTIONS,
   CHALLENGE_PRE_DROP_TITLE,
 } from '../content/challengeCopy';
-import { computeChallengeWindowFromNow } from '../utils/nyTime';
+import { computeChallengeWindowFromNow, computeFeedViewingFromNow } from '../utils/nyTime';
 
 /** Quick-pick lengths in MOD settings; any integer in [MIN, MAX] is allowed when saved. */
 export const TASK_DURATION_OPTIONS = [15, 30, 45, 60, 90, 120] as const;
@@ -86,8 +86,11 @@ export function useChallengeWindow(): ChallengeWindow {
 
 export function useTodayChallenge() {
   const win = useChallengeWindow();
+  /** Must match `videos/{uid}_{viewingChallengeDateKey}` / Record screen (noon→noon NY), not calendar `win.dateKey`. */
+  const viewingChallengeDateKey = computeFeedViewingFromNow(Date.now()).viewingChallengeDateKey;
+
   const [challenge, setChallenge] = React.useState<Challenge>(() => ({
-    dateKey: win.dateKey,
+    dateKey: viewingChallengeDateKey,
     title: '',
     subtitle: '',
     maxDurationSeconds: 60,
@@ -96,17 +99,17 @@ export function useTodayChallenge() {
 
   React.useEffect(() => {
     if (!isFirebaseConfigured()) {
-      setChallenge((c) => ({ ...c, dateKey: win.dateKey }));
+      setChallenge((c) => ({ ...c, dateKey: viewingChallengeDateKey }));
       return;
     }
-    const ref = doc(firestore(), 'challenges', win.dateKey);
+    const ref = doc(firestore(), 'challenges', viewingChallengeDateKey);
     const unsub = onSnapshot(
       ref,
       (snap) => {
         if (snap.exists()) {
           const data: any = snap.data();
           setChallenge({
-            dateKey: win.dateKey,
+            dateKey: viewingChallengeDateKey,
             title: String(data?.title ?? 'Daily challenge'),
             subtitle: String(data?.subtitle ?? ''),
             maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
@@ -114,7 +117,7 @@ export function useTodayChallenge() {
           });
         } else {
           setChallenge({
-            dateKey: win.dateKey,
+            dateKey: viewingChallengeDateKey,
             title: '',
             subtitle: '',
             maxDurationSeconds: 60,
@@ -124,7 +127,7 @@ export function useTodayChallenge() {
       },
       () => {
         setChallenge({
-          dateKey: win.dateKey,
+          dateKey: viewingChallengeDateKey,
           title: '',
           subtitle: '',
           maxDurationSeconds: 60,
@@ -133,7 +136,7 @@ export function useTodayChallenge() {
       }
     );
     return () => unsub();
-  }, [win.dateKey]);
+  }, [viewingChallengeDateKey]);
 
   return { challenge, window: win };
 }

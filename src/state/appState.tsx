@@ -3,6 +3,7 @@ import * as React from 'react';
 import { useAuth } from './auth';
 import { useChallengeWindow } from './challenge';
 import { useHasPostedToday } from './posting';
+import { computeFeedViewingFromNow } from '../utils/nyTime';
 
 type AppStateValue = {
   hasPostedToday: boolean;
@@ -24,8 +25,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [localPostedOverride, setLocalPostedOverride] = React.useState(false);
 
   const { user } = useAuth();
-  const win = useChallengeWindow();
-  const postedFromFirestore = useHasPostedToday(user?.uid, win.dateKey);
+  useChallengeWindow();
+  const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
+  const postedFromFirestore = useHasPostedToday(user?.uid, viewingChallengeDateKey);
   const hasPostedToday = postedFromFirestore || localPostedOverride;
 
   React.useEffect(() => {
@@ -40,9 +42,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   }, [day]);
 
   React.useEffect(() => {
-    // Firestore posting state is keyed off NY challenge day via `win.dateKey`.
     setLocalPostedOverride(false);
-  }, [win.dateKey]);
+  }, [viewingChallengeDateKey]);
 
   const markPostedToday = React.useCallback(() => {
     // Optimistic unlock for the current session; Firestore listener becomes source of truth.

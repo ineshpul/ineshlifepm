@@ -13,6 +13,8 @@ import {
 import { recomputeVerticalScoreCallable } from './verticalScoreCallable';
 import { recordVideoViewCallable } from './recordVideoView';
 import { backfillLeapLeaperPointsCallable } from './backfillLeapLeaperPointsCallable';
+import { purchaseRecordingAttemptCallable } from './purchaseRecordingAttempt';
+import { scheduledLeapViewingMeta } from './leapViewingMeta';
 
 admin.initializeApp();
 
@@ -26,6 +28,8 @@ export {
   recomputeVerticalScoreCallable,
   recordVideoViewCallable,
   backfillLeapLeaperPointsCallable,
+  purchaseRecordingAttemptCallable,
+  scheduledLeapViewingMeta,
 };
 
 type ChatMessagePayload = {

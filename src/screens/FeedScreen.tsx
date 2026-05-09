@@ -18,7 +18,15 @@ import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
-import { collection, doc, limit, onSnapshot, query, where } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  limit,
+  onSnapshot,
+  query,
+  where,
+  type QueryDocumentSnapshot,
+} from 'firebase/firestore';
 
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
 import { UsernameLink } from '../components/UsernameLink';
@@ -46,13 +54,13 @@ import {
 import { setAppBadgeCount } from '../services/pushNotifications';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import {
+  challengeDateKeysForFirestoreIn,
   computeFeedViewingFromNow,
   normalizeNyDateKey,
   nyDateKey,
   nyDateKeyToSortUtcMs,
-  nyRecentChallengeDateKeys,
+  nyLeapDayChainBackward,
   prevNyDateKey,
-  prioritizedChallengeDateInForVideosQuery,
 } from '../utils/nyTime';
 
 type FeedVideo = {
@@ -71,8 +79,10 @@ type FeedVideo = {
 /** Bottom sheet height (instructions + engagement) per reel page — matches Tabs tab bar feel. */
 const REEL_BOTTOM_SHEET = 232;
 const TAB_BAR_HEIGHT = 58;
-/** Approved-query window: today + prior NY days (Firestore `in` max 30). */
+/** Prior days use {@link nyLeapDayChainBackward} → {@link prevNyDateKey} — **same stepping as streaks** (one NY calendar day per step). */
 const FEED_DAY_WINDOW = 14;
+/** Per-day cap — avoids one busy day consuming a shared `limit()` and hiding whole dates. */
+const FEED_APPROVED_PER_DAY_LIMIT = 200;
 
 /** Must be a stable reference — `viewabilityConfigCallbackPairs` cannot change after mount (RN FlatList). */
 const FEED_VIEWABILITY_CONFIG = {
@@ -122,7 +132,24 @@ export function FeedScreen() {
     }, 30_000);
     return () => clearInterval(id);
   }, []);
-  const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
+
+  /**
+   * Leap cycle can change at **noon ET** while the NY calendar day stays the same — `nyCalendarDay`
+   * alone would miss that and leave listeners / query `in` lists on the wrong cycle until midnight.
+   */
+  const [viewingChallengeDateKey, setViewingChallengeDateKey] = React.useState(
+    () => computeFeedViewingFromNow(Date.now()).viewingChallengeDateKey
+  );
+  React.useEffect(() => {
+    const tick = () => {
+      const next = computeFeedViewingFromNow(Date.now()).viewingChallengeDateKey;
+      setViewingChallengeDateKey((prev) => (prev === next ? prev : next));
+    };
+    tick();
+    const id = setInterval(tick, 5000);
+    return () => clearInterval(id);
+  }, []);
+
   const canViewEveryoneFeed = useCanViewEveryoneFeed(user?.uid);
 
   React.useEffect(() => {
@@ -344,21 +371,23 @@ export function FeedScreen() {
 
     setFeedHydrated(false);
     let cancelled = false;
-    let approvedUnsub: (() => void) | undefined;
+    let approvedUnsubs: (() => void)[] = [];
     let mineUnsub: (() => void) | null = null;
-    let approvedDocs: FeedVideo[] = [];
+    /** One bucket per leap day in the window — each has its own listener + per-day `limit`. */
+    let approvedDocsByDay: FeedVideo[][] = [];
     let mineDocs: FeedVideo[] = [];
-    let approvedListenerSeen = false;
+    let approvedListenersDone = false;
     let mineListenerSeen = false;
 
     const bumpHydrated = () => {
       if (cancelled) return;
-      if (approvedListenerSeen && mineListenerSeen) setFeedHydrated(true);
+      if (approvedListenersDone && mineListenerSeen) setFeedHydrated(true);
     };
 
     const merge = () => {
       const map = new Map<string, FeedVideo>();
-      for (const v of [...mineDocs, ...approvedDocs]) {
+      const approvedFlat = approvedDocsByDay.flat();
+      for (const v of [...mineDocs, ...approvedFlat]) {
         if (!v.url) continue;
         map.set(v.id, v);
       }
@@ -387,66 +416,85 @@ export function FeedScreen() {
         if (cancelled) return;
 
         const calToday = nyDateKey();
-        const anchorCandidates = [
-          normalizeNyDateKey(nyCalendarDay, calToday),
-          normalizeNyDateKey(calToday, calToday),
-          normalizeNyDateKey(viewingChallengeDateKey, calToday),
-        ];
-        const anchorKey = anchorCandidates.reduce((best, k) =>
-          nyDateKeyToSortUtcMs(k, 0) > nyDateKeyToSortUtcMs(best, 0) ? k : best
-        );
-        let challengeDateIn = prioritizedChallengeDateInForVideosQuery(
-          anchorKey,
-          FEED_DAY_WINDOW,
-          viewingChallengeDateKey
-        );
-        if (challengeDateIn.length === 0) {
-          challengeDateIn = [normalizeNyDateKey(viewingChallengeDateKey, calToday)];
-        }
-        // Avoid orderBy so indexes stay minimal; merge() sorts by challengeDate + time.
-        const approvedQ = query(
-          collection(firestore(), 'videos'),
-          where('challengeDate', 'in', challengeDateIn),
-          where('moderationStatus', '==', 'approved'),
-          limit(400)
-        );
+        const anchorKey = normalizeNyDateKey(viewingChallengeDateKey, calToday);
+        /** Same backward chain as Me streak — no skipped calendar dates; legacy `noon−40h` caused both bugs. */
+        const leapChain = nyLeapDayChainBackward(anchorKey, FEED_DAY_WINDOW);
+        /**
+         * Between NY **midnight and noon**, `nyDateKey()` (calendar “today”) is **one day ahead** of the
+         * noon→noon leap key (`anchorKey`). Some `videos.challengeDate` values follow the calendar day
+         * (same as TopScreen daily filter); without including `calToday` here those clips are absent until
+         * Eastern noon when leap and calendar align.
+         */
+        const calNorm = normalizeNyDateKey(calToday, calToday);
+        const dayChain =
+          calNorm && calNorm !== anchorKey ? [calNorm, ...leapChain] : leapChain;
+        approvedDocsByDay = dayChain.map(() => []);
 
-        approvedUnsub = onSnapshot(
-          approvedQ,
-          (snap) => {
-            approvedDocs = snap.docs.map((d) => {
-              const data: any = d.data();
-              const createdAtMs =
-                typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
-              const rawCd = data?.challengeDate;
-              const cdRaw =
-                rawCd && typeof (rawCd as { toDate?: () => Date }).toDate === 'function'
-                  ? nyDateKey((rawCd as { toDate: () => Date }).toDate())
-                  : String(rawCd ?? '');
-              const challengeDate = normalizeNyDateKey(cdRaw, viewingChallengeDateKey);
-              return {
-                id: d.id,
-                username: String(data?.username ?? 'user'),
-                prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
-                url: String(data?.url ?? ''),
-                createdAtMs,
-                ownerUid: String(data?.uid ?? ''),
-                moderationStatus: String(data?.moderationStatus ?? 'approved'),
-                maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
-                challengeDate,
-              };
-            });
-            merge();
-            approvedListenerSeen = true;
-            bumpHydrated();
-          },
-          () => {
-            approvedDocs = [];
-            merge();
-            approvedListenerSeen = true;
-            bumpHydrated();
-          }
-        );
+        const docToFeedVideo = (d: QueryDocumentSnapshot): FeedVideo => {
+          const data: any = d.data();
+          const createdAtMs =
+            typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+          const rawCd = data?.challengeDate;
+          const cdRaw =
+            rawCd && typeof (rawCd as { toDate?: () => Date }).toDate === 'function'
+              ? nyDateKey((rawCd as { toDate: () => Date }).toDate())
+              : String(rawCd ?? '');
+          const challengeDate = normalizeNyDateKey(cdRaw, viewingChallengeDateKey);
+          return {
+            id: d.id,
+            username: String(data?.username ?? 'user'),
+            prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
+            url: String(data?.url ?? ''),
+            createdAtMs,
+            ownerUid: String(data?.uid ?? ''),
+            moderationStatus: String(data?.moderationStatus ?? 'approved'),
+            maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
+            challengeDate,
+          };
+        };
+
+        const segmentSeen = dayChain.map(() => false);
+        const markApprovedReady = () => {
+          approvedListenersDone = segmentSeen.length === 0 || segmentSeen.every(Boolean);
+          bumpHydrated();
+        };
+
+        if (dayChain.length === 0) {
+          approvedListenersDone = true;
+          markApprovedReady();
+        } else {
+          approvedUnsubs = dayChain.map((dayKey, idx) => {
+            const inVals = challengeDateKeysForFirestoreIn([dayKey]);
+            if (inVals.length === 0) {
+              segmentSeen[idx] = true;
+              approvedDocsByDay[idx] = [];
+              merge();
+              markApprovedReady();
+              return () => {};
+            }
+            const approvedQ = query(
+              collection(firestore(), 'videos'),
+              where('challengeDate', 'in', inVals),
+              where('moderationStatus', '==', 'approved'),
+              limit(FEED_APPROVED_PER_DAY_LIMIT)
+            );
+            return onSnapshot(
+              approvedQ,
+              (snap) => {
+                approvedDocsByDay[idx] = snap.docs.map(docToFeedVideo);
+                merge();
+                segmentSeen[idx] = true;
+                markApprovedReady();
+              },
+              () => {
+                approvedDocsByDay[idx] = [];
+                merge();
+                segmentSeen[idx] = true;
+                markApprovedReady();
+              }
+            );
+          });
+        }
 
         const mineRef = doc(firestore(), 'videos', todayVideoDocId(user.uid, viewingChallengeDateKey));
         mineUnsub = onSnapshot(
@@ -496,7 +544,7 @@ export function FeedScreen() {
     return () => {
       cancelled = true;
       clearTimeout(safetyTimer);
-      approvedUnsub?.();
+      for (const u of approvedUnsubs) u();
       mineUnsub?.();
     };
   }, [nyCalendarDay, viewingChallengeDateKey, user?.uid, canViewEveryoneFeed]);

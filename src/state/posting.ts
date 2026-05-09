@@ -19,7 +19,22 @@ export function useHasPostedToday(uid: string | undefined, dateKey: string) {
     }
 
     const ref = doc(firestore(), 'videos', todayVideoDocId(uid, dateKey));
-    return onSnapshot(ref, (snap) => setPosted(snap.exists()));
+    return onSnapshot(ref, (snap) => {
+      if (!snap.exists()) {
+        setPosted(false);
+        return;
+      }
+      const data = snap.data() as { uid?: string; deleted?: boolean } | undefined;
+      if (String(data?.uid ?? '') !== uid) {
+        setPosted(false);
+        return;
+      }
+      if (data?.deleted === true) {
+        setPosted(false);
+        return;
+      }
+      setPosted(true);
+    });
   }, [uid, dateKey]);
 
   return posted;

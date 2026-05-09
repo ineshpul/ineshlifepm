@@ -5,6 +5,7 @@ import { syncLeapScheduledNotifications } from '../services/notifications';
 import { useAuth } from './auth';
 import { useChallengeWindow } from './challenge';
 import { useHasPostedToday } from './posting';
+import { computeFeedViewingFromNow } from '../utils/nyTime';
 
 const STORAGE_KEY = 'leap.settings.v4';
 
@@ -109,7 +110,9 @@ export function SettingsPreferencesProvider({ children }: { children: React.Reac
   const [preferences, setPreferences] = React.useState<SettingsPreferencesState>(SETTINGS_DEFAULTS);
   const { user } = useAuth();
   const win = useChallengeWindow();
-  const hasPostedToday = useHasPostedToday(user?.uid, win.dateKey);
+  void win;
+  const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
+  const hasPostedToday = useHasPostedToday(user?.uid, viewingChallengeDateKey);
 
   React.useEffect(() => {
     let alive = true;

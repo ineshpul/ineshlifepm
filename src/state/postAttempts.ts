@@ -62,6 +62,9 @@ export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
   });
 }
 
+/** Vertical Score cost to buy one extra recording attempt (server-enforced). */
+export const ATTEMPT_PURCHASE_VERTICAL_COST = 10;
+
 export async function consumeRecordingAttempt(args: { uid: string; challengeDate: string }) {
   const { uid, challengeDate } = args;
   const attemptRef = doc(firestore(), 'postAttempts', `${uid}_${challengeDate}`);
@@ -161,11 +164,8 @@ export function useAttemptsRemaining(
     const ref = doc(firestore(), 'postAttempts', `${uid}_${challengeDate}`);
     return onSnapshot(ref, (snap) => {
       const used = Number(snap.data()?.used ?? 0);
-      const ledgerMaxRaw = snap.data()?.max;
-      const max =
-        typeof ledgerMaxRaw === 'number' && ledgerMaxRaw > 0
-          ? normalizeMaxRecordingAttempts(ledgerMaxRaw)
-          : fallbackMax;
+      /** Always cap against the live challenge setting (`fallbackMax`), not a stale ledger `max`. */
+      const max = fallbackMax;
       setRemaining(Math.max(0, max - used));
     });
   }, [uid, challengeDate, fallbackMax]);

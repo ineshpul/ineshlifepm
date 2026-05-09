@@ -13,6 +13,21 @@ service firebase.storage {
             == 'approved';
       }
 
+      function leapMetaKeyStorage() {
+        return firestore.get(/databases/(default)/documents/config/leapViewing).data.viewingChallengeDateKey;
+      }
+
+      function viewerPostedCurrentLeapStorage() {
+        return firestore.exists(/databases/(default)/documents/config/leapViewing)
+          && firestore.exists(
+            /databases/(default)/documents/videos/$(request.auth.uid + '_' + leapMetaKeyStorage())
+          )
+          && firestore.get(
+              /databases/(default)/documents/videos/$(request.auth.uid + '_' + leapMetaKeyStorage())
+            ).data.uid
+            == request.auth.uid;
+      }
+
       function requestUserIsAdmin() {
         return firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
           && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin == true;
@@ -30,8 +45,11 @@ service firebase.storage {
       allow read: if request.auth != null
         && (
           request.auth.uid == userId
-          || videoIsApprovedInFirestore()
           || requestUserIsStaff()
+          || (
+            videoIsApprovedInFirestore()
+            && viewerPostedCurrentLeapStorage()
+          )
         );
 
       allow write: if request.auth != null && request.auth.uid == userId;

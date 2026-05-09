@@ -14,7 +14,7 @@ import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/n
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
-import { doc, increment, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, increment, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 
 import { LeapLoadingFrog } from '../components/LeapLoadingFrog';
@@ -24,10 +24,12 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
 import { useAppState } from '../state/appState';
 import { useAuth } from '../state/auth';
-import { getPlayerFacingChallenge, useTodayChallenge } from '../state/challenge';
+import { getPlayerFacingChallenge, useChallengeWindow, useTodayChallenge } from '../state/challenge';
 import { firestore, isFirebaseConfigured, storage } from '../firebase/firebase';
 import {
+  ATTEMPT_PURCHASE_VERTICAL_COST,
   commitPostedVideo,
+  consumeRecordingAttempt,
   refundRecordingAttemptIfNoPostedVideo,
   syncAttemptLedgerAfterSuccessfulPost,
   useAttemptsRemaining,
@@ -39,6 +41,7 @@ import { useSettingsPreferences } from '../state/settingsPreferences';
 import * as MediaLibrary from 'expo-media-library';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { getExpoExtra } from '../config/expoExtra';
+import { purchaseRecordingAttemptWithScore } from '../services/recordingAttemptsPurchase';
 import { computeFeedViewingFromNow } from '../utils/nyTime';
 
 async function setAudioSessionForRecording() {
@@ -85,6 +88,7 @@ export function RecordScreen() {
   const { preferences } = useSettingsPreferences();
   const { markPostedToday } = useAppState();
   const { user } = useAuth();
+  useChallengeWindow();
   const { challenge, window } = useTodayChallenge();
   const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
   const playerFacing = getPlayerFacingChallenge(challenge, window);
@@ -99,6 +103,8 @@ export function RecordScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
   const attemptsLeft = attemptsRemaining;
+  const [verticalScoreDisplay, setVerticalScoreDisplay] = React.useState(0);
+  const [purchaseBusy, setPurchaseBusy] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
   const [countdown, setCountdown] = React.useState<number | null>(null);
   const [clipUri, setClipUri] = React.useState<string | null>(null);
@@ -115,6 +121,17 @@ export function RecordScreen() {
   React.useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
+
+  React.useEffect(() => {
+    if (!user?.uid || !isFirebaseConfigured()) {
+      setVerticalScoreDisplay(0);
+      return;
+    }
+    const ref = doc(firestore(), 'users', user.uid);
+    return onSnapshot(ref, (snap) => {
+      setVerticalScoreDisplay(Math.round(Number(snap.data()?.verticalScore ?? 0)));
+    });
+  }, [user?.uid]);
 
   const cameraPermissionPending = permission == null;
   const canUseCamera = permission?.granted === true;
@@ -288,8 +305,16 @@ export function RecordScreen() {
       const result = await cameraRef.current.recordAsync(recordingOptions);
 
       const fileUri = result?.uri ?? null;
-      setClipUri(fileUri);
       if (fileUri) {
+        if (user?.uid && isFirebaseConfigured()) {
+          try {
+            await consumeRecordingAttempt({ uid: user.uid, challengeDate: viewingChallengeDateKey });
+          } catch (e) {
+            showError('No attempts remaining', e);
+            return;
+          }
+        }
+        setClipUri(fileUri);
         setClipSource('recorded');
       } else {
         showError(
@@ -329,7 +354,15 @@ export function RecordScreen() {
       );
       return;
     }
-    if (attemptsLeft <= 0 || uploading) return;
+    if (attemptsLeft <= 0 || uploading) {
+      if (attemptsLeft <= 0 && !uploading) {
+        showInfo(
+          'Out of attempts',
+          'Spend Vertical Score for another try (below), or post your clip if you are done.'
+        );
+      }
+      return;
+    }
     if (!permission) return;
     if (!permission.granted) {
       const next = await requestPermission();
@@ -493,6 +526,40 @@ export function RecordScreen() {
     await runUpload();
   };
 
+  const onPurchaseAttemptPress = React.useCallback(() => {
+    if (!user?.uid || !isFirebaseConfigured()) return;
+    if (verticalScoreDisplay < ATTEMPT_PURCHASE_VERTICAL_COST) {
+      showInfo(
+        'Not enough Vertical Score',
+        `You need at least ${ATTEMPT_PURCHASE_VERTICAL_COST} Vertical Score to unlock another attempt.`
+      );
+      return;
+    }
+    Alert.alert(
+      'Get another attempt?',
+      `Spend ${ATTEMPT_PURCHASE_VERTICAL_COST} Vertical Score for one more recording try?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: `Spend ${ATTEMPT_PURCHASE_VERTICAL_COST}`,
+          onPress: () => {
+            setPurchaseBusy(true);
+            void (async () => {
+              try {
+                await purchaseRecordingAttemptWithScore(viewingChallengeDateKey);
+                showInfo('Attempt added', 'You can record again.');
+              } catch (e) {
+                showError('Could not unlock attempt', e);
+              } finally {
+                setPurchaseBusy(false);
+              }
+            })();
+          },
+        },
+      ]
+    );
+  }, [user?.uid, verticalScoreDisplay, viewingChallengeDateKey]);
+
   return (
     <Screen withSafeArea={false} style={styles.screen}>
       <View style={styles.topBar}>
@@ -588,12 +655,41 @@ export function RecordScreen() {
         ) : null}
       </View>
 
+      {playerFacing.canRecord && !postedToday && attemptsLeft <= 0 && !clipUri ? (
+        <View style={styles.outOfAttemptsCard}>
+          <Text style={styles.outOfAttemptsTitle}>Out of attempts</Text>
+          <Text style={styles.outOfAttemptsBody}>
+            You have used every recording try for this leap. Spend Vertical Score to get one more take, or post if you
+            are happy with your clip.
+          </Text>
+          <Text style={styles.outOfAttemptsScore}>Vertical Score: {verticalScoreDisplay}</Text>
+          {verticalScoreDisplay < ATTEMPT_PURCHASE_VERTICAL_COST ? (
+            <Text style={styles.outOfAttemptsHint}>
+              Need at least {ATTEMPT_PURCHASE_VERTICAL_COST} Vertical Score to buy another attempt.
+            </Text>
+          ) : null}
+          <PrimaryButton
+            title={
+              purchaseBusy
+                ? '…'
+                : `Spend ${ATTEMPT_PURCHASE_VERTICAL_COST} score · +1 attempt`
+            }
+            variant="outline"
+            disabled={purchaseBusy || verticalScoreDisplay < ATTEMPT_PURCHASE_VERTICAL_COST}
+            onPress={onPurchaseAttemptPress}
+            style={styles.outOfAttemptsBtn}
+          />
+        </View>
+      ) : null}
+
       <View style={styles.bottomBar}>
         <Text style={styles.meta}>
           {playerFacing.canRecord
-            ? attemptsLeft <= 1
-              ? `${maxSec}S MAX • 1 TAKE`
-              : `${maxSec}S MAX • ${attemptsLeft} ATTEMPTS LEFT`
+            ? attemptsLeft <= 0
+              ? `${maxSec}S MAX • OUT OF ATTEMPTS`
+              : attemptsLeft === 1
+                ? `${maxSec}S MAX • 1 ATTEMPT LEFT`
+                : `${maxSec}S MAX • ${attemptsLeft} ATTEMPTS LEFT`
             : playerFacing.instructionsLine}
         </Text>
 
@@ -720,6 +816,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   postedText: { color: colors.white, fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
+  outOfAttemptsCard: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  outOfAttemptsTitle: { color: colors.white, fontSize: 15, fontWeight: '900' },
+  outOfAttemptsBody: {
+    marginTop: 6,
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  outOfAttemptsScore: { marginTop: 10, color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '800' },
+  outOfAttemptsHint: { marginTop: 8, color: 'rgba(251,191,36,0.95)', fontSize: 12, fontWeight: '700' },
+  outOfAttemptsBtn: { marginTop: 12 },
   cameraWrap: {
     flex: 1,
     marginTop: 18,

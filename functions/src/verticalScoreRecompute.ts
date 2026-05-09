@@ -138,13 +138,19 @@ async function buildSnapshotsForOwner(ownerId: string, db: admin.firestore.Fires
 export async function recomputeVerticalScoreAdmin(ownerId: string): Promise<void> {
   if (!ownerId) return;
   const db = admin.firestore();
+  const userRef = db.doc(`users/${ownerId}`);
+  const userSnap = await userRef.get();
+  const adjustment = Number(userSnap.data()?.verticalScoreAdjustment ?? 0);
+
   const posts = await buildSnapshotsForOwner(ownerId, db);
   const now = Date.now();
   const { verticalScore, breakdown } = computeVerticalScoreFromPosts(posts, now);
   const best = computeBestPostVerticalMarginal(posts, now);
 
+  const combinedScore = Math.max(0, Math.round(verticalScore + adjustment));
+
   const patch: Record<string, unknown> = {
-    verticalScore,
+    verticalScore: combinedScore,
     verticalScoreBreakdown: breakdown,
     verticalScoreUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
     bestVerticalGainPoints: best.gainPoints,
