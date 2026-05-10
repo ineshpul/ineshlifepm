@@ -11,6 +11,9 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@aws-sdk/client-rekognition": "^3.1045.0",
+    "@aws-sdk/client-s3": "^3.1045.0",
+    "@aws-sdk/client-sns": "^3.1045.0",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/material-top-tabs": "^7.4.24",

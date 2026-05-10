@@ -266,3 +266,5 @@ export const onVideoReportCreated = onDocumentCreated(
     });
   }
 );
+
+export { onLeapVideoUploadedModerate } from './videoUploadModeration';
