@@ -86,14 +86,10 @@ export function UserProfileScreen({ route, navigation }: Props) {
   const leapGateForOthers = !isSelf && !canViewOthersVideos;
 
   const promptLeapToContinue = React.useCallback(() => {
-    Alert.alert(
-      'Take the leap to continue',
-      'Post the current challenge (noon–noon Eastern) to watch other people’s videos.',
-      [
-        { text: 'Not now', style: 'cancel' },
-        { text: 'Leap', onPress: () => navigateToRecord(nav) },
-      ]
-    );
+    Alert.alert('Take the leap to continue', undefined, [
+      { text: 'Not now', style: 'cancel' },
+      { text: 'Leap', onPress: () => navigateToRecord(nav) },
+    ]);
   }, [nav]);
 
   React.useEffect(() => {
