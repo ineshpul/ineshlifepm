@@ -43,11 +43,28 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/config/leapViewing).data.viewingChallengeDateKey;
     }
 
+    /** NY calendar day (midnight roll) — may differ from leap key before noon ET; used to match older/calendar `challengeDate` posts. */
+    function calendarMetaKey() {
+      return get(/databases/$(database)/documents/config/leapViewing).data.nyCalendarDateKey;
+    }
+
+    function hasVideoForUidAndDateKey(uid, dateKey) {
+      return dateKey is string
+        && dateKey.size() > 0
+        && exists(/databases/$(database)/documents/videos/$(uid + '_' + dateKey))
+        && get(/databases/$(database)/documents/videos/$(uid + '_' + dateKey)).data.uid == uid;
+    }
+
+    /** True if the viewer has a post whose doc id matches leap and/or calendar keys (covers legacy date mismatches). */
     function viewerPostedCurrentLeap() {
       return exists(/databases/$(database)/documents/config/leapViewing)
-        && exists(/databases/$(database)/documents/videos/$(request.auth.uid + '_' + leapMetaKey()))
-        && get(/databases/$(database)/documents/videos/$(request.auth.uid + '_' + leapMetaKey())).data.uid
-          == request.auth.uid;
+        && (
+          hasVideoForUidAndDateKey(request.auth.uid, leapMetaKey())
+          || (
+            get(/databases/$(database)/documents/config/leapViewing).data.keys().hasAny(['nyCalendarDateKey'])
+            && hasVideoForUidAndDateKey(request.auth.uid, calendarMetaKey())
+          )
+        );
     }
 
     function videoDoc(videoId) {

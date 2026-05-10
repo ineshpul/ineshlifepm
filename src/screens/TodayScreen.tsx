@@ -42,7 +42,8 @@ export function TodayScreen() {
   const { challenge, window } = useTodayChallenge();
   const facing = getPlayerFacingChallenge(challenge, window);
   const headerCountdown = window.isLive ? window.msUntilExpire : window.msUntilDrop;
-  const liveCount = useLiveCount(window.dateKey);
+  /** Must match `videos.challengeDate` / leap cycle — not `window.dateKey` (calendar midnight day). */
+  const liveCount = useLiveCount(challenge.dateKey);
 
   const [profileQ, setProfileQ] = React.useState('');
   const [debouncedProfileQ, setDebouncedProfileQ] = React.useState('');

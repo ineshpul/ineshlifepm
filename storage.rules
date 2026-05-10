@@ -17,15 +17,24 @@ service firebase.storage {
         return firestore.get(/databases/(default)/documents/config/leapViewing).data.viewingChallengeDateKey;
       }
 
+      function calendarMetaKeyStorage() {
+        return firestore.get(/databases/(default)/documents/config/leapViewing).data.nyCalendarDateKey;
+      }
+
+      function hasVideoForUidDateStorage(uid, dateKey) {
+        return firestore.exists(/databases/(default)/documents/videos/$(uid + '_' + dateKey))
+          && firestore.get(/databases/(default)/documents/videos/$(uid + '_' + dateKey)).data.uid == uid;
+      }
+
       function viewerPostedCurrentLeapStorage() {
         return firestore.exists(/databases/(default)/documents/config/leapViewing)
-          && firestore.exists(
-            /databases/(default)/documents/videos/$(request.auth.uid + '_' + leapMetaKeyStorage())
-          )
-          && firestore.get(
-              /databases/(default)/documents/videos/$(request.auth.uid + '_' + leapMetaKeyStorage())
-            ).data.uid
-            == request.auth.uid;
+          && (
+            hasVideoForUidDateStorage(request.auth.uid, leapMetaKeyStorage())
+            || (
+              firestore.get(/databases/(default)/documents/config/leapViewing).data.keys().hasAny(['nyCalendarDateKey'])
+              && hasVideoForUidDateStorage(request.auth.uid, calendarMetaKeyStorage())
+            )
+          );
       }
 
       function requestUserIsAdmin() {
