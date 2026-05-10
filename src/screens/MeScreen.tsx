@@ -29,6 +29,7 @@ import { setAppBadgeCount } from '../services/pushNotifications';
 import { verticalScoreTier } from '../lib/verticalScore';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { saveUserPublicProfile } from '../services/userProfile';
+import { UsernameTakenError } from '../services/usernameClaim';
 import type { VerticalScoreBreakdownFirestore } from '../types/verticalScore';
 import { useChallengeWindow } from '../state/challenge';
 import { computeFeedViewingFromNow, normalizeNyDateKey, prevNyDateKey } from '../utils/nyTime';
@@ -233,7 +234,11 @@ export function MeScreen() {
       if (uploaded) setDraftPhotoUri(uploaded);
       setEditProfileOpen(false);
     } catch (e) {
-      showError('Could not save profile', e);
+      if (e instanceof UsernameTakenError) {
+        showError('Username taken', e);
+      } else {
+        showError('Could not save profile', e);
+      }
     } finally {
       setEditSaving(false);
     }

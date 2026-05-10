@@ -1,9 +1,8 @@
 import { updateProfile } from 'firebase/auth';
-import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
-import { firebaseAuth, firestore, isFirebaseConfigured, storage } from '../firebase/firebase';
-import { usernameToSearchPrefixKey } from '../utils/usernameSearch';
+import { firebaseAuth, isFirebaseConfigured, storage } from '../firebase/firebase';
+import { runUserProfileUsernameTransaction } from './usernameClaim';
 
 async function uriToBlob(uri: string): Promise<Blob> {
   const res = await fetch(uri);
@@ -52,15 +51,15 @@ export async function saveUserPublicProfile(args: SavePublicProfileArgs): Promis
     uploadedUrl = await uploadProfileAvatar(args.uid, args.newPhotoLocalUri);
   }
 
-  const patch: Record<string, unknown> = {
-    username,
-    usernameLower: usernameToSearchPrefixKey(username),
-    bio,
-    updatedAt: serverTimestamp(),
-  };
-  if (uploadedUrl) patch.photoUrl = uploadedUrl;
+  const extraFields: Record<string, unknown> = {};
+  if (uploadedUrl) extraFields.photoUrl = uploadedUrl;
 
-  await updateDoc(doc(firestore(), 'users', args.uid), patch);
+  await runUserProfileUsernameTransaction({
+    uid: args.uid,
+    username,
+    bio,
+    extraFields,
+  });
 
   const cur = firebaseAuth().currentUser;
   if (cur && cur.uid === args.uid) {

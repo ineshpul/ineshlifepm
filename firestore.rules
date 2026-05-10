@@ -23,6 +23,21 @@ service cloud.firestore {
       return isAdmin() || isModerator();
     }
 
+    /** Doc id in `usernameClaims` — normalized client-side; max 40 (allows `_` and `-` for legacy rows). */
+    function validUsernameClaimKey(k) {
+      return k is string
+        && k.size() >= 1
+        && k.size() <= 40
+        && k.matches('^[a-z0-9_-]+$');
+    }
+
+    function ownsUsernameClaimForUser(userId, key) {
+      return signedIn()
+        && validUsernameClaimKey(key)
+        && exists(/databases/$(database)/documents/usernameClaims/$(key))
+        && get(/databases/$(database)/documents/usernameClaims/$(key)).data.uid == userId;
+    }
+
     /** Matches client noon→noon cycle; maintained by `scheduledLeapViewingMeta` Cloud Function. */
     function leapMetaKey() {
       return get(/databases/$(database)/documents/config/leapViewing).data.viewingChallengeDateKey;
@@ -485,6 +500,21 @@ service cloud.firestore {
         && !exists(/databases/$(database)/documents/videos/$(attemptId));
     }
 
+    /** One doc per normalized username; `uid` is the account that owns the handle. */
+    match /usernameClaims/{key} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && validUsernameClaimKey(key)
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid
+        && !exists(/databases/$(database)/documents/usernameClaims/$(key));
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid']);
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
     match /users/{userId} {
       allow read: if signedIn();
       allow create: if isOwner(userId)
@@ -504,7 +534,11 @@ service cloud.firestore {
           'leaperWeekKey',
           'leaperWeekPoints',
           'leaperLifetimePoints',
-        ]);
+        ])
+        && (
+          !request.resource.data.keys().hasAny(['usernameLower'])
+          || ownsUsernameClaimForUser(userId, request.resource.data.usernameLower)
+        );
       allow update: if isOwner(userId)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'isAdmin',
@@ -522,7 +556,15 @@ service cloud.firestore {
           'leaperWeekKey',
           'leaperWeekPoints',
           'leaperLifetimePoints',
-        ]);
+        ])
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['username', 'usernameLower'])
+          || (
+            request.resource.data.username == resource.data.username
+            && request.resource.data.usernameLower == resource.data.usernameLower
+          )
+          || ownsUsernameClaimForUser(userId, request.resource.data.usernameLower)
+        );
       allow delete: if false;
 
       // Private user data (PII). Owner-only.

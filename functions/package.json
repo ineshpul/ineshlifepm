@@ -9,7 +9,9 @@
     "build": "tsc",
     "serve": "firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions",
-    "backfill:leap": "npm run build && node lib/runBackfillLeapLeaperPointsScript.js"
+    "backfill:leap": "npm run build && node lib/runBackfillLeapLeaperPointsScript.js",
+    "dedupe:usernames": "npm run build && node lib/scripts/dedupeUsernames.js",
+    "dedupe:usernames:execute": "npm run build && node lib/scripts/dedupeUsernames.js --execute"
   },
   "dependencies": {
     "firebase-admin": "^12.6.0",

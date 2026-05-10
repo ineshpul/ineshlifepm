@@ -17,7 +17,7 @@ import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { isAdminUid, parseProfileIsAdmin, parseProfileIsModerator } from '../config/admin';
 import { unregisterPushDevice } from '../services/pushNotifications';
-import { usernameToSearchPrefixKey } from '../utils/usernameSearch';
+import { bootstrapUserDocWithUsername, syncAuthDisplayNameIfNeeded } from '../services/usernameClaim';
 
 export type AuthUser = {
   uid: string;
@@ -211,16 +211,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const username = u.displayName ?? (u.email?.split('@')[0] ?? 'user');
 
       try {
-        void setDoc(
-          doc(firestore(), 'users', u.uid),
-          {
-            uid: u.uid,
-            username,
-            usernameLower: usernameToSearchPrefixKey(username),
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        ).catch(() => {});
+        void (async () => {
+          try {
+            const resolved = await bootstrapUserDocWithUsername({
+              uid: u.uid,
+              candidateUsername: username,
+            });
+            await syncAuthDisplayNameIfNeeded(resolved.username);
+          } catch {
+            // Offline / stale rules — session still works; profile sync can retry on next session tick.
+          }
+        })();
 
         void setDoc(
           doc(firestore(), 'users', u.uid, 'private', 'profile'),
