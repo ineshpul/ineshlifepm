@@ -6,7 +6,7 @@ import { recomputeVerticalScoreAdmin } from './verticalScoreRecompute';
 
 const REGION = 'us-central1';
 
-const COST = 10;
+const COST = 5;
 
 function normalizeDateKey(raw: string): string {
   const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(raw ?? '').trim());

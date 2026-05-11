@@ -97,6 +97,8 @@ async function verifyMicrophoneCapturesAudioOk(): Promise<boolean> {
     recording = undefined;
 
     await setAudioSessionForRecording().catch(() => {});
+    /** Brief pause so iOS/Android release the audio session before `CameraView.recordAsync`. */
+    await new Promise<void>((r) => setTimeout(r, 200));
     return capturing;
   } catch {
     if (recording) {
@@ -107,6 +109,7 @@ async function verifyMicrophoneCapturesAudioOk(): Promise<boolean> {
       }
     }
     await setAudioSessionForRecording().catch(() => {});
+    await new Promise<void>((r) => setTimeout(r, 200));
     return false;
   }
 }
@@ -206,6 +209,11 @@ export function RecordScreen() {
     cameraReadyRef.current = false;
   }, [postedToday]);
 
+  /**
+   * Only depend on `permission?.status`, not `requestPermission` — the hook’s request function identity
+   * can change across renders; re-running this cleanup while still on Record would call `stopRecording()`
+   * mid-take and strand `recordAsync` (especially painful on the last attempt).
+   */
   useFocusEffect(
     React.useCallback(() => {
       void setAudioSessionForRecording().catch(() => {});
@@ -252,7 +260,8 @@ export function RecordScreen() {
         }
         void setAudioSessionForPlayback().catch(() => {});
       };
-    }, [permission?.status, requestPermission])
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- avoid deps on `requestPermission` identity churn (would stop mid-record)
+    }, [permission?.status])
   );
 
   React.useEffect(() => {
@@ -344,7 +353,7 @@ export function RecordScreen() {
         } catch {
           /* noop */
         }
-      }, durationSec * 1000 + 750);
+      }, durationSec * 1000 + 2800);
 
       const result = await cameraRef.current.recordAsync(recordingOptions);
 
@@ -451,6 +460,8 @@ export function RecordScreen() {
         if (!proceed) return;
       }
 
+      await setAudioSessionForRecording().catch(() => {});
+      await new Promise<void>((r) => setTimeout(r, 200));
       await startCountdownThenRecord();
     } finally {
       recordTapBusyRef.current = false;
