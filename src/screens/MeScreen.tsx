@@ -26,11 +26,15 @@ import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { showError } from '../utils/ui';
 import { markAllNotificationsRead, subscribeFollowing, type FollowingRow } from '../services/social';
 import { setAppBadgeCount } from '../services/pushNotifications';
-import { verticalScoreTier } from '../lib/verticalScore';
+import {
+  leaperTotalsToDisplayInches,
+  normalizeVerticalScoreBreakdown,
+  verticalScoreTier,
+  verticalScoreToDisplayInches,
+} from '../lib/verticalScore';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { saveUserPublicProfile } from '../services/userProfile';
 import { UsernameTakenError } from '../services/usernameClaim';
-import type { VerticalScoreBreakdownFirestore } from '../types/verticalScore';
 import { useChallengeWindow } from '../state/challenge';
 import { computeFeedViewingFromNow, normalizeNyDateKey, prevNyDateKey } from '../utils/nyTime';
 
@@ -191,11 +195,11 @@ export function MeScreen() {
     (username.split(/[\s_]+/).filter(Boolean)[1]?.[0] ?? '').toUpperCase();
 
   const verticalScore = Math.round(Number(profile?.verticalScore ?? 0));
-  const breakdown: VerticalScoreBreakdownFirestore =
-    profile?.verticalScoreBreakdown != null && typeof profile.verticalScoreBreakdown === 'object'
-      ? (profile.verticalScoreBreakdown as VerticalScoreBreakdownFirestore)
-      : { consistency: 0, engagement: 0, reliability: 0, bonus: 0 };
+  const breakdown = normalizeVerticalScoreBreakdown(profile?.verticalScoreBreakdown);
+  const lifetimeVerticalXP = Math.round(Number(profile?.lifetimeVerticalXP ?? profile?.leaperLifetimePoints ?? 0));
   const tier = verticalScoreTier(verticalScore);
+  const liveHeightIn = verticalScoreToDisplayInches(verticalScore);
+  const careerPeakIn = leaperTotalsToDisplayInches(lifetimeVerticalXP);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -314,20 +318,24 @@ export function MeScreen() {
 
         <View style={styles.scoreCard}>
           <View style={styles.scoreHeader}>
-            <Text style={styles.scoreTitle}>VERTICAL SCORE</Text>
+            <Text style={styles.scoreTitle}>YOUR VERTICAL</Text>
             <View style={styles.tierPill}>
               <Text style={styles.tierPillText}>{tier.label}</Text>
             </View>
           </View>
-          <Text style={styles.scoreNumber}>{verticalScore}</Text>
-          <Text style={styles.scoreTierHint}>{tier.hint}</Text>
-          <Text style={styles.scoreFoot}>
-            Rolling 14 days · recency-weighted · not editable
+          <Text style={styles.scoreNumber}>
+            {liveHeightIn}
+            <Text style={styles.scoreInSuffix}> in</Text>
           </Text>
+          <Text style={styles.scoreTierHint}>{tier.hint}</Text>
+          {careerPeakIn > 0 ? (
+            <Text style={styles.scoreLifetimeFoot}>Career peak {careerPeakIn} in</Text>
+          ) : null}
           <View style={styles.breakdownBlock}>
-            <ScoreBar label="Consistency" value={breakdown.consistency} />
-            <ScoreBar label="Engagement" value={breakdown.engagement} />
-            <ScoreBar label="Bonus" value={breakdown.bonus} />
+            <ScoreBar label="Lift" value={Math.min(100, (breakdown.lifetimePower / 70) * 100)} />
+            <ScoreBar label="Streak" value={Math.min(100, (breakdown.streakPower / 15) * 100)} />
+            <ScoreBar label="Rhythm" value={Math.min(100, (breakdown.recentQualityPower / 15) * 100)} />
+            <Text style={styles.decayFoot}>Quiet stretches can ease your rank — stay active to climb.</Text>
           </View>
         </View>
 
@@ -341,7 +349,7 @@ export function MeScreen() {
             canOpenBestLeap && (pressed ? styles.jumpCardPressed : styles.jumpCardTappable),
           ]}
           accessibilityRole={canOpenBestLeap ? 'button' : undefined}
-          accessibilityLabel={canOpenBestLeap ? 'Watch the leap for Highest Leap' : undefined}
+          accessibilityLabel={canOpenBestLeap ? 'Watch your best leap' : undefined}
         >
           <View style={styles.jumpHeader}>
             <Text style={styles.jumpLabel}>HIGHEST LEAP</Text>
@@ -355,9 +363,7 @@ export function MeScreen() {
             <View style={styles.jumpBar} />
             <View style={{ flex: 1 }}>
               <Text style={styles.jumpTitle}>
-                {bestVerticalGainPoints > 0
-                  ? `+${bestVerticalGainPoints} pts from one leap`
-                  : 'Post leaps to build impact'}
+                {bestVerticalGainPoints > 0 ? 'Your highest ever leap' : 'Post leaps to build impact'}
               </Text>
             </View>
           </View>
@@ -409,10 +415,6 @@ export function MeScreen() {
 
         <View style={styles.leapsSection}>
           <Text style={styles.leapsTitle}>YOUR LEAPS</Text>
-          <Text style={styles.leapsHint}>
-            Full-screen reel of your posts (same look as the main feed). Other people see theirs on their
-            profile.
-          </Text>
           <TouchableOpacity
             style={styles.openLeapsCta}
             onPress={() => nav.navigate('MyLeaps')}
@@ -612,8 +614,10 @@ const styles = StyleSheet.create({
   },
   tierPillText: { fontSize: 11, fontWeight: '900', color: colors.text },
   scoreNumber: { fontSize: 44, fontWeight: '900', color: colors.text, marginTop: 4 },
+  scoreInSuffix: { fontSize: 22, fontWeight: '800', color: colors.muted },
   scoreTierHint: { fontSize: 13, fontWeight: '700', color: colors.muted, lineHeight: 18 },
-  scoreFoot: { marginTop: 4, fontSize: 11, fontWeight: '600', color: colors.muted2, lineHeight: 16 },
+  scoreLifetimeFoot: { marginTop: 2, fontSize: 12, fontWeight: '800', color: colors.text },
+  decayFoot: { marginTop: 6, fontSize: 11, fontWeight: '700', color: colors.muted },
   breakdownBlock: { marginTop: 8, paddingTop: 4 },
   jumpCard: {
     marginTop: 14,
@@ -743,7 +747,6 @@ const styles = StyleSheet.create({
   modalSaveText: { fontSize: 15, fontWeight: '900', color: colors.white },
   leapsSection: { marginTop: 20, gap: 10 },
   leapsTitle: { fontSize: 11, letterSpacing: 2.2, fontWeight: '900', color: colors.muted },
-  leapsHint: { fontSize: 13, lineHeight: 19, color: colors.muted, fontWeight: '600' },
   openLeapsCta: {
     marginTop: 4,
     flexDirection: 'row',

@@ -22,6 +22,8 @@ export type LeaderboardWireRow = {
   username: string;
   avatarUrl?: string;
   score: number;
+  /** Tie-break for all-time board (internal lifetime total; UI maps to inches). */
+  lifetimeVerticalXP?: number;
   isCurrentUser: boolean;
 };
 
@@ -57,8 +59,28 @@ export function sortLeaderboardDocs<T extends { id: string; score: number }>(row
   });
 }
 
+/** All-time: `verticalScore` desc, then `lifetimeVerticalXP` desc, then uid. */
+export function sortAllTimeLeaderboardDocs<
+  T extends { id: string; score: number; lifetimeVerticalXP?: number },
+>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    const lb = Number(b.lifetimeVerticalXP ?? 0);
+    const la = Number(a.lifetimeVerticalXP ?? 0);
+    if (lb !== la) return lb - la;
+    return a.id.localeCompare(b.id);
+  });
+}
+
 export function wireRowsFromSorted<
-  T extends { id: string; score: number; name: string; username: string; avatarUrl?: string },
+  T extends {
+    id: string;
+    score: number;
+    name: string;
+    username: string;
+    avatarUrl?: string;
+    lifetimeVerticalXP?: number;
+  },
 >(sorted: T[], currentUid: string | undefined): LeaderboardWireRow[] {
   return sorted.map((row, i) => ({
     rank: i + 1,
@@ -67,6 +89,7 @@ export function wireRowsFromSorted<
     username: row.username,
     avatarUrl: row.avatarUrl,
     score: row.score,
+    lifetimeVerticalXP: row.lifetimeVerticalXP,
     isCurrentUser: Boolean(currentUid && row.id === currentUid),
   }));
 }

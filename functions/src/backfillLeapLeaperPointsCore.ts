@@ -2,9 +2,9 @@ import * as admin from 'firebase-admin';
 import * as logger from 'firebase-functions/logger';
 
 import {
-  LEAP_APPROVED_PTS,
-  bumpLeaperPoints,
-  incrementLeaperLifetimePoints,
+  LEGACY_LEAP_APPROVED_PTS,
+  incrementLifetimeAndLeaperBoard,
+  incrementLifetimeTotalsOnly,
 } from './leaperPoints';
 import { nySundayWeekStartKey } from './timeKeys';
 
@@ -96,9 +96,9 @@ export async function runBackfillLeapLeaperPointsPage(
       }
 
       if (creditAllToCurrentNyWeek || eventWeek === thisWeekKey) {
-        await bumpLeaperPoints(db, owner, 'leap_approved', nowMs);
+        await incrementLifetimeAndLeaperBoard(db, owner, LEGACY_LEAP_APPROVED_PTS, eventMs, nowMs);
       } else {
-        await incrementLeaperLifetimePoints(db, owner, LEAP_APPROVED_PTS);
+        await incrementLifetimeTotalsOnly(db, owner, LEGACY_LEAP_APPROVED_PTS);
         lifetimeOnly += 1;
       }
 

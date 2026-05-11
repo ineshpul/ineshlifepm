@@ -11,9 +11,12 @@ import {
   onVerticalScoreVideoDeleted,
 } from './verticalScoreRecompute';
 import { recomputeVerticalScoreCallable } from './verticalScoreCallable';
+import { backfillVerticalScoresCallable } from './backfillVerticalScoresCallable';
+import { backfillVerticalXpBonusesCallable } from './backfillVerticalXpBonusesCallable';
 import { recordVideoViewCallable } from './recordVideoView';
 import { backfillLeapLeaperPointsCallable } from './backfillLeapLeaperPointsCallable';
 import { purchaseRecordingAttemptCallable } from './purchaseRecordingAttempt';
+import { submitChallengeSuggestionCallable } from './challengeSuggestion';
 import { scheduledLeapViewingMeta } from './leapViewingMeta';
 
 admin.initializeApp();
@@ -26,9 +29,12 @@ export {
   onVerticalScoreVideoCreated,
   onVerticalScoreVideoDeleted,
   recomputeVerticalScoreCallable,
+  backfillVerticalScoresCallable,
+  backfillVerticalXpBonusesCallable,
   recordVideoViewCallable,
   backfillLeapLeaperPointsCallable,
   purchaseRecordingAttemptCallable,
+  submitChallengeSuggestionCallable,
   scheduledLeapViewingMeta,
 };
 

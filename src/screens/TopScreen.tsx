@@ -28,6 +28,7 @@ import {
   initialsFromDisplayName,
   leaderboardAvatarUrl,
   leaderboardDisplayName,
+  sortAllTimeLeaderboardDocs,
   sortLeaderboardDocs,
   wireRowsFromSorted,
   type LeaderboardTimeframe,
@@ -40,11 +41,7 @@ import {
 } from '../utils/nyTime';
 import { UsernameLink } from '../components/UsernameLink';
 import { navigateToUserProfile } from '../navigation/navigationHelpers';
-
-function formatLeaderboardPoints(n: number): string {
-  const x = Math.round(Number.isFinite(n) ? n : 0);
-  return x.toLocaleString('en-US');
-}
+import { leaperTotalsToDisplayInches, verticalScoreToDisplayInches } from '../lib/verticalScore';
 
 /** Human-readable countdown to the next Eastern noon leap boundary (same semantics as `msUntilNextLock`). */
 function formatMsUntilNextDrop(ms: number): string {
@@ -67,9 +64,8 @@ export function TopScreen() {
   const [leaderboardError, setLeaderboardError] = React.useState<string | null>(null);
   const [clock, setClock] = React.useState(() => Date.now());
   /**
-   * All-time ranks by **vertical score** first (same rolling leap window as server `verticalScoreRecompute`).
-   * Only if that query is empty do we fall back to lifetime Leap inches — few users had `leaperLifetimePoints`
-   * only, which made the board look “wiped” vs the old vertical leaderboard.
+   * All-time ranks by live **verticalScore** (0–100), tie-broken by **lifetimeVerticalXP** client-side.
+   * If the verticalScore query returns no rows, fall back to **leaperLifetimePoints** for older data.
    */
   const [allTimeSortKey, setAllTimeSortKey] = React.useState<
     'leaperLifetimePoints' | 'verticalScore'
@@ -151,13 +147,21 @@ export function TopScreen() {
           (snap) => {
             if (subscriptionIdRef.current !== subId) return;
 
-            type Acc = { id: string; score: number; name: string; username: string; avatarUrl?: string };
+            type Acc = {
+              id: string;
+              score: number;
+              name: string;
+              username: string;
+              avatarUrl?: string;
+              lifetimeVerticalXP?: number;
+            };
             const acc: Acc[] = [];
             const tf = timeframe;
 
             snap.docs.forEach((d) => {
               const data = d.data() as Record<string, unknown>;
               let score = 0;
+              const lifetimeXP = Number(data.lifetimeVerticalXP ?? data.leaperLifetimePoints ?? 0);
               if (tf === 'all_time') {
                 score =
                   allTimeSortKey === 'leaperLifetimePoints'
@@ -173,6 +177,7 @@ export function TopScreen() {
                 name: leaderboardDisplayName(data),
                 username: String(data.username ?? '').trim(),
                 avatarUrl: leaderboardAvatarUrl(data),
+                lifetimeVerticalXP: Number.isFinite(lifetimeXP) ? lifetimeXP : 0,
               });
             });
 
@@ -232,7 +237,10 @@ export function TopScreen() {
               return;
             }
 
-            const sorted = sortLeaderboardDocs(acc);
+            const sorted =
+              tf === 'all_time' && allTimeSortKey === 'verticalScore'
+                ? sortAllTimeLeaderboardDocs(acc)
+                : sortLeaderboardDocs(acc);
             setRows(wireRowsFromSorted(sorted, user?.uid));
             setLeaderboardError(null);
             setLeaderboardHydrated(true);
@@ -327,14 +335,24 @@ export function TopScreen() {
           ) : leaderboardError ? null : (
             <Text style={styles.empty} accessibilityRole="text">
               {timeframe === 'daily'
-                ? 'No daily standings yet — post an approved leap for this period to appear; inches come from engagement on your posts.'
+                ? 'No daily standings yet — post an approved leap for this leap window to show up on the board.'
                 : 'No leaderboard data yet.'}
             </Text>
           )
         }
         renderItem={({ item }) => {
-          /** “in” is figurative for ranking points (leap / vertical score), not literal body inches. */
-          const scoreLabel = `${formatLeaderboardPoints(item.score)} in`;
+          const isAllTime = timeframe === 'all_time' && allTimeSortKey === 'verticalScore';
+          const isLifetimeFallback = timeframe === 'all_time' && allTimeSortKey === 'leaperLifetimePoints';
+          const isDaily = timeframe === 'daily';
+          let primaryIn = 0;
+          if (isDaily) {
+            primaryIn = leaperTotalsToDisplayInches(item.score);
+          } else if (isAllTime) {
+            primaryIn = verticalScoreToDisplayInches(item.score);
+          } else if (isLifetimeFallback) {
+            primaryIn = leaperTotalsToDisplayInches(item.score);
+          }
+          const scoreMain = `${primaryIn} in`;
           const topThree = item.rank <= 3;
           const podiumRow = topThree ? styles.rowGold : item.isCurrentUser ? styles.rowMe : null;
           const podiumRank = topThree ? styles.rankGold : item.isCurrentUser ? styles.rankMe : null;
@@ -352,7 +370,7 @@ export function TopScreen() {
               ]}
               onPress={openProfile}
               accessibilityRole="button"
-              accessibilityLabel={`Rank ${item.rank}, ${item.name}`}
+              accessibilityLabel={`Rank ${item.rank}, ${item.name}, ${scoreMain}`}
             >
               <Text style={[styles.rank, podiumRank]}>
                 {item.rank}
@@ -372,7 +390,9 @@ export function TopScreen() {
                     <Text style={styles.name} numberOfLines={1}>
                       {item.name}
                     </Text>
-                    <Text style={[styles.score, item.isCurrentUser && styles.scoreMe]}>{scoreLabel}</Text>
+                    <View style={styles.scoreCol}>
+                      <Text style={[styles.score, item.isCurrentUser && styles.scoreMe]}>{scoreMain}</Text>
+                    </View>
                   </View>
                   {item.username?.trim() ? (
                     <UsernameLink uid={item.userId} username={item.username.trim()} style={styles.handle} />
@@ -493,6 +513,7 @@ const styles = StyleSheet.create({
   },
   name: { flex: 1, fontSize: 15, fontWeight: '800', color: colors.text, minWidth: 0 },
   handle: { fontSize: 12, fontWeight: '700', color: colors.muted },
+  scoreCol: { alignItems: 'flex-end', justifyContent: 'center', maxWidth: '46%' },
   score: { fontSize: 15, fontWeight: '900', color: colors.moss },
   scoreMe: { color: colors.moss },
 });

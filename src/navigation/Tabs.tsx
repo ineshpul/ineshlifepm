@@ -48,7 +48,8 @@ export function AppTabs() {
             tabBarShowLabel: false,
             tabBarShowIcon: true,
             swipeEnabled: true,
-            animationEnabled: true,
+            /** Tab bar / programmatic switches jump instantly; swipes still animate (smoother after posting). */
+            animationEnabled: false,
             tabBarStyle: styles.tabBar,
             tabBarActiveTintColor: colors.text,
             tabBarInactiveTintColor: colors.muted,

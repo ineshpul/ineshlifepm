@@ -26,6 +26,7 @@ import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { getOrCreateDm } from '../services/chat/chatFirestore';
 import { subscribeFollowing, type FollowingRow } from '../services/social';
 import { showError } from '../utils/ui';
+import { verticalScoreToDisplayInches } from '../lib/verticalScore';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'UserProfile'>;
 
@@ -183,6 +184,7 @@ export function UserProfileScreen({ route, navigation }: Props) {
     (username.split(/[\s_]+/).filter(Boolean)[1]?.[0] ?? '').toUpperCase();
 
   const verticalScore = Math.round(Number(profile?.verticalScore ?? 0));
+  const liveHeightIn = verticalScoreToDisplayInches(verticalScore);
   const highestJumpDisplayInches = Math.round(Number(profile?.highestJumpDisplayInches ?? 0));
   const bestVerticalGainPoints = Math.round(Number(profile?.bestVerticalGainPoints ?? 0));
   const bestVerticalGainPostId = String(profile?.bestVerticalGainPostId ?? '').trim();
@@ -247,8 +249,11 @@ export function UserProfileScreen({ route, navigation }: Props) {
 
         <View style={styles.statsRow}>
           <View style={styles.stat}>
-            <Text style={styles.statNum}>{verticalScore}</Text>
-            <Text style={styles.statLabel}>Vertical</Text>
+            <Text style={styles.statNum}>
+              {liveHeightIn}
+              <Text style={styles.statInSuffix}> in</Text>
+            </Text>
+            <Text style={styles.statLabel}>Live vertical</Text>
           </View>
           <Pressable
             disabled={!canOpenBestLeap}
@@ -258,12 +263,12 @@ export function UserProfileScreen({ route, navigation }: Props) {
             }}
             style={({ pressed }) => [styles.stat, canOpenBestLeap && pressed && styles.statPressed]}
             accessibilityRole={canOpenBestLeap ? 'button' : undefined}
-            accessibilityLabel={canOpenBestLeap ? 'Watch the leap for Highest Leap' : undefined}
+            accessibilityLabel={canOpenBestLeap ? 'Watch their best leap' : undefined}
           >
             <Text style={styles.statNum}>{highestJumpDisplayInches} in</Text>
-            <Text style={styles.statLabel}>Highest Leap</Text>
+            <Text style={styles.statLabel}>Highest leap</Text>
             {bestVerticalGainPoints > 0 ? (
-              <Text style={styles.statSub}>+{bestVerticalGainPoints} pts from one leap</Text>
+              <Text style={styles.statSub}>{isSelf ? 'Your highest ever leap' : 'Highest leap on the board'}</Text>
             ) : null}
             {canOpenBestLeap ? <Text style={styles.statLink}>Tap to watch leap</Text> : null}
           </Pressable>
@@ -378,6 +383,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
   },
   statNum: { fontSize: 20, fontWeight: '900', color: colors.text },
+  statInSuffix: { fontSize: 13, fontWeight: '800', color: colors.muted },
   statLabel: { marginTop: 6, fontSize: 12, fontWeight: '800', color: colors.muted, lineHeight: 16 },
   statSub: { marginTop: 4, fontSize: 11, fontWeight: '700', color: colors.muted },
   statLink: { marginTop: 6, fontSize: 11, fontWeight: '900', color: colors.coral },

@@ -1,233 +1,385 @@
+/**
+ * Live Vertical Score + lifetime XP (pure math).
+ * Server copy: `functions/src/verticalScoreEngine.ts` — keep formulas identical.
+ */
 import type {
   PostMetricsSnapshot,
+  PostVerticalXpBreakdown,
+  PostVerticalXpInput,
   VerticalScoreBreakdownFirestore,
   VerticalScoreComputationResult,
 } from '../types/verticalScore';
 
-/** Rolling window for which posts influence the score. */
-export const SCORE_WINDOW_DAYS = 14;
-
-/** Half-life (days) for exponential recency decay: weight halves every 7 days. */
-export const RECENCY_HALF_LIFE_DAYS = 7;
-
-/** Final blend: consistency pillar vs engagement pillar (reliability applies inside engagement path). */
-export const WEIGHT_CONSISTENCY = 0.4;
-export const WEIGHT_ENGAGEMENT = 0.6;
-
-/** Engagement weights (spec). */
-export const ENGAGEMENT_LIKE = 1;
-export const ENGAGEMENT_COMMENT = 2;
-export const ENGAGEMENT_SHARE = 3;
-export const ENGAGEMENT_SAVE = 2;
-
-/**
- * Floor for effective views so ratios stay bounded when analytics are sparse.
- * Also used as minimum before “full trust” in the dampener.
- */
-export const MIN_EFFECTIVE_VIEWS = 12;
-
-/**
- * View-trust dampener: trust = views / (views + k). Higher k = more penalty when views are low.
- */
-export const VIEW_TRUST_K = 38;
-
-/** Soft cap on per-post engagement ratio before aggregation (reduces one-hit spikes). */
-export const PER_POST_ENGAGEMENT_RATIO_CAP = 0.55;
-
-/**
- * Target typical weighted engagement ratio after trust; used to map curve to ~0–100.
- * Tuned for “healthy” creators with modest reach; adjust without changing call sites.
- */
-export const ENGAGEMENT_RATIO_TARGET = 0.16;
-
-/** Bonus points per qualifying post (challenge completed, not deleted). */
-export const CHALLENGE_COMPLETION_BONUS_PER_POST = 1.75;
-export const CHALLENGE_BONUS_MAX_POINTS = 12;
-
-/** Penalty per report count on a post (aggregated). */
-export const REPORT_PENALTY_PER_UNIT = 6;
-export const REPORT_PENALTY_MAX_POINTS = 28;
-
-/** Deleted / removed posts in the snapshot contribute a lump structural penalty. */
-export const DELETED_POST_PENALTY = 10;
-
-/** When stored `views` is missing/zero, blend in a small organic floor from engagement signals. */
-export const IMPRESSION_PRIOR_FROM_ENGAGEMENT = 9;
+const DIFFICULTY_XP: Record<1 | 2 | 3 | 4 | 5, number> = {
+  1: 5,
+  2: 8,
+  3: 12,
+  4: 16,
+  5: 20,
+};
 
 const MS_PER_DAY = 86400000;
 
-/** Pre-computed: sum of recency weights if the user posted once on each of the last 14 calendar buckets. */
-export const IDEAL_CONSISTENCY_WEIGHT_SUM: number = (() => {
-  let s = 0;
-  for (let d = 0; d < SCORE_WINDOW_DAYS; d++) {
-    s += recencyWeightForAgeDays(d);
+const EMPTY_VERTICAL_BREAKDOWN: VerticalScoreBreakdownFirestore = {
+  lifetimePower: 0,
+  streakPower: 0,
+  recentQualityPower: 0,
+  inactivityDecay: 0,
+  safetyPenalty: 0,
+  lifetimeVerticalXP: 0,
+  activeLeapStreakDays: 0,
+  recentQualityAvg: 0,
+};
+
+/**
+ * Normalize Firestore `verticalScoreBreakdown` after the live-score remodel.
+ * Legacy `{ consistency, engagement, reliability, bonus }` maps to zeros.
+ */
+export function normalizeVerticalScoreBreakdown(raw: unknown): VerticalScoreBreakdownFirestore {
+  if (!raw || typeof raw !== 'object') {
+    return { ...EMPTY_VERTICAL_BREAKDOWN };
   }
-  return s;
-})();
-
-export function recencyWeightForAgeDays(ageDays: number): number {
-  if (!Number.isFinite(ageDays) || ageDays < 0) return 0;
-  return Math.pow(2, -ageDays / RECENCY_HALF_LIFE_DAYS);
+  const o = raw as Record<string, unknown>;
+  if (
+    'lifetimePower' in o ||
+    'recentQualityAvg' in o ||
+    'activeLeapStreakDays' in o
+  ) {
+    return {
+      lifetimePower: Number(o.lifetimePower ?? 0),
+      streakPower: Number(o.streakPower ?? 0),
+      recentQualityPower: Number(o.recentQualityPower ?? 0),
+      inactivityDecay: Number(o.inactivityDecay ?? 0),
+      safetyPenalty: Number(o.safetyPenalty ?? 0),
+      lifetimeVerticalXP: Number(o.lifetimeVerticalXP ?? 0),
+      activeLeapStreakDays: Number(o.activeLeapStreakDays ?? 0),
+      recentQualityAvg: Number(o.recentQualityAvg ?? 0),
+    };
+  }
+  return { ...EMPTY_VERTICAL_BREAKDOWN };
 }
 
-export function verticalScoreTier(score: number): { label: string; hint: string } {
-  const s = Math.max(0, Math.min(100, score));
-  if (s >= 72) return { label: 'Top', hint: 'Strong reach and rhythm.' };
-  if (s >= 42) return { label: 'Rising', hint: 'Momentum is building.' };
-  return { label: 'Solid', hint: 'Keep posting and engaging.' };
+export function clamp(n: number, lo: number, hi: number): number {
+  if (!Number.isFinite(n)) return lo;
+  return Math.min(hi, Math.max(lo, n));
 }
 
-function effectiveViews(p: PostMetricsSnapshot): number {
-  const stored = Number(p.views);
-  const organicFloor =
-    IMPRESSION_PRIOR_FROM_ENGAGEMENT + p.likes + p.comments * 2 + p.shares * 2 + p.saves;
-  return Math.max(MIN_EFFECTIVE_VIEWS, stored, organicFloor);
-}
-
-function trustFromViews(viewsEff: number): number {
-  return viewsEff / (viewsEff + VIEW_TRUST_K);
-}
-
-function rawEngagementUnits(p: PostMetricsSnapshot): number {
+export function computeEngagementUnits(args: {
+  likes: number;
+  uniqueComments: number;
+  commentCountFallback: number;
+  shares: number;
+  saves: number;
+}): number {
+  const uc =
+    Number.isFinite(args.uniqueComments) && args.uniqueComments > 0
+      ? Math.max(0, args.uniqueComments)
+      : Math.max(0, args.commentCountFallback);
   return (
-    p.likes * ENGAGEMENT_LIKE +
-    p.comments * ENGAGEMENT_COMMENT +
-    p.shares * ENGAGEMENT_SHARE +
-    p.saves * ENGAGEMENT_SAVE
+    Math.max(0, args.likes) * 1 +
+    uc * 2.5 +
+    Math.max(0, args.shares) * 4 +
+    Math.max(0, args.saves) * 3
   );
 }
 
-/**
- * Pure, deterministic vertical score from post snapshots (already window-filtered).
- * Game-resistant: low views dampen engagement; caps and penalties limit spikes.
- */
-/**
- * Maps marginal Vertical score contribution (leave-one-out delta) to a small “inch” display number.
- * This is not a tape-measure height; it’s a consistent, bounded UI scale for “how much one post moved you.”
- */
-export function marginalVerticalGainToDisplayInches(gainPoints: number): number {
-  const g = Math.max(0, gainPoints);
-  return Math.max(0, Math.min(48, Math.round(g * 0.45 + 2)));
+export function viewsEfficient(args: {
+  uniqueViews?: number;
+  storedViews?: number;
+  views?: number;
+}): number {
+  const v = Math.max(
+    0,
+    Number(args.uniqueViews ?? 0),
+    Number(args.storedViews ?? 0),
+    Number(args.views ?? 0)
+  );
+  return Math.max(50, v);
 }
 
-/**
- * Which single post most increased your overall Vertical score (leave-one-out marginal).
- */
-export function computeBestPostVerticalMarginal(
-  posts: PostMetricsSnapshot[],
-  nowMs: number
-): { postId: string | null; gainPoints: number; displayInches: number } {
-  const activeCandidates = posts.filter((p) => {
-    if (p.deleted) return false;
-    const ageDays = (nowMs - p.createdAtMs) / MS_PER_DAY;
-    return ageDays >= 0 && ageDays <= SCORE_WINDOW_DAYS;
+export function computePostQualityScore(weightedEngagementRate: number): number {
+  if (!Number.isFinite(weightedEngagementRate) || weightedEngagementRate <= 0) return 0;
+  return clamp(weightedEngagementRate / 0.18, 0, 1);
+}
+
+function difficultyUsed(raw: number | undefined): 1 | 2 | 3 | 4 | 5 {
+  const d = Math.round(Number(raw));
+  if (!Number.isFinite(d)) return 2;
+  return clamp(d, 1, 5) as 1 | 2 | 3 | 4 | 5;
+}
+
+export function difficultyXpFromLevel(level: number | undefined): number {
+  return DIFFICULTY_XP[difficultyUsed(level)];
+}
+
+export function engagementXpFromUnits(units: number): number {
+  const u = Math.max(0, units);
+  return Math.min(25, Math.log2(1 + u) * 4);
+}
+
+export function computePostVerticalXP(input: PostVerticalXpInput): PostVerticalXpBreakdown {
+  const approvalXP = 20;
+  const challengeDifficultyUsed = difficultyUsed(input.challengeDifficulty);
+  const difficultyXP = DIFFICULTY_XP[challengeDifficultyUsed];
+
+  const engagementUnits = computeEngagementUnits({
+    likes: input.likes,
+    uniqueComments: input.uniqueComments,
+    commentCountFallback: input.commentCountFallback,
+    shares: input.shares,
+    saves: input.saves,
   });
-  if (activeCandidates.length === 0) {
-    return { postId: null, gainPoints: 0, displayInches: 0 };
-  }
 
-  const fullScore = computeVerticalScoreFromPosts(posts, nowMs).verticalScore;
-  let bestId: string | null = null;
-  let bestGain = 0;
+  const viewsEff = viewsEfficient({
+    uniqueViews: input.uniqueViews,
+    storedViews: input.storedViews,
+    views: input.views,
+  });
 
-  for (const p of activeCandidates) {
-    const without = posts.filter((x) => x.postId !== p.postId);
-    const withoutScore = computeVerticalScoreFromPosts(without, nowMs).verticalScore;
-    const gain = fullScore - withoutScore;
-    if (gain > bestGain) {
-      bestGain = gain;
-      bestId = p.postId;
-    }
-  }
+  const weightedEngagementRate = engagementUnits / Math.max(viewsEff, 1);
+  const qualityScore = computePostQualityScore(weightedEngagementRate);
+  const qualityXP = 30 * qualityScore;
+  const engagementXP = engagementXpFromUnits(engagementUnits);
 
-  const gainPoints = Math.max(0, Math.round(bestGain));
+  const preStreakXP = approvalXP + difficultyXP + qualityXP;
+  const streakDays = Math.max(0, Math.floor(Number(input.activeLeapStreakDays ?? 0)));
+  const streakMultiplierBonus = Math.min(0.25, streakDays * 0.015);
+  const streakBonusXP = Math.min(15, preStreakXP * streakMultiplierBonus);
+
+  const reports = Math.max(0, Number(input.reports ?? 0));
+  const reportRate = reports / Math.max(viewsEff, 50);
+  const reportPenalty = Math.min(30, reportRate * 200);
+  const suspicious = Math.max(0, Number(input.suspiciousActivityPenalty ?? 0));
+  const penaltyXP = reportPenalty + suspicious;
+
+  const firstLeapBonusXP = Math.max(0, Math.round(Number(input.firstLeapBonusXP ?? 0)));
+  const firstPostOfDayBonusXP = Math.max(0, Math.round(Number(input.firstPostOfDayBonusXP ?? 0)));
+
+  const postVerticalXP = Math.max(
+    0,
+    Math.round(
+      approvalXP +
+        difficultyXP +
+        qualityXP +
+        engagementXP +
+        streakBonusXP +
+        firstLeapBonusXP +
+        firstPostOfDayBonusXP -
+        penaltyXP
+    )
+  );
+
   return {
-    postId: bestId,
-    gainPoints,
-    displayInches: marginalVerticalGainToDisplayInches(bestGain),
+    approvalXP,
+    difficultyXP,
+    qualityXP,
+    engagementXP,
+    streakBonusXP,
+    firstLeapBonusXP,
+    firstPostOfDayBonusXP,
+    penaltyXP,
+    qualityScore,
+    engagementUnits,
+    weightedEngagementRate,
+    challengeDifficultyUsed,
+    postVerticalXP,
   };
 }
 
+export function computeLifetimePower(lifetimeVerticalXP: number): number {
+  const x = Math.max(0, Number(lifetimeVerticalXP ?? 0));
+  return 70 * (1 - Math.exp(-x / 2500));
+}
+
+export function computeInactivityDecay(missedDays: number): number {
+  const m = Math.max(0, Math.floor(Number(missedDays)));
+  const decayDays = Math.max(0, m - 1);
+  return Math.min(30, decayDays * 2);
+}
+
+export function computeLiveVerticalScore(args: {
+  lifetimeVerticalXP: number;
+  activeLeapStreakDays: number;
+  recentQualityAvg: number;
+  inactivityDecay: number;
+  safetyPenalty: number;
+}): number {
+  const lifetimePower = computeLifetimePower(args.lifetimeVerticalXP);
+  const streakDays = Math.max(0, Number(args.activeLeapStreakDays ?? 0));
+  const streakPower = Math.min(15, streakDays * 1.2);
+  const rq = clamp(Number(args.recentQualityAvg ?? 0), 0, 1);
+  const recentQualityPower = Math.min(15, rq * 15);
+  const inactivityDecay = clamp(Number(args.inactivityDecay ?? 0), 0, 100);
+  const safetyPenalty = clamp(Number(args.safetyPenalty ?? 0), 0, 100);
+  const raw = lifetimePower + streakPower + recentQualityPower - inactivityDecay - safetyPenalty;
+  return clamp(Math.round(raw), 0, 100);
+}
+
+export function computeRecentQualityAvg(qualityScores: number[]): number {
+  if (!qualityScores.length) return 0;
+  const s = qualityScores.reduce((a, b) => a + clamp(Number(b), 0, 1), 0);
+  return s / qualityScores.length;
+}
+
+/**
+ * Calendar day gap between ISO `YYYY-MM-DD` keys (UTC date parts; keys from NY leap logic sort chronologically).
+ */
+export function leapDateKeyGapDays(olderKey: string, newerKey: string): number {
+  const parse = (k: string) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(k).trim());
+    if (!m) return NaN;
+    return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  };
+  const a = parse(olderKey);
+  const b = parse(newerKey);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 999;
+  return Math.max(0, Math.round((b - a) / MS_PER_DAY));
+}
+
+/**
+ * On a **new** approved leap day `newDayKey`, update streak vs `lastApprovedLeapDateKey`.
+ * - Same day as last: no increment (second post).
+ * - Consecutive day: +1
+ * - Gap 2 days: unchanged
+ * - Gap 3+: reset to 1
+ */
+export function updateStreakState(args: {
+  lastApprovedLeapDateKey: string;
+  newApprovedLeapDayKey: string;
+  priorActiveStreak: number;
+  priorLongest: number;
+}): { activeLeapStreakDays: number; longestLeapStreakDays: number } {
+  const last = String(args.lastApprovedLeapDateKey ?? '').trim();
+  const next = String(args.newApprovedLeapDayKey ?? '').trim();
+  const prior = Math.max(0, Math.floor(Number(args.priorActiveStreak ?? 0)));
+  const longest0 = Math.max(0, Math.floor(Number(args.priorLongest ?? 0)));
+
+  if (!last) {
+    const active = 1;
+    return { activeLeapStreakDays: active, longestLeapStreakDays: Math.max(longest0, active) };
+  }
+  if (last === next) {
+    return { activeLeapStreakDays: prior, longestLeapStreakDays: Math.max(longest0, prior) };
+  }
+  const gap = leapDateKeyGapDays(last, next);
+  let active = prior;
+  if (gap === 1) active = prior + 1;
+  else if (gap === 2) active = prior;
+  else if (gap >= 3) active = 1;
+  else active = 1;
+  return {
+    activeLeapStreakDays: active,
+    longestLeapStreakDays: Math.max(longest0, active),
+  };
+}
+
+/** Game stat inches from best-leap XP (not measured jump height). */
+export function bestLeapXpToDisplayInches(bestLeapXP: number): number {
+  const xp = Math.max(0, bestLeapXP);
+  return clamp(Math.round(4 + xp * 0.32), 0, 48);
+}
+
+/** UI: map internal day/lifetime totals to the same inch scale as best leap (game stat). */
+export function leaperPointsToDisplayInches(points: number): number {
+  return bestLeapXpToDisplayInches(Math.max(0, Number(points ?? 0)));
+}
+
+/** UI: leaderboard / profile totals — 0 points shows as 0 in (no artificial floor). */
+export function leaperTotalsToDisplayInches(points: number): number {
+  const p = Math.max(0, Number(points ?? 0));
+  if (p <= 0) return 0;
+  return bestLeapXpToDisplayInches(p);
+}
+
+/**
+ * UI: map live vertical score (0–100) to display inches (game stat, same 0–48 band as other UI).
+ * Internal ranking still uses `verticalScore`; this is presentation-only.
+ */
+export function verticalScoreToDisplayInches(verticalScore: number): number {
+  const s = clamp(Number(verticalScore ?? 0), 0, 100);
+  return clamp(Math.round(s * 0.48), 0, 48);
+}
+
+export function verticalScoreTier(score: number): { label: string; hint: string } {
+  const s = clamp(score, 0, 100);
+  const inches = verticalScoreToDisplayInches(s);
+  if (s >= 72) return { label: 'Top', hint: `You’re at ${inches} in on the board — keep the streak going.` };
+  if (s >= 42) return { label: 'Rising', hint: `You’re at ${inches} in. Post and engage to climb.` };
+  return { label: 'Solid', hint: `You’re at ${inches} in. Every approved leap helps you rise.` };
+}
+
+/**
+ * @deprecated Leave-one-out marginal replaced by best post `verticalXP`. Use `bestLeapXpToDisplayInches` + max XP post from Firestore.
+ */
+export function marginalVerticalGainToDisplayInches(gainPoints: number): number {
+  return bestLeapXpToDisplayInches(Math.max(0, gainPoints));
+}
+
+/**
+ * @deprecated Uses `verticalXP` on snapshots when present; otherwise returns zeros.
+ */
+export function computeBestPostVerticalMarginal(
+  posts: PostMetricsSnapshot[],
+  _nowMs: number
+): { postId: string | null; gainPoints: number; displayInches: number } {
+  const candidates = posts.filter((p) => !p.deleted && (p.verticalXP ?? 0) > 0);
+  if (candidates.length === 0) {
+    return { postId: null, gainPoints: 0, displayInches: 0 };
+  }
+  let best = candidates[0]!;
+  for (const p of candidates) {
+    if ((p.verticalXP ?? 0) > (best.verticalXP ?? 0)) best = p;
+  }
+  const xp = Math.round(Math.max(0, best.verticalXP ?? 0));
+  return { postId: best.postId, gainPoints: xp, displayInches: bestLeapXpToDisplayInches(xp) };
+}
+
+/**
+ * @deprecated Rolling 14-day model removed. Prefer server `recomputeVerticalScoreCallable`.
+ * Rough client preview: sums `verticalXP` on snapshots and estimates live score without streak/decay.
+ */
 export function computeVerticalScoreFromPosts(
   posts: PostMetricsSnapshot[],
   nowMs: number
 ): VerticalScoreComputationResult {
   const active = posts.filter((p) => !p.deleted);
-  const deletedCount = posts.length - active.length;
-
-  if (active.length === 0) {
-    return {
-      verticalScore: 0,
-      breakdown: { consistency: 0, engagement: 0, reliability: 0, bonus: 0 },
-    };
-  }
-
-  let consistencyWeightSum = 0;
-  let engagementWeightedSum = 0;
-  let reliabilityWeightedSum = 0;
-  let weightSum = 0;
-  let bonusPoints = 0;
-  let reportUnits = 0;
-
+  const lifetime = active.reduce((s, p) => s + Math.max(0, Number(p.verticalXP ?? 0)), 0);
+  const recent: number[] = [];
   for (const p of active) {
     const ageDays = (nowMs - p.createdAtMs) / MS_PER_DAY;
-    if (ageDays > SCORE_WINDOW_DAYS) continue;
-
-    const w = recencyWeightForAgeDays(ageDays);
-    if (w <= 0) continue;
-
-    const viewsEff = effectiveViews(p);
-    const trust = trustFromViews(viewsEff);
-    const raw = rawEngagementUnits(p);
-    const ratio = raw / Math.max(viewsEff, 1);
-    const capped = Math.min(PER_POST_ENGAGEMENT_RATIO_CAP, ratio);
-    const quality = capped * trust;
-
-    consistencyWeightSum += w;
-    engagementWeightedSum += w * quality;
-    reliabilityWeightedSum += w * trust;
-    weightSum += w;
-
-    if (p.challengeCompleted) {
-      bonusPoints += CHALLENGE_COMPLETION_BONUS_PER_POST * w;
+    if (ageDays >= 0 && ageDays <= 28) {
+      const br = computePostVerticalXP({
+        likes: p.likes,
+        uniqueComments: p.comments,
+        commentCountFallback: p.comments,
+        shares: p.shares,
+        saves: p.saves,
+        storedViews: p.views,
+        views: p.views,
+        reports: p.reports,
+        challengeDifficulty: 2,
+        activeLeapStreakDays: 0,
+        firstLeapBonusXP: 0,
+        firstPostOfDayBonusXP: 0,
+      });
+      recent.push(br.qualityScore);
     }
-    reportUnits += p.reports * w;
   }
-
-  const consistencyPillar =
-    IDEAL_CONSISTENCY_WEIGHT_SUM > 0
-      ? Math.min(100, (100 * consistencyWeightSum) / IDEAL_CONSISTENCY_WEIGHT_SUM)
-      : 0;
-
-  const reliabilityAvg = weightSum > 0 ? reliabilityWeightedSum / weightSum : 0;
-  const engagementBlend = weightSum > 0 ? engagementWeightedSum / weightSum : 0;
-  const engagementPillar = Math.min(
-    100,
-    Math.max(0, (100 * engagementBlend) / ENGAGEMENT_RATIO_TARGET)
+  const recentQualityAvg = computeRecentQualityAvg(recent);
+  const lifetimePower = computeLifetimePower(lifetime);
+  const recentQualityPower = Math.min(15, recentQualityAvg * 15);
+  const verticalScore = Math.round(
+    clamp(lifetimePower + recentQualityPower, 0, 100)
   );
-
-  const engagementForFinal = engagementPillar * reliabilityAvg;
-
-  const bonusCapped = Math.min(CHALLENGE_BONUS_MAX_POINTS, bonusPoints);
-  const reportPenalty = Math.min(REPORT_PENALTY_MAX_POINTS, reportUnits * REPORT_PENALTY_PER_UNIT);
-  const deletedPenalty = deletedCount * DELETED_POST_PENALTY;
-
-  const rawFinal =
-    WEIGHT_CONSISTENCY * consistencyPillar +
-    WEIGHT_ENGAGEMENT * engagementForFinal +
-    bonusCapped -
-    reportPenalty -
-    deletedPenalty;
-
-  const verticalScore = Math.max(0, Math.min(100, Math.round(rawFinal)));
-
   const breakdown: VerticalScoreBreakdownFirestore = {
-    consistency: Math.round(Math.min(100, Math.max(0, consistencyPillar))),
-    engagement: Math.round(Math.min(100, Math.max(0, engagementForFinal))),
-    reliability: Math.round(Math.min(100, Math.max(0, reliabilityAvg * 100))),
-    bonus: Math.round(Math.min(100, Math.max(0, bonusCapped * 6.5))),
+    lifetimePower,
+    streakPower: 0,
+    recentQualityPower,
+    inactivityDecay: 0,
+    safetyPenalty: 0,
+    lifetimeVerticalXP: lifetime,
+    activeLeapStreakDays: 0,
+    recentQualityAvg,
   };
-
-  const out: VerticalScoreComputationResult = { verticalScore, breakdown };
-  return out;
+  return { verticalScore, breakdown };
 }

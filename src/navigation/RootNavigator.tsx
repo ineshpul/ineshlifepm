@@ -53,7 +53,7 @@ function LoggedInStack() {
         options={{
           headerShown: false,
           presentation: 'fullScreenModal',
-          animation: 'slide_from_bottom',
+          animation: 'fade',
           gestureEnabled: true,
         }}
       />

@@ -164,6 +164,8 @@ export function RecordScreen() {
   const isRecordingRef = React.useRef(false);
   const recordingWatchdogRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const recordTapBusyRef = React.useRef(false);
+  /** Fewer React commits while Firebase reports many tiny upload progress ticks. */
+  const uploadProgressGateRef = React.useRef({ lastShown: -1, lastAt: 0 });
 
   React.useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -340,6 +342,7 @@ export function RecordScreen() {
       }
 
       setIsRecording(true);
+      isRecordingRef.current = true;
 
       const durationSec = Math.max(1, maxSec);
       const recordingOptions = { maxDuration: durationSec };
@@ -382,6 +385,7 @@ export function RecordScreen() {
         clearTimeout(recordingWatchdogRef.current);
         recordingWatchdogRef.current = null;
       }
+      isRecordingRef.current = false;
       setIsRecording(false);
       void setAudioSessionForPlayback().catch(() => {});
     }
@@ -399,6 +403,12 @@ export function RecordScreen() {
   }, [postedToday, playerFacing.canRecord, isRecording, countdown, canUseCamera]);
 
   const onTapRecord = async () => {
+    // Stop must run even while `recordTapBusyRef` is true — it stays true for the whole
+    // `recordAsync()` await inside `startCountdownThenRecord`, otherwise taps never reach `stopRecording`.
+    if (isRecordingRef.current) {
+      (cameraRef.current as { stopRecording?: () => void })?.stopRecording?.();
+      return;
+    }
     if (recordTapBusyRef.current) return;
     if (postedToday) return;
     if (!playerFacing.canRecord) {
@@ -435,10 +445,6 @@ export function RecordScreen() {
         );
         return;
       }
-    }
-    if (isRecording) {
-      (cameraRef.current as any)?.stopRecording?.();
-      return;
     }
     if (!canUseCamera) return;
 
@@ -478,6 +484,7 @@ export function RecordScreen() {
 
     const runUpload = async () => {
       setUploading(true);
+      uploadProgressGateRef.current = { lastShown: -1, lastAt: 0 };
       try {
       // If Firebase isn't configured yet (or user isn't authenticated), still unlock the app
       // so you can test flows end-to-end.
@@ -489,12 +496,31 @@ export function RecordScreen() {
         return;
       }
 
+      // Let the "POSTING…" frame paint before we read the whole file into memory.
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+
       const blob = await clipUriToBlob(clipUri);
       const ext = 'mp4';
       const contentType = 'video/mp4';
       const path = `videos/${user.uid}/${viewingChallengeDateKey}/${Date.now()}.${ext}`;
       const rref = ref(storage(), path);
       setUploadPct(0);
+
+      const reportUploadProgress = (rawPct: number) => {
+        const pct = Math.min(99, Math.max(0, Math.round(rawPct)));
+        if (pct >= 99) {
+          setUploadPct(pct);
+          uploadProgressGateRef.current = { lastShown: pct, lastAt: Date.now() };
+          return;
+        }
+        const now = Date.now();
+        const g = uploadProgressGateRef.current;
+        if (pct - g.lastShown < 4 && now - g.lastAt < 280) return;
+        g.lastShown = pct;
+        g.lastAt = now;
+        setUploadPct(pct);
+      };
+
       const task = uploadBytesResumable(rref, blob, { contentType });
       await new Promise<void>((resolve, reject) => {
         task.on(
@@ -502,7 +528,7 @@ export function RecordScreen() {
           (snapshot) => {
             const total = snapshot.totalBytes;
             if (total > 0) {
-              setUploadPct(Math.min(99, Math.round((100 * snapshot.bytesTransferred) / total)));
+              reportUploadProgress((100 * snapshot.bytesTransferred) / total);
             }
           },
           (err) => reject(err),
@@ -529,23 +555,6 @@ export function RecordScreen() {
             moderationStatus: requireMod ? 'pending' : 'approved',
           },
         });
-        try {
-          await syncAttemptLedgerAfterSuccessfulPost({
-            uid: user.uid,
-            challengeDate: viewingChallengeDateKey,
-          });
-        } catch {
-          // Best-effort; video doc is the source of truth for “posted today”.
-        }
-        try {
-          await updateDoc(doc(firestore(), 'users', user.uid), {
-            challengesCompleted: increment(1),
-            updatedAt: serverTimestamp(),
-          });
-        } catch {
-          // Best-effort; video post already succeeded.
-        }
-        void recomputeVerticalScoreForUser(user.uid);
       } catch (e) {
         try {
           await deleteObject(rref);
@@ -561,8 +570,20 @@ export function RecordScreen() {
       markPostedToday();
       setClipUri(null);
       setClipSource(null);
-      /** Open Feed first so reels mount and autoplay — alerts / camera-roll work must not block this transition. */
-      nav.navigate('Tabs' as never, { screen: 'Feed' } as never);
+      /** Next frame — faster than `runAfterInteractions`, which can wait behind unrelated animations. */
+      requestAnimationFrame(() => {
+        nav.navigate('Tabs' as never, { screen: 'Feed' } as never);
+      });
+
+      void syncAttemptLedgerAfterSuccessfulPost({
+        uid: user.uid,
+        challengeDate: viewingChallengeDateKey,
+      }).catch(() => {});
+      void updateDoc(doc(firestore(), 'users', user.uid), {
+        challengesCompleted: increment(1),
+        updatedAt: serverTimestamp(),
+      }).catch(() => {});
+      void recomputeVerticalScoreForUser(user.uid);
 
       if (recordedForSave && autoSaveClip) {
         void saveClipToCameraRoll().catch(() => {});

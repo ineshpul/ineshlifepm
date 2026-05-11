@@ -33,6 +33,7 @@ import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/fireb
 import { LEAP_SUPPORT_EMAIL } from '../constants/support';
 import type { LegalDocId } from '../content/settingsLegal';
 import { showError, showInfo } from '../utils/ui';
+import { verticalScoreToDisplayInches } from '../lib/verticalScore';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { saveUserPublicProfile } from '../services/userProfile';
 
@@ -203,15 +204,17 @@ export function SettingsScreen() {
 
   const refreshVerticalScore = async () => {
     if (!user?.uid) {
-      showInfo('Sign in', 'Vertical Score needs an account.');
+      showInfo('Sign in', 'You need an account to refresh your board height.');
       return;
     }
     try {
       const r = await recomputeVerticalScoreForUser(user.uid);
-      if (r) showInfo('Vertical Score', `Updated to ${r.verticalScore}.`);
-      else showError('Could not update', new Error('Check your connection or try again.'));
+      if (r) {
+        const inches = verticalScoreToDisplayInches(r.verticalScore);
+        showInfo('Board height', `Updated to ${inches} in.`);
+      } else showError('Could not update', new Error('Check your connection or try again.'));
     } catch (e) {
-      showError('Could not update score', e);
+      showError('Could not update', e);
     }
   };
 
@@ -501,7 +504,7 @@ export function SettingsScreen() {
             onValueChange={(v) => patch({ showScorePublic: v })}
           />
           <Separator />
-          <RowChevron label="Recalculate vertical score" onPress={() => void refreshVerticalScore()} />
+          <RowChevron label="Refresh height on the board" onPress={() => void refreshVerticalScore()} />
         </Card>
 
         <SectionHeader title="Camera / Upload" />

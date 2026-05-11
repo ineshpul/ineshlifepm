@@ -3,6 +3,8 @@ import * as logger from 'firebase-functions/logger';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
+import { resendApiKey } from './resendSecrets';
+
 const REGION = 'us-central1';
 const OTP_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 8;
@@ -24,20 +26,19 @@ function sha256Hex(s: string): string {
   return crypto.createHash('sha256').update(s, 'utf8').digest('hex');
 }
 
-async function sendResend(to: string, code: string) {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) {
-    logger.error('RESEND_API_KEY is not set');
+async function sendResend(to: string, code: string, apiKey: string) {
+  if (!apiKey.trim()) {
+    logger.error('RESEND_API_KEY is empty');
     throw new HttpsError(
       'failed-precondition',
-      'Sign-in email is not configured. Set RESEND_API_KEY (Resend) on your Cloud Functions environment.'
+      'Sign-in email is not configured. Set the RESEND_API_KEY secret and redeploy.'
     );
   }
   const from = process.env.RESEND_FROM_EMAIL || 'Leap <onboarding@resend.dev>';
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${key}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -55,8 +56,17 @@ async function sendResend(to: string, code: string) {
 }
 
 /** Email/password sign-in: sends a 6-digit code (Apple / Google flows do not use this). */
-export const sendLoginOtp = onCall({ region: REGION }, async (request) => {
+export const sendLoginOtp = onCall({ region: REGION, secrets: [resendApiKey] }, async (request) => {
   const email = normEmail(request.data?.email);
+
+  const apiKey = resendApiKey.value() || process.env.RESEND_API_KEY || '';
+  if (!apiKey.trim()) {
+    logger.error('RESEND_API_KEY is not set (secret or env)');
+    throw new HttpsError(
+      'failed-precondition',
+      'Sign-in email is not configured. Set the RESEND_API_KEY secret and redeploy.'
+    );
+  }
 
   // Do not leak whether an account exists (user enumeration).
   let userExists = true;
@@ -108,7 +118,7 @@ export const sendLoginOtp = onCall({ region: REGION }, async (request) => {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    await sendResend(email, code);
+    await sendResend(email, code, apiKey);
   } else {
     // Account does not exist: return a plausible response anyway.
     // Avoids leaking existence via errors; still rate-limited above.

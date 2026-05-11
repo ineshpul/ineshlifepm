@@ -314,6 +314,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    /** Global first-approved-of-day bookkeeping (Cloud Functions only). */
+    match /dailyChallengeStats/{dayKey} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
     // Daily post is unique per user per challenge day (doc id `${uid}_${challengeDate}`).
     match /videos/{videoId} {
       // Allow read when the doc is missing so `onSnapshot` (e.g. “posted today?”) does not throw
@@ -543,6 +549,15 @@ service cloud.firestore {
           'verticalScoreBreakdown',
           'verticalScoreUpdatedAt',
           'verticalScoreAdjustment',
+          'lifetimeVerticalXP',
+          'activeLeapStreakDays',
+          'longestLeapStreakDays',
+          'lastApprovedLeapDateKey',
+          'recentQualityAvg',
+          'recentApprovedLeapCount',
+          'inactivityDecay',
+          'safetyPenalty',
+          'hasReceivedFirstLeapBonus',
           'bestVerticalGainPostId',
           'bestVerticalGainPoints',
           'highestJumpDisplayInches',
@@ -565,6 +580,15 @@ service cloud.firestore {
           'verticalScoreBreakdown',
           'verticalScoreUpdatedAt',
           'verticalScoreAdjustment',
+          'lifetimeVerticalXP',
+          'activeLeapStreakDays',
+          'longestLeapStreakDays',
+          'lastApprovedLeapDateKey',
+          'recentQualityAvg',
+          'recentApprovedLeapCount',
+          'inactivityDecay',
+          'safetyPenalty',
+          'hasReceivedFirstLeapBonus',
           'bestVerticalGainPostId',
           'bestVerticalGainPoints',
           'highestJumpDisplayInches',

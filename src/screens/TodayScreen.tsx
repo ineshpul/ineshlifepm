@@ -2,13 +2,20 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { FunctionsError } from 'firebase/functions';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Brandmark } from '../components/Brandmark';
 import { LeapLoadingFrog } from '../components/LeapLoadingFrog';
@@ -23,6 +30,7 @@ import { showInfo } from '../utils/ui';
 import { navigateToRecord, navigateToUserProfile } from '../navigation/navigationHelpers';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { subscribeUsersByUsernamePrefix, type UserSearchHit } from '../services/userSearch';
+import { submitChallengeSuggestion } from '../services/challengeSuggestion';
 
 function formatHMS(ms: number) {
   if (!Number.isFinite(ms)) return '—';
@@ -38,12 +46,44 @@ function formatHMS(ms: number) {
 
 export function TodayScreen() {
   const nav = useNavigation<any>();
-  const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+  const { user, authReady } = useAuth();
   const { challenge, window } = useTodayChallenge();
   const facing = getPlayerFacingChallenge(challenge, window);
   const headerCountdown = window.isLive ? window.msUntilExpire : window.msUntilDrop;
   /** Must match `videos.challengeDate` / leap cycle — not `window.dateKey` (calendar midnight day). */
   const liveCount = useLiveCount(challenge.dateKey);
+
+  const [suggestOpen, setSuggestOpen] = React.useState(false);
+  const [suggestText, setSuggestText] = React.useState('');
+  const [suggestSending, setSuggestSending] = React.useState(false);
+
+  const sendSuggestion = React.useCallback(async () => {
+    const body = suggestText.trim();
+    if (!body || suggestSending) return;
+    if (!isFirebaseConfigured() || !authReady || !user?.uid) {
+      showInfo('Sign in required', 'Sign in to send a challenge suggestion.');
+      return;
+    }
+    setSuggestSending(true);
+    try {
+      await submitChallengeSuggestion(body);
+      setSuggestOpen(false);
+      setSuggestText('');
+      showInfo('Thanks!', 'Your idea was sent to the Leap team.');
+    } catch (e: unknown) {
+      let msg = 'Something went wrong. Try again.';
+      if (e instanceof FunctionsError && e.code === 'functions/unauthenticated') {
+        msg =
+          'Your session did not reach the server yet. Wait a moment and try again, or sign out and back in.';
+      } else if (e instanceof Error) {
+        msg = e.message;
+      }
+      showInfo('Could not send', msg);
+    } finally {
+      setSuggestSending(false);
+    }
+  }, [authReady, suggestSending, suggestText, user?.uid]);
 
   const [profileQ, setProfileQ] = React.useState('');
   const [debouncedProfileQ, setDebouncedProfileQ] = React.useState('');
@@ -208,8 +248,107 @@ export function TodayScreen() {
           style={styles.leapBtn}
         />
         <Text style={styles.bottomHint}>TAP TO RECORD</Text>
-        <Text style={styles.bottomSub}>{LEAP_BOTTOM_TAGLINE}</Text>
+        <TouchableOpacity
+          onPress={() => setSuggestOpen(true)}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Suggest a challenge"
+          style={styles.suggestBtn}
+        >
+          <Text style={styles.suggestBtnText}>{LEAP_BOTTOM_TAGLINE}</Text>
+          <Text style={styles.suggestBtnTextStrong}>Suggest a challenge</Text>
+        </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={suggestOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          if (!suggestSending) setSuggestOpen(false);
+        }}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalKavRoot}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 6 : 0}
+        >
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => {
+              if (!suggestSending) setSuggestOpen(false);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss suggestion form"
+          />
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.modalBackdrop,
+              { paddingBottom: Math.max(insets.bottom, 14) + 6 },
+            ]}
+          >
+            <View style={styles.modalCard}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                showsVerticalScrollIndicator={false}
+                bounces={false}
+              >
+                <Text style={styles.modalTitle}>Suggest a challenge</Text>
+                <Text style={styles.modalSub}>
+                  Tap Send and we&apos;ll deliver your idea to the Leap team — no email app needed.
+                </Text>
+                <TextInput
+                  value={suggestText}
+                  onChangeText={setSuggestText}
+                  placeholder="Type your challenge idea…"
+                  placeholderTextColor={colors.muted2}
+                  multiline
+                  style={styles.modalInput}
+                  autoCorrect
+                  autoCapitalize="sentences"
+                  maxLength={1200}
+                  editable={!suggestSending}
+                />
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (!suggestSending) setSuggestOpen(false);
+                    }}
+                    style={[styles.modalBtn, styles.modalBtnOutline, suggestSending && { opacity: 0.55 }]}
+                    activeOpacity={0.85}
+                    disabled={suggestSending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel suggestion"
+                  >
+                    <Text style={styles.modalBtnOutlineText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => void sendSuggestion()}
+                    style={[
+                      styles.modalBtn,
+                      suggestText.trim() && !suggestSending
+                        ? styles.modalBtnPrimary
+                        : styles.modalBtnDisabled,
+                    ]}
+                    activeOpacity={0.85}
+                    disabled={!suggestText.trim() || suggestSending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Send suggestion"
+                  >
+                    {suggestSending ? (
+                      <ActivityIndicator color={colors.white} />
+                    ) : (
+                      <Text style={styles.modalBtnPrimaryText}>Send</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </Screen>
   );
 }
@@ -473,5 +612,77 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.muted,
   },
+  suggestBtn: {
+    marginTop: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+  },
+  suggestBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.muted,
+    textAlign: 'center',
+  },
+  suggestBtnTextStrong: {
+    marginTop: 2,
+    fontSize: 13,
+    fontWeight: '900',
+    color: colors.coral,
+    textAlign: 'center',
+  },
+  modalKavRoot: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  modalBackdrop: {
+    flex: 1,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    padding: 14,
+    gap: 10,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '900', color: colors.text },
+  modalSub: { fontSize: 13, fontWeight: '600', color: colors.muted, lineHeight: 18 },
+  modalInput: {
+    minHeight: 110,
+    maxHeight: 220,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    backgroundColor: colors.white,
+    textAlignVertical: 'top',
+  },
+  modalActions: { flexDirection: 'row', gap: 10, marginTop: 2 },
+  modalBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalBtnOutline: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+  },
+  modalBtnOutlineText: { fontSize: 14, fontWeight: '900', color: colors.text },
+  modalBtnPrimary: { backgroundColor: colors.moss },
+  modalBtnDisabled: { backgroundColor: '#C9D3C9' },
+  modalBtnPrimaryText: { fontSize: 14, fontWeight: '900', color: colors.white },
 });
 
