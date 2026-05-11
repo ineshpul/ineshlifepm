@@ -39,6 +39,7 @@ import { showError, showInfo } from '../utils/ui';
 import { CHALLENGE_INSTRUCTIONS } from '../content/challengeCopy';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import * as MediaLibrary from 'expo-media-library';
+import * as Device from 'expo-device';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { getExpoExtra } from '../config/expoExtra';
 import { purchaseRecordingAttemptWithScore } from '../services/recordingAttemptsPurchase';
@@ -66,6 +67,48 @@ async function setAudioSessionForPlayback() {
     playThroughEarpieceAndroid: false,
     staysActiveInBackground: false,
   });
+}
+
+/**
+ * Quick mic pipeline check before camera video recording. Skipped on simulators (no reliable capture).
+ * Returns true if a short capture succeeds; false if prepare/start/status indicates audio capture is not working.
+ */
+async function verifyMicrophoneCapturesAudioOk(): Promise<boolean> {
+  if (!Device.isDevice) return true;
+
+  let recording: InstanceType<typeof Audio.Recording> | undefined;
+  try {
+    await setAudioSessionForRecording();
+    const audioPerm = await Audio.requestPermissionsAsync();
+    if (!audioPerm.granted) return false;
+
+    const created = await Audio.Recording.createAsync();
+    recording = created.recording;
+
+    await new Promise<void>((r) => setTimeout(r, 480));
+
+    const mid = await recording.getStatusAsync();
+    const capturing =
+      mid.isRecording === true &&
+      typeof mid.durationMillis === 'number' &&
+      mid.durationMillis > 0;
+
+    await recording.stopAndUnloadAsync();
+    recording = undefined;
+
+    await setAudioSessionForRecording().catch(() => {});
+    return capturing;
+  } catch {
+    if (recording) {
+      try {
+        await recording.stopAndUnloadAsync();
+      } catch {
+        /* noop */
+      }
+    }
+    await setAudioSessionForRecording().catch(() => {});
+    return false;
+  }
 }
 
 async function clipUriToBlob(uri: string): Promise<Blob> {
@@ -117,6 +160,7 @@ export function RecordScreen() {
   const countdownAbortRef = React.useRef(false);
   const isRecordingRef = React.useRef(false);
   const recordingWatchdogRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordTapBusyRef = React.useRef(false);
 
   React.useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -346,6 +390,7 @@ export function RecordScreen() {
   }, [postedToday, playerFacing.canRecord, isRecording, countdown, canUseCamera]);
 
   const onTapRecord = async () => {
+    if (recordTapBusyRef.current) return;
     if (postedToday) return;
     if (!playerFacing.canRecord) {
       showInfo(
@@ -387,7 +432,29 @@ export function RecordScreen() {
       return;
     }
     if (!canUseCamera) return;
-    await startCountdownThenRecord();
+
+    recordTapBusyRef.current = true;
+    try {
+      const audioOk = await verifyMicrophoneCapturesAudioOk();
+      if (!audioOk) {
+        const proceed = await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            'Microphone check',
+            'We could not verify that your microphone is capturing audio. Your leap might be silent in the feed. Do you want to continue recording anyway?',
+            [
+              { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Continue anyway', onPress: () => resolve(true) },
+            ],
+            { cancelable: true, onDismiss: () => resolve(false) }
+          );
+        });
+        if (!proceed) return;
+      }
+
+      await startCountdownThenRecord();
+    } finally {
+      recordTapBusyRef.current = false;
+    }
   };
 
   const onPost = async () => {
@@ -477,22 +544,29 @@ export function RecordScreen() {
         throw e;
       }
 
-      // Successful post: optionally save a recorded clip.
-      if (clipSource === 'recorded') {
-        if (preferences.autoSavePosts) {
-          await saveClipToCameraRoll();
-        } else {
-          Alert.alert('Save to camera roll?', 'Save this post to your camera roll?', [
-            { text: 'Save', onPress: () => void saveClipToCameraRoll() },
-            { text: 'Not now', style: 'cancel' },
-          ]);
-        }
-      }
+      const recordedForSave = clipSource === 'recorded';
+      const autoSaveClip = preferences.autoSavePosts;
 
       markPostedToday();
       setClipUri(null);
       setClipSource(null);
+      /** Open Feed first so reels mount and autoplay — alerts / camera-roll work must not block this transition. */
       nav.navigate('Tabs' as never, { screen: 'Feed' } as never);
+
+      if (recordedForSave && autoSaveClip) {
+        void saveClipToCameraRoll().catch(() => {});
+      } else if (recordedForSave) {
+        InteractionManager.runAfterInteractions(() =>
+          requestAnimationFrame(() => {
+            setTimeout(() => {
+              Alert.alert('Save to camera roll?', 'Save this post to your camera roll?', [
+                { text: 'Save', onPress: () => void saveClipToCameraRoll() },
+                { text: 'Not now', style: 'cancel' },
+              ]);
+            }, 400);
+          })
+        );
+      }
     } catch (e) {
       if (user?.uid && isFirebaseConfigured()) {
         try {

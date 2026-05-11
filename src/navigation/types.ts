@@ -22,6 +22,8 @@ export type RootStackParamList = {
   MyLeaps: undefined;
   /** Full-screen reel for another user (opened from profile). */
   UserLeaps: { uid: string; username?: string };
+  /** Explains posting before viewing someone else’s leaps; primary action opens Record. */
+  TakeTheLeapForLeaps: { uid: string; username?: string };
   /** Opens a single leap by Firestore `videos/{videoId}` (e.g. profile “best vertical gain” post). */
   VideoPost: { videoId: string };
   AdminVideoModeration: undefined;

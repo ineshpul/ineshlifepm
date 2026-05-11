@@ -43,7 +43,7 @@ import { useAppState } from '../state/appState';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
-import { todayVideoDocId, useCanViewEveryoneFeed } from '../state/posting';
+import { todayVideoDocId } from '../state/posting';
 import { showError } from '../utils/ui';
 import {
   markAllNotificationsRead,
@@ -118,7 +118,7 @@ export function FeedScreen() {
   const isFocused = useIsFocused();
   const nav = useNavigation<any>();
   const { preferences, patch } = useSettingsPreferences();
-  const { clearPostedOverride } = useAppState();
+  const { clearPostedOverride, hasPostedToday: canViewEveryoneFeed } = useAppState();
   const { user } = useAuth();
   /**
    * NY calendar day for queries — not `useChallengeWindow()` (that ticked 250ms and re-rendered this whole screen constantly).
@@ -149,8 +149,6 @@ export function FeedScreen() {
     const id = setInterval(tick, 5000);
     return () => clearInterval(id);
   }, []);
-
-  const canViewEveryoneFeed = useCanViewEveryoneFeed(user?.uid);
 
   React.useEffect(() => {
     void Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});

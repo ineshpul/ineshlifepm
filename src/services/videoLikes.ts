@@ -1,6 +1,6 @@
 import { deleteDoc, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 
-import { firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { createInAppNotification } from './social';
 
 export async function ensureVideoLiked(args: {
@@ -12,6 +12,16 @@ export async function ensureVideoLiked(args: {
   if (!isFirebaseConfigured()) return false;
   const { videoId, viewerUid, viewerUsername, videoOwnerUid } = args;
   if (!videoId || !viewerUid) return false;
+  try {
+    await firebaseAuth().authStateReady();
+  } catch {
+    // best-effort
+  }
+  const cur = firebaseAuth().currentUser;
+  if (!cur?.uid || cur.uid !== viewerUid) {
+    // Prevent permission-denied writes when auth is not fully ready or session has changed.
+    throw new Error('Auth session not ready. Please try again.');
+  }
   const likeRef = doc(firestore(), 'videos', videoId, 'likes', viewerUid);
   const snap = await getDoc(likeRef);
   if (snap.exists()) return false;
@@ -36,6 +46,15 @@ export async function toggleCommentLike(args: {
   if (!isFirebaseConfigured()) return 'unliked';
   const { videoId, commentId, viewerUid } = args;
   if (!videoId || !commentId || !viewerUid) return 'unliked';
+  try {
+    await firebaseAuth().authStateReady();
+  } catch {
+    // best-effort
+  }
+  const cur = firebaseAuth().currentUser;
+  if (!cur?.uid || cur.uid !== viewerUid) {
+    throw new Error('Auth session not ready. Please try again.');
+  }
   const likeRef = doc(firestore(), 'videos', videoId, 'comments', commentId, 'likes', viewerUid);
   const snap = await getDoc(likeRef);
   if (snap.exists()) {

@@ -1,7 +1,12 @@
 import * as React from 'react';
 import { collection, getCountFromServer, query, where } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
+
+function cacheKey(dateKey: string) {
+  return `liveCount:${dateKey}`;
+}
 
 export function useLiveCount(dateKey: string) {
   const [count, setCount] = React.useState<number | null>(null);
@@ -21,14 +26,27 @@ export function useLiveCount(dateKey: string) {
         );
         const snap = await getCountFromServer(q);
         if (!alive) return;
-        setCount(snap.data().count);
+        const next = snap.data().count;
+        setCount(next);
+        void AsyncStorage.setItem(cacheKey(dateKey), String(next)).catch(() => {});
       } catch {
         if (!alive) return;
         setCount(null);
       }
     };
 
-    run();
+    void (async () => {
+      try {
+        const cached = await AsyncStorage.getItem(cacheKey(dateKey));
+        if (!alive) return;
+        const n = cached != null ? Number(cached) : NaN;
+        if (Number.isFinite(n)) setCount(n);
+      } catch {
+        // ignore cache errors
+      } finally {
+        await run();
+      }
+    })();
     const id = setInterval(run, 20_000);
     return () => {
       alive = false;

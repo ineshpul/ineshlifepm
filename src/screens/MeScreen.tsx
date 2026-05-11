@@ -151,7 +151,13 @@ export function MeScreen() {
     return myVideos.reduce((sum, v) => sum + (Number.isFinite(v.likesCount) ? v.likesCount : 0), 0);
   }, [myVideos]);
 
-  /** Consecutive leap days with an **approved** video, ending at the current cycle. Missing the current cycle ⇒ 0. */
+  /**
+   * Consecutive NY leap-day keys with an **approved** video.
+   * Count ends at **today** if posted today; otherwise at **yesterday** if posted yesterday (today still “open”),
+   * so the streak does not drop to 0 just because you have not posted today’s leap yet. If you miss a full day
+   * (no approved post for today or yesterday), the chain is broken → 0. Then we walk backward day-by-day
+   * until the first gap.
+   */
   const streakDaysDerived = React.useMemo(() => {
     if (myVideos.length === 0) return 0;
     const postedKeys = new Set<string>();
@@ -160,8 +166,14 @@ export function MeScreen() {
       const k = normalizeNyDateKey(v.challengeDate, viewingChallengeDateKey);
       if (k) postedKeys.add(k);
     }
-    if (!postedKeys.has(viewingChallengeDateKey)) return 0;
-    let cursor = viewingChallengeDateKey;
+    const todayK = viewingChallengeDateKey;
+    const yesterdayK = prevNyDateKey(todayK);
+    let start: string | null = null;
+    if (postedKeys.has(todayK)) start = todayK;
+    else if (postedKeys.has(yesterdayK)) start = yesterdayK;
+    else return 0;
+
+    let cursor = start;
     let count = 0;
     for (let i = 0; i < 500; i++) {
       if (!postedKeys.has(cursor)) break;

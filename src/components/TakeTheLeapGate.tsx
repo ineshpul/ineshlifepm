@@ -18,22 +18,6 @@ export function TakeTheLeapGate({
   embedded?: boolean;
 }) {
   const nav = useNavigation<any>();
-  const [expanded, setExpanded] = React.useState(false);
-
-  if (!expanded) {
-    const openFeedBtn = (
-      <PrimaryButton
-        title="Open feed"
-        variant="green"
-        onPress={() => setExpanded(true)}
-        style={embedded ? styles.gateCtaEmbedded : styles.gateCta}
-      />
-    );
-    if (embedded) {
-      return <View style={styles.embeddedWrap}>{openFeedBtn}</View>;
-    }
-    return <Screen style={styles.gateScreen}>{openFeedBtn}</Screen>;
-  }
 
   const inner = (
     <>

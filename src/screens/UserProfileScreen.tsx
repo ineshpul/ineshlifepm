@@ -1,7 +1,6 @@
 import * as React from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,11 +18,9 @@ import { Screen } from '../components/Screen';
 import { colors } from '../theme/colors';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import type { MainStackParamList } from '../navigation/types';
-import { navigateToRecord } from '../navigation/navigationHelpers';
 import { useAuth } from '../state/auth';
 import { useCanViewOtherUsersVideos } from '../state/posting';
 import { FollowButton } from '../components/FollowButton';
-import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
 import { UsernameLink } from '../components/UsernameLink';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { getOrCreateDm } from '../services/chat/chatFirestore';
@@ -84,13 +81,6 @@ export function UserProfileScreen({ route, navigation }: Props) {
     isModerator: user?.isModerator,
   });
   const leapGateForOthers = !isSelf && !canViewOthersVideos;
-
-  const promptLeapToContinue = React.useCallback(() => {
-    Alert.alert('Take the leap to continue', undefined, [
-      { text: 'Not now', style: 'cancel' },
-      { text: 'Leap', onPress: () => navigateToRecord(nav) },
-    ]);
-  }, [nav]);
 
   React.useEffect(() => {
     if (!isSelf || !user?.uid) {
@@ -174,12 +164,15 @@ export function UserProfileScreen({ route, navigation }: Props) {
       nav.navigate('MyLeaps');
       return;
     }
-    if (viewerUid && leapGateForOthers) {
-      promptLeapToContinue();
+    if (leapGateForOthers) {
+      nav.navigate('TakeTheLeapForLeaps', { uid, username: usernameHint ?? username });
       return;
     }
     nav.navigate('UserLeaps', { uid, username: usernameHint ?? username });
-  }, [isSelf, nav, uid, usernameHint, username, viewerUid, leapGateForOthers, promptLeapToContinue]);
+  }, [isSelf, nav, uid, usernameHint, username, leapGateForOthers]);
+
+  const leapsStatNumber =
+    leapGateForOthers && videos.length === 0 ? '—' : String(videos.length);
 
   const bio = String(profile?.bio ?? '').trim();
   const photoUrl = String(
@@ -257,34 +250,24 @@ export function UserProfileScreen({ route, navigation }: Props) {
             <Text style={styles.statNum}>{verticalScore}</Text>
             <Text style={styles.statLabel}>Vertical</Text>
           </View>
-          {leapGateForOthers ? (
-            <View style={[styles.stat, styles.statLocked]}>
-              <Text style={styles.statNum}>—</Text>
-              <Text style={styles.statLabel}>Highest Leap</Text>
-              <Text style={styles.statSub}>Locked until you post your first leap</Text>
-            </View>
-          ) : (
-            <Pressable
-              disabled={!canOpenBestLeap}
-              onPress={() => {
-                if (!canOpenBestLeap) return;
-                nav.navigate('VideoPost', { videoId: bestVerticalGainPostId });
-              }}
-              style={({ pressed }) => [styles.stat, canOpenBestLeap && pressed && styles.statPressed]}
-              accessibilityRole={canOpenBestLeap ? 'button' : undefined}
-              accessibilityLabel={canOpenBestLeap ? 'Watch the leap for Highest Leap' : undefined}
-            >
-              <Text style={styles.statNum}>{highestJumpDisplayInches} in</Text>
-              <Text style={styles.statLabel}>Highest Leap</Text>
-              {bestVerticalGainPoints > 0 ? (
-                <Text style={styles.statSub}>+{bestVerticalGainPoints} pts from one leap</Text>
-              ) : null}
-              {canOpenBestLeap ? <Text style={styles.statLink}>Tap to watch leap</Text> : null}
-            </Pressable>
-          )}
+          <Pressable
+            disabled={!canOpenBestLeap}
+            onPress={() => {
+              if (!canOpenBestLeap) return;
+              nav.navigate('VideoPost', { videoId: bestVerticalGainPostId });
+            }}
+            style={({ pressed }) => [styles.stat, canOpenBestLeap && pressed && styles.statPressed]}
+            accessibilityRole={canOpenBestLeap ? 'button' : undefined}
+            accessibilityLabel={canOpenBestLeap ? 'Watch the leap for Highest Leap' : undefined}
+          >
+            <Text style={styles.statNum}>{highestJumpDisplayInches} in</Text>
+            <Text style={styles.statLabel}>Highest Leap</Text>
+            {bestVerticalGainPoints > 0 ? (
+              <Text style={styles.statSub}>+{bestVerticalGainPoints} pts from one leap</Text>
+            ) : null}
+            {canOpenBestLeap ? <Text style={styles.statLink}>Tap to watch leap</Text> : null}
+          </Pressable>
         </View>
-
-        {leapGateForOthers ? <TakeTheLeapGate variant="feed" embedded /> : null}
 
         <View style={styles.followingSection}>
           <Text style={styles.followingTitle}>FOLLOWING</Text>
@@ -297,13 +280,13 @@ export function UserProfileScreen({ route, navigation }: Props) {
                 <Text style={styles.followingEmpty}>Follow people from the Feed.</Text>
               ) : (
                 <TouchableOpacity
-                  style={styles.openLeapsCta}
+                  style={styles.followingListCta}
                   onPress={() => nav.navigate('FollowingList')}
                   activeOpacity={0.85}
                   accessibilityRole="button"
                   accessibilityLabel="Open following list"
                 >
-                  <Text style={styles.openLeapsCtaText}>
+                  <Text style={styles.followingListCtaText}>
                     {followingRows.length} {followingRows.length === 1 ? 'person' : 'people'} you follow
                   </Text>
                   <Ionicons name="chevron-forward" size={18} color={colors.coral} />
@@ -317,32 +300,27 @@ export function UserProfileScreen({ route, navigation }: Props) {
           )}
         </View>
 
-        {!leapGateForOthers ? (
-          <View style={styles.leapsSection}>
-            <Text style={styles.leapsTitle}>{isSelf ? 'YOUR LEAPS' : `LEAPS · @${username}`}</Text>
-            <Text style={styles.leapsHint}>
-              {isSelf
-                ? 'Full-screen reel of your posts (same look as the main feed).'
+        <View style={styles.leapsSection}>
+          <Text style={styles.leapsTitle}>{isSelf ? 'YOUR LEAPS' : `LEAPS · @${username}`}</Text>
+          <Text style={styles.leapsHint}>
+            {isSelf
+              ? 'Full-screen reel of your posts (same look as the main feed).'
+              : leapGateForOthers
+                ? `Post your leap for today to unlock @${username}'s reel.`
                 : `Full-screen reel of @${username}'s approved posts.`}
-            </Text>
-            <TouchableOpacity
-              style={styles.openLeapsCta}
-              onPress={() => openLeapsFeed()}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel={isSelf ? 'Open your leaps feed' : `Open @${username} leaps feed`}
-            >
-              <Text style={styles.openLeapsCtaText}>
-                {videos.length === 0
-                  ? isSelf
-                    ? 'Open your leaps'
-                    : 'No posts yet'
-                  : `Open feed · ${videos.length} leap${videos.length === 1 ? '' : 's'}`}
-              </Text>
-              <Ionicons name="chevron-forward" size={18} color={colors.coral} />
-            </TouchableOpacity>
-          </View>
-        ) : null}
+          </Text>
+          <Pressable
+            onPress={() => openLeapsFeed()}
+            style={({ pressed }) => [styles.leapsStatCard, pressed && styles.statPressed]}
+            accessibilityRole="button"
+            accessibilityLabel={
+              isSelf ? 'Open your leaps' : leapGateForOthers ? 'Take the leap to view their reel' : `Open @${username} leaps feed`
+            }
+          >
+            <Text style={styles.statNum}>{leapsStatNumber}</Text>
+            <Text style={styles.statLabel}>Leaps</Text>
+          </Pressable>
+        </View>
       </ScrollView>
     </Screen>
   );
@@ -404,7 +382,6 @@ const styles = StyleSheet.create({
   statSub: { marginTop: 4, fontSize: 11, fontWeight: '700', color: colors.muted },
   statLink: { marginTop: 6, fontSize: 11, fontWeight: '900', color: colors.coral },
   statPressed: { opacity: 0.92 },
-  statLocked: { opacity: 0.85, backgroundColor: colors.cardTint },
   followingSection: {
     marginTop: 10,
     borderRadius: 18,
@@ -420,7 +397,16 @@ const styles = StyleSheet.create({
   leapsSection: { marginTop: 10, gap: 10 },
   leapsTitle: { fontSize: 11, letterSpacing: 2.2, fontWeight: '900', color: colors.muted },
   leapsHint: { fontSize: 13, lineHeight: 19, color: colors.muted, fontWeight: '600' },
-  openLeapsCta: {
+  leapsStatCard: {
+    marginTop: 4,
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    alignItems: 'flex-start',
+  },
+  followingListCta: {
     marginTop: 4,
     flexDirection: 'row',
     alignItems: 'center',
@@ -432,5 +418,5 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.white,
   },
-  openLeapsCtaText: { fontSize: 15, fontWeight: '900', color: colors.text, flex: 1 },
+  followingListCtaText: { fontSize: 15, fontWeight: '900', color: colors.text, flex: 1 },
 });

@@ -24,6 +24,7 @@ import { VideoPostScreen } from '../screens/VideoPostScreen';
 import { AdminVideoModerationScreen } from '../screens/AdminVideoModerationScreen';
 import { YourLeapsScreen } from '../screens/YourLeapsScreen';
 import { UserLeapsScreen } from '../screens/UserLeapsScreen';
+import { TakeTheLeapForLeapsScreen } from '../screens/TakeTheLeapForLeapsScreen';
 import { LEGAL_DOCS } from '../content/settingsLegal';
 import type { AuthStackParamList, MainStackParamList } from './types';
 import { handleNotificationNavigation } from './notificationNavigation';
@@ -112,6 +113,16 @@ function LoggedInStack() {
         getId={({ params }) => params.uid}
         options={{
           headerShown: false,
+          presentation: 'card',
+          animation: 'slide_from_right',
+        }}
+      />
+      <MainStack.Screen
+        name="TakeTheLeapForLeaps"
+        component={TakeTheLeapForLeapsScreen}
+        options={{
+          headerShown: true,
+          title: 'Take the Leap',
           presentation: 'card',
           animation: 'slide_from_right',
         }}
