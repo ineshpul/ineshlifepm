@@ -18,7 +18,7 @@ import {
   normalizeTaskDurationSeconds,
   useChallengeWindow,
 } from '../state/challenge';
-import { computeFeedViewingFromNow } from '../utils/nyTime';
+import { getAdminPublishChallengeDateKey } from '../utils/nyTime';
 import { showError, showInfo } from '../utils/ui';
 
 const ATTEMPT_PRESETS = [1, 2, 3, 5, 10] as const;
@@ -27,7 +27,7 @@ export function ChallengeAdminScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
   useChallengeWindow();
-  const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
+  const publishChallengeDateKey = getAdminPublishChallengeDateKey(Date.now());
 
   const [title, setTitle] = React.useState('');
   const [durationInput, setDurationInput] = React.useState('60');
@@ -52,7 +52,7 @@ export function ChallengeAdminScreen() {
     (async () => {
       if (!isFirebaseConfigured()) return;
       try {
-        const snap = await getDoc(doc(firestore(), 'challenges', viewingChallengeDateKey));
+        const snap = await getDoc(doc(firestore(), 'challenges', publishChallengeDateKey));
         if (cancelled || !snap.exists()) return;
         const data: any = snap.data();
         setTitle(String(data?.title ?? ''));
@@ -67,7 +67,7 @@ export function ChallengeAdminScreen() {
     return () => {
       cancelled = true;
     };
-  }, [viewingChallengeDateKey]);
+  }, [publishChallengeDateKey]);
 
   const onPublish = async () => {
     if (!isFirebaseConfigured()) {
@@ -85,10 +85,11 @@ export function ChallengeAdminScreen() {
 
     setBusy(true);
     try {
+      const publishKey = getAdminPublishChallengeDateKey(Date.now());
       await setDoc(
-        doc(firestore(), 'challenges', viewingChallengeDateKey),
+        doc(firestore(), 'challenges', publishKey),
         {
-          dateKey: viewingChallengeDateKey,
+          dateKey: publishKey,
           title: title.trim(),
           subtitle: deleteField(),
           maxDurationSeconds: duration,
@@ -98,7 +99,7 @@ export function ChallengeAdminScreen() {
         },
         { merge: true }
       );
-      showInfo('Published', `Today’s leap updated for ${viewingChallengeDateKey}.`);
+      showInfo('Published', `Leap updated for ${publishKey}.`);
       nav.goBack();
     } catch (e) {
       showError('Publish failed', e);
@@ -119,7 +120,7 @@ export function ChallengeAdminScreen() {
       >
         <Text style={styles.kicker}>ADMIN</Text>
         <Text style={styles.title}>Set today’s challenge</Text>
-        <Text style={styles.meta}>Active leap day key (noon→noon ET): {viewingChallengeDateKey}</Text>
+        <Text style={styles.meta}>Challenge doc (noon→noon ET): {publishChallengeDateKey}</Text>
 
         <View style={styles.field}>
           <Text style={styles.label}>TITLE</Text>

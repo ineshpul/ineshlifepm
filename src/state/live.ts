@@ -8,10 +8,15 @@ function cacheKey(dateKey: string) {
   return `liveCount:${dateKey}`;
 }
 
-export function useLiveCount(dateKey: string) {
+export function useLiveCount(dateKey: string, opts?: { enabled?: boolean }) {
+  const enabled = opts?.enabled !== false;
   const [count, setCount] = React.useState<number | null>(null);
 
   React.useEffect(() => {
+    if (!enabled) {
+      setCount(null);
+      return;
+    }
     let alive = true;
     const run = async () => {
       if (!isFirebaseConfigured()) {
@@ -52,7 +57,7 @@ export function useLiveCount(dateKey: string) {
       alive = false;
       clearInterval(id);
     };
-  }, [dateKey]);
+  }, [dateKey, enabled]);
 
   return count;
 }

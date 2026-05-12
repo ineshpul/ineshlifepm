@@ -187,6 +187,22 @@ export function leapChallengeDateKeyFromNow(ms: number): string {
   return computeFeedViewingFromNow(ms).viewingChallengeDateKey;
 }
 
+/**
+ * Firestore `challenges/{dateKey}` id for moderator publish.
+ * While recording is open (noon→midnight ET), matches {@link computeFeedViewingFromNow}.
+ * After recording closes until the next noon ET, targets the **upcoming** noon→noon cycle so
+ * admins do not write to yesterday’s viewing key.
+ */
+export function getAdminPublishChallengeDateKey(nowMs: number): string {
+  const window = computeChallengeWindowFromNow(nowMs);
+  const feed = computeFeedViewingFromNow(nowMs);
+  if (window.isLive) {
+    return feed.viewingChallengeDateKey;
+  }
+  const afterNextLock = nowMs + Math.max(1, feed.msUntilNextLock);
+  return computeFeedViewingFromNow(afterNextLock).viewingChallengeDateKey;
+}
+
 /** Next UTC ms at or after `nowMs + 15s` for NY wall clock hour:minute today or a future NY day. */
 
 /**

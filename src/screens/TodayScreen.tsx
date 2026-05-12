@@ -52,7 +52,7 @@ export function TodayScreen() {
   const facing = getPlayerFacingChallenge(challenge, window);
   const headerCountdown = window.isLive ? window.msUntilExpire : window.msUntilDrop;
   /** Must match `videos.challengeDate` / leap cycle — not `window.dateKey` (calendar midnight day). */
-  const liveCount = useLiveCount(challenge.dateKey);
+  const liveCount = useLiveCount(challenge.dateKey, { enabled: window.isLive });
 
   const [suggestOpen, setSuggestOpen] = React.useState(false);
   const [suggestText, setSuggestText] = React.useState('');
@@ -62,7 +62,7 @@ export function TodayScreen() {
     const body = suggestText.trim();
     if (!body || suggestSending) return;
     if (!isFirebaseConfigured() || !authReady || !user?.uid) {
-      showInfo('Sign in required', 'Sign in to send a challenge suggestion.');
+      showInfo('Sign in required', 'Sign in to send a leap suggestion.');
       return;
     }
     setSuggestSending(true);
@@ -225,7 +225,11 @@ export function TodayScreen() {
               <View style={styles.liveBarFill} />
             </View>
             <Text style={styles.liveText} numberOfLines={1}>
-              {typeof liveCount === 'number' ? `${liveCount} posted today` : '— posted today'}
+              {window.isLive
+                ? typeof liveCount === 'number'
+                  ? `${liveCount} posted today`
+                  : '— posted today'
+                : 'N/A posted today'}
             </Text>
           </View>
         </View>
@@ -252,11 +256,11 @@ export function TodayScreen() {
           onPress={() => setSuggestOpen(true)}
           activeOpacity={0.85}
           accessibilityRole="button"
-          accessibilityLabel="Suggest a challenge"
+          accessibilityLabel="Suggest a leap"
           style={styles.suggestBtn}
         >
           <Text style={styles.suggestBtnText}>{LEAP_BOTTOM_TAGLINE}</Text>
-          <Text style={styles.suggestBtnTextStrong}>Suggest a challenge</Text>
+          <Text style={styles.suggestBtnTextStrong}>Suggest a leap</Text>
         </TouchableOpacity>
       </View>
 
@@ -279,7 +283,7 @@ export function TodayScreen() {
               if (!suggestSending) setSuggestOpen(false);
             }}
             accessibilityRole="button"
-            accessibilityLabel="Dismiss suggestion form"
+            accessibilityLabel="Dismiss leap suggestion form"
           />
           <View
             pointerEvents="box-none"
@@ -295,14 +299,14 @@ export function TodayScreen() {
                 showsVerticalScrollIndicator={false}
                 bounces={false}
               >
-                <Text style={styles.modalTitle}>Suggest a challenge</Text>
+                <Text style={styles.modalTitle}>Suggest a leap</Text>
                 <Text style={styles.modalSub}>
-                  Tap Send and we&apos;ll deliver your idea to the Leap team — no email app needed.
+                  Tap Send and we&apos;ll deliver your leap idea to the Leap team — no email app needed.
                 </Text>
                 <TextInput
                   value={suggestText}
                   onChangeText={setSuggestText}
-                  placeholder="Type your challenge idea…"
+                  placeholder="Type your leap idea…"
                   placeholderTextColor={colors.muted2}
                   multiline
                   style={styles.modalInput}
@@ -320,7 +324,7 @@ export function TodayScreen() {
                     activeOpacity={0.85}
                     disabled={suggestSending}
                     accessibilityRole="button"
-                    accessibilityLabel="Cancel suggestion"
+                    accessibilityLabel="Cancel leap suggestion"
                   >
                     <Text style={styles.modalBtnOutlineText}>Cancel</Text>
                   </TouchableOpacity>
@@ -335,7 +339,7 @@ export function TodayScreen() {
                     activeOpacity={0.85}
                     disabled={!suggestText.trim() || suggestSending}
                     accessibilityRole="button"
-                    accessibilityLabel="Send suggestion"
+                    accessibilityLabel="Send leap suggestion"
                   >
                     {suggestSending ? (
                       <ActivityIndicator color={colors.white} />
