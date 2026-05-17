@@ -402,7 +402,7 @@ service cloud.firestore {
       allow update: if isStaff()
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['moderationStatus'])
-        && request.resource.data.moderationStatus in ['approved', 'pending', 'rejected'];
+        && request.resource.data.moderationStatus in ['approved', 'pending', 'rejected', 'nulled'];
       allow delete: if isStaff() || (signedIn() && resource.data.uid == request.auth.uid);
 
       // Server-managed throttling ledger for view counting (callable uses Admin SDK).
@@ -626,9 +626,11 @@ service cloud.firestore {
         allow delete: if isOwner(userId);
       }
 
-      // Who you follow — visible only to you. No public follower lists or counts.
+      // Who you follow — owner always; others when `showFollowingListToOthers` is not false (default on).
       match /following/{targetUid} {
-        allow read: if isOwner(userId);
+        allow read: if isOwner(userId)
+          || (signedIn()
+            && get(/databases/$(database)/documents/users/$(userId)).data.get('showFollowingListToOthers', true) != false);
         // `targetPhotoUrl` is optional denormalized public avatar for list UIs (synced from `users/{targetUid}.photoUrl`).
         allow create: if isOwner(userId)
           && request.auth.uid == userId

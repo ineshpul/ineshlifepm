@@ -1,42 +1,30 @@
 import { httpsCallable } from 'firebase/functions';
 
-import { firebaseAuth, firebaseFunctions, isFirebaseConfigured } from '../firebase/firebase';
-import type { VerticalScoreComputationResult } from '../types/verticalScore';
+import { firebaseFunctions, isFirebaseConfigured } from '../firebase/firebase';
+import type { LeapStatsRecomputeResult } from '../types/verticalScore';
 
-const DEBOUNCE_MS = 2000;
+const recomputeDebounceMs = 2500;
+const pendingByUid = new Map<string, ReturnType<typeof setTimeout>>();
 
-const debouncers = new Map<string, ReturnType<typeof setTimeout>>();
-
-/**
- * Recomputes the signed-in user’s Vertical Score via Cloud Function (writes are not client-trusted).
- * Returns null if not signed in as `ownerId`, Firebase is off, or the callable is unavailable.
- */
-export async function recomputeVerticalScoreForUser(
-  ownerId: string
-): Promise<VerticalScoreComputationResult | null> {
-  if (!isFirebaseConfigured() || !ownerId) return null;
-  const cur = firebaseAuth().currentUser;
-  if (!cur || cur.uid !== ownerId) return null;
-
-  try {
-    const fn = httpsCallable(firebaseFunctions(), 'recomputeVerticalScoreCallable');
-    const res = await fn();
-    return res.data as VerticalScoreComputationResult;
-  } catch {
-    return null;
-  }
+export async function recomputeVerticalScoreForUser(uid: string): Promise<LeapStatsRecomputeResult | null> {
+  if (!isFirebaseConfigured() || !uid) return null;
+  const fn = httpsCallable<void, LeapStatsRecomputeResult>(
+    firebaseFunctions(),
+    'recomputeVerticalScoreCallable'
+  );
+  const res = await fn();
+  return res.data ?? null;
 }
 
-/**
- * Coalesces rapid triggers (e.g. multiple deletes) into a single recompute.
- */
-export function scheduleVerticalScoreRecompute(ownerId: string, delayMs = DEBOUNCE_MS): void {
-  if (!isFirebaseConfigured() || !ownerId) return;
-  const prev = debouncers.get(ownerId);
+export function scheduleVerticalScoreRecompute(uid: string): void {
+  if (!uid) return;
+  const prev = pendingByUid.get(uid);
   if (prev) clearTimeout(prev);
-  const t = setTimeout(() => {
-    debouncers.delete(ownerId);
-    void recomputeVerticalScoreForUser(ownerId);
-  }, delayMs);
-  debouncers.set(ownerId, t);
+  pendingByUid.set(
+    uid,
+    setTimeout(() => {
+      pendingByUid.delete(uid);
+      void recomputeVerticalScoreForUser(uid).catch(() => {});
+    }, recomputeDebounceMs)
+  );
 }

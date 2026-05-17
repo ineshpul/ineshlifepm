@@ -8,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
   collection,
   getDocs,
@@ -38,57 +38,61 @@ import {
   challengeDateKeysForFirestoreIn,
   computeChallengeWindowFromNow,
   computeFeedViewingFromNow,
+  msUntilNextNySundayWeekStart,
+  nySundayWeekStartKey,
 } from '../utils/nyTime';
+import { weeklyLeaderboardFromVideos } from '../lib/weeklyLeaderboard';
+import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { UsernameLink } from '../components/UsernameLink';
 import { navigateToUserProfile } from '../navigation/navigationHelpers';
-import { leaperTotalsToDisplayInches, verticalScoreToDisplayInches } from '../lib/verticalScore';
-
-/** Human-readable countdown to the next Eastern noon leap boundary (same semantics as `msUntilNextLock`). */
-function formatMsUntilNextDrop(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m`;
-  return 'soon';
-}
+import {
+  cumulativeLeapInchesFromUser,
+  dailyLeapInchesFromUser,
+  formatLeapGainDisplay,
+  formatLeapInchesDisplay,
+  priorWeekLeapInchesFromUser,
+  weekOverWeekGrowthPct,
+  weeklyLeapInchesFromUser,
+} from '../lib/verticalScore';
 
 const LIST_LIMIT = 100;
+
+type AccRow = {
+  id: string;
+  score: number;
+  name: string;
+  username: string;
+  avatarUrl?: string;
+  lifetimeInches?: number;
+  priorWeek?: number;
+};
 
 export function TopScreen() {
   const nav = useNavigation<any>();
   const { user } = useAuth();
   const [timeframe, setTimeframe] = React.useState<LeaderboardTimeframe>('daily');
   const [rows, setRows] = React.useState<LeaderboardWireRow[]>([]);
+  const [mostImproved, setMostImproved] = React.useState<{
+    userId: string;
+    name: string;
+    username: string;
+    growthPct: number;
+    weekInches: number;
+  } | null>(null);
   const [leaderboardHydrated, setLeaderboardHydrated] = React.useState(false);
   const [leaderboardError, setLeaderboardError] = React.useState<string | null>(null);
   const [clock, setClock] = React.useState(() => Date.now());
-  /**
-   * All-time ranks by live **verticalScore** (0–100), tie-broken by **lifetimeVerticalXP** client-side.
-   * If the verticalScore query returns no rows, fall back to **leaperLifetimePoints** for older data.
-   */
-  const [allTimeSortKey, setAllTimeSortKey] = React.useState<
-    'leaperLifetimePoints' | 'verticalScore'
-  >('verticalScore');
   const subscriptionIdRef = React.useRef(0);
 
-  React.useEffect(() => {
-    if (timeframe === 'all_time') setAllTimeSortKey('verticalScore');
-  }, [timeframe]);
+  const leapWindow = React.useMemo(() => computeFeedViewingFromNow(clock), [clock]);
+  const leapDayKey = leapWindow.viewingChallengeDateKey;
+  const weekKey = React.useMemo(() => nySundayWeekStartKey(clock), [clock]);
 
   React.useEffect(() => {
     const t = setInterval(() => setClock(Date.now()), 15_000);
     return () => clearInterval(t);
   }, []);
 
-  /**
-   * Same window as the feed / `videos` leap cycle: **noon ET → next noon ET**, not a calendar day.
-   * `viewingChallengeDateKey` matches server `leapChallengeDateKeyFromMs` for `leaperDayKey`.
-   */
-  const leapWindow = React.useMemo(() => computeFeedViewingFromNow(clock), [clock]);
-  const leapDayKey = leapWindow.viewingChallengeDateKey;
-
-  /** Fire `clock` right after the next Eastern noon so daily rankings reset immediately when the leap drops. */
   React.useEffect(() => {
     const ms = leapWindow.msUntilNextLock;
     if (!Number.isFinite(ms) || ms <= 0) return;
@@ -97,9 +101,25 @@ export function TopScreen() {
     return () => clearTimeout(id);
   }, [leapWindow.msUntilNextLock, leapDayKey]);
 
+  /** Sun–Sat week rolls at NY midnight each Sunday (after Saturday night). */
+  React.useEffect(() => {
+    const ms = msUntilNextNySundayWeekStart(clock);
+    if (!Number.isFinite(ms) || ms <= 0) return;
+    const id = setTimeout(() => setClock(Date.now()), Math.min(ms + 400, 8 * 86_400_000));
+    return () => clearTimeout(id);
+  }, [weekKey, clock]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!user?.uid || timeframe !== 'weekly') return;
+      void recomputeVerticalScoreForUser(user.uid);
+    }, [user?.uid, timeframe])
+  );
+
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !user?.uid) {
       setRows([]);
+      setMostImproved(null);
       setLeaderboardError(null);
       setLeaderboardHydrated(true);
       return;
@@ -107,6 +127,7 @@ export function TopScreen() {
 
     const subId = ++subscriptionIdRef.current;
     setRows([]);
+      setMostImproved(null);
     setLeaderboardError(null);
     setLeaderboardHydrated(false);
 
@@ -128,11 +149,18 @@ export function TopScreen() {
         if (timeframe === 'all_time') {
           q = query(
             collection(firestore(), 'users'),
-            orderBy(allTimeSortKey, 'desc'),
+            orderBy('leaperLifetimePoints', 'desc'),
+            limit(LIST_LIMIT)
+          );
+        } else if (timeframe === 'weekly') {
+          q = query(
+            collection(firestore(), 'users'),
+            where('leaperWeekKey', '==', weekKey),
+            where('leaperWeekPoints', '>', 0),
+            orderBy('leaperWeekPoints', 'desc'),
             limit(LIST_LIMIT)
           );
         } else {
-          /** Equality on a single string misses `2024-05-05` vs `2024-5-5` stored by older writes. */
           const dayIn = challengeDateKeysForFirestoreIn([leapDayKey]);
           q = query(
             collection(firestore(), 'users'),
@@ -147,45 +175,116 @@ export function TopScreen() {
           (snap) => {
             if (subscriptionIdRef.current !== subId) return;
 
-            type Acc = {
-              id: string;
-              score: number;
-              name: string;
-              username: string;
-              avatarUrl?: string;
-              lifetimeVerticalXP?: number;
-            };
-            const acc: Acc[] = [];
+            const acc: AccRow[] = [];
             const tf = timeframe;
 
             snap.docs.forEach((d) => {
               const data = d.data() as Record<string, unknown>;
               let score = 0;
-              const lifetimeXP = Number(data.lifetimeVerticalXP ?? data.leaperLifetimePoints ?? 0);
               if (tf === 'all_time') {
-                score =
-                  allTimeSortKey === 'leaperLifetimePoints'
-                    ? Number(data.leaperLifetimePoints ?? 0)
-                    : Number(data.verticalScore ?? 0);
+                score = cumulativeLeapInchesFromUser(data);
+              } else if (tf === 'weekly') {
+                score = weeklyLeapInchesFromUser(data, weekKey);
               } else {
-                score = Number(data.leaperDayPoints ?? 0);
+                score = dailyLeapInchesFromUser(data);
               }
               if (!Number.isFinite(score)) score = 0;
+              if (tf === 'weekly' && score <= 0) return;
               acc.push({
                 id: d.id,
                 score,
                 name: leaderboardDisplayName(data),
                 username: String(data.username ?? '').trim(),
                 avatarUrl: leaderboardAvatarUrl(data),
-                lifetimeVerticalXP: Number.isFinite(lifetimeXP) ? lifetimeXP : 0,
+                lifetimeInches: cumulativeLeapInchesFromUser(data),
+                priorWeek: priorWeekLeapInchesFromUser(data),
               });
             });
 
-            /**
-             * Daily shows leap-window engagement **only for people who actually posted an approved leap**
-             * whose `challengeDate` matches the active leap or the calendar challenge day (how `videos` are keyed).
-             * Otherwise anyone with legacy engagement on old posts could rank without posting this cycle.
-             */
+            if (tf === 'weekly') {
+              let best: AccRow | null = null;
+              let bestPct = -Infinity;
+              for (const row of acc) {
+                const pct = weekOverWeekGrowthPct(row.score, row.priorWeek ?? 0);
+                if (pct > bestPct || (pct === bestPct && row.score > (best?.score ?? 0))) {
+                  bestPct = pct;
+                  best = row;
+                }
+              }
+              if (best && bestPct > 0) {
+                setMostImproved({
+                  userId: best.id,
+                  name: best.name,
+                  username: best.username,
+                  growthPct: Math.round(bestPct),
+                  weekInches: best.score,
+                });
+              } else {
+                setMostImproved(null);
+              }
+            } else {
+              setMostImproved(null);
+            }
+
+            if (tf === 'weekly') {
+              void (async () => {
+                const sid = subId;
+                const userById = new Map(snap.docs.map((d) => [d.id, d.data() as Record<string, unknown>]));
+                try {
+                  const fromVideos = await weeklyLeaderboardFromVideos(weekKey);
+                  if (subscriptionIdRef.current !== sid) return;
+                  const merged = new Map<string, AccRow>();
+                  for (const row of acc) merged.set(row.id, row);
+                  for (const v of fromVideos) {
+                    const ud = userById.get(v.uid);
+                    const prior = merged.get(v.uid);
+                    const score = Math.max(prior?.score ?? 0, v.score);
+                    if (score <= 0) continue;
+                    merged.set(v.uid, {
+                      id: v.uid,
+                      score,
+                      name: ud ? leaderboardDisplayName(ud) : v.username,
+                      username: String(ud?.username ?? v.username).trim() || v.username,
+                      avatarUrl: ud ? leaderboardAvatarUrl(ud) : undefined,
+                      lifetimeInches: ud ? cumulativeLeapInchesFromUser(ud) : undefined,
+                      priorWeek: ud ? priorWeekLeapInchesFromUser(ud) : 0,
+                    });
+                  }
+                  const mergedAcc = Array.from(merged.values()).filter((r) => r.score > 0);
+                  let best: AccRow | null = null;
+                  let bestPct = -Infinity;
+                  for (const row of mergedAcc) {
+                    const pct = weekOverWeekGrowthPct(row.score, row.priorWeek ?? 0);
+                    if (pct > bestPct || (pct === bestPct && row.score > (best?.score ?? 0))) {
+                      bestPct = pct;
+                      best = row;
+                    }
+                  }
+                  if (best && bestPct > 0) {
+                    setMostImproved({
+                      userId: best.id,
+                      name: best.name,
+                      username: best.username,
+                      growthPct: Math.round(bestPct),
+                      weekInches: best.score,
+                    });
+                  } else {
+                    setMostImproved(null);
+                  }
+                  const sorted = sortLeaderboardDocs(mergedAcc);
+                  setRows(wireRowsFromSorted(sorted, user?.uid));
+                  setLeaderboardError(null);
+                  setLeaderboardHydrated(true);
+                } catch {
+                  if (subscriptionIdRef.current !== sid) return;
+                  const sorted = sortLeaderboardDocs(acc);
+                  setRows(wireRowsFromSorted(sorted, user?.uid));
+                  setLeaderboardHydrated(true);
+                }
+              })();
+              return;
+            }
+
             if (tf === 'daily') {
               void (async () => {
                 const sid = subId;
@@ -210,6 +309,7 @@ export function TopScreen() {
                   const postedUid = new Set<string>();
                   vs.forEach((doc) => {
                     const data = doc.data() as Record<string, unknown>;
+                    if (String(data.moderationStatus ?? '') === 'nulled') return;
                     const u = String(data.uid ?? '').trim();
                     if (u) postedUid.add(u);
                   });
@@ -228,30 +328,16 @@ export function TopScreen() {
               return;
             }
 
-            if (
-              tf === 'all_time' &&
-              allTimeSortKey === 'verticalScore' &&
-              snap.docs.length === 0
-            ) {
-              setAllTimeSortKey('leaperLifetimePoints');
-              return;
-            }
-
             const sorted =
-              tf === 'all_time' && allTimeSortKey === 'verticalScore'
-                ? sortAllTimeLeaderboardDocs(acc)
-                : sortLeaderboardDocs(acc);
+              tf === 'all_time' ? sortAllTimeLeaderboardDocs(acc) : sortLeaderboardDocs(acc);
             setRows(wireRowsFromSorted(sorted, user?.uid));
             setLeaderboardError(null);
             setLeaderboardHydrated(true);
           },
           () => {
             if (subscriptionIdRef.current !== subId) return;
-            if (timeframe === 'all_time' && allTimeSortKey === 'verticalScore') {
-              setAllTimeSortKey('leaperLifetimePoints');
-              return;
-            }
             setRows([]);
+            setMostImproved(null);
             setLeaderboardError('Could not load the leaperboard. Pull to refresh or try again.');
             setLeaderboardHydrated(true);
           }
@@ -269,14 +355,12 @@ export function TopScreen() {
       clearTimeout(safetyTimer);
       unsub?.();
     };
-  }, [user?.uid, timeframe, leapDayKey, allTimeSortKey]);
+  }, [user?.uid, timeframe, leapDayKey, weekKey, clock]);
 
-  const subTitle =
-    timeframe === 'daily'
-      ? 'Leaperboard'
-      : allTimeSortKey === 'leaperLifetimePoints'
-        ? 'Leaperboard'
-        : 'Leaperboard';
+  const scoreForRow = (item: LeaderboardWireRow) => {
+    if (timeframe === 'daily') return formatLeapGainDisplay(item.score);
+    return formatLeapInchesDisplay(item.score);
+  };
 
   return (
     <Screen style={styles.screen}>
@@ -285,35 +369,49 @@ export function TopScreen() {
           <Brandmark size={36} />
           <View style={styles.headerText}>
             <Text style={styles.title}>How high can you jump?</Text>
-            <Text style={styles.sub}>{subTitle}</Text>
+            <Text style={styles.sub}>Leaperboard</Text>
           </View>
         </View>
       </View>
 
       <View style={styles.segment}>
-        <Pressable
-          style={[styles.segBtn, timeframe === 'daily' && styles.segBtnOn]}
-          onPress={() => {
-            setClock(Date.now());
-            setTimeframe('daily');
-          }}
-          accessibilityRole="tab"
-          accessibilityState={{ selected: timeframe === 'daily' }}
-        >
-          <Text style={[styles.segLabel, timeframe === 'daily' && styles.segLabelOn]}>Daily</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.segBtn, timeframe === 'all_time' && styles.segBtnOn]}
-          onPress={() => {
-            setClock(Date.now());
-            setTimeframe('all_time');
-          }}
-          accessibilityRole="tab"
-          accessibilityState={{ selected: timeframe === 'all_time' }}
-        >
-          <Text style={[styles.segLabel, timeframe === 'all_time' && styles.segLabelOn]}>All-time</Text>
-        </Pressable>
+        {(['daily', 'weekly', 'all_time'] as const).map((tf) => (
+          <Pressable
+            key={tf}
+            style={[styles.segBtn, timeframe === tf && styles.segBtnOn]}
+            onPress={() => {
+              setClock(Date.now());
+              setTimeframe(tf);
+            }}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: timeframe === tf }}
+          >
+            <Text style={[styles.segLabel, timeframe === tf && styles.segLabelOn]}>
+              {tf === 'daily' ? 'Daily' : tf === 'weekly' ? 'Weekly' : 'All-time'}
+            </Text>
+          </Pressable>
+        ))}
       </View>
+
+      {timeframe === 'weekly' && mostImproved ? (
+        <Pressable
+          style={styles.mostImprovedCard}
+          onPress={() =>
+            navigateToUserProfile(nav, {
+              uid: mostImproved.userId,
+              username: mostImproved.username || undefined,
+            })
+          }
+        >
+          <Text style={styles.mostImprovedBadge}>🔥 Most Improved</Text>
+          <Text style={styles.mostImprovedName} numberOfLines={1}>
+            {mostImproved.name}
+          </Text>
+          <Text style={styles.mostImprovedMeta}>
+            +{mostImproved.growthPct}% vs last week · {formatLeapInchesDisplay(mostImproved.weekInches)} this week
+          </Text>
+        </Pressable>
+      ) : null}
 
       {leaderboardError ? (
         <Text style={styles.errorBanner} accessibilityRole="alert">
@@ -324,7 +422,7 @@ export function TopScreen() {
       <FlatList
         data={rows}
         keyExtractor={(x) => x.userId}
-        extraData={{ timeframe, allTimeSortKey }}
+        extraData={{ timeframe, weekKey }}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
           !leaderboardHydrated ? (
@@ -336,45 +434,37 @@ export function TopScreen() {
             <Text style={styles.empty} accessibilityRole="text">
               {timeframe === 'daily'
                 ? 'No daily standings yet — post an approved leap for this leap window to show up on the board.'
-                : 'No leaderboard data yet.'}
+                : timeframe === 'weekly'
+                  ? 'No weekly standings yet — earn inches this Sun–Sat week to rank.'
+                  : 'No leaderboard data yet.'}
             </Text>
           )
         }
         renderItem={({ item }) => {
-          const isAllTime = timeframe === 'all_time' && allTimeSortKey === 'verticalScore';
-          const isLifetimeFallback = timeframe === 'all_time' && allTimeSortKey === 'leaperLifetimePoints';
-          const isDaily = timeframe === 'daily';
-          let primaryIn = 0;
-          if (isDaily) {
-            primaryIn = leaperTotalsToDisplayInches(item.score);
-          } else if (isAllTime) {
-            primaryIn = verticalScoreToDisplayInches(item.score);
-          } else if (isLifetimeFallback) {
-            primaryIn = leaperTotalsToDisplayInches(item.score);
-          }
-          const scoreMain = `${primaryIn} in`;
+          const scoreMain = scoreForRow(item);
           const topThree = item.rank <= 3;
           const podiumRow = topThree ? styles.rowGold : item.isCurrentUser ? styles.rowMe : null;
           const podiumRank = topThree ? styles.rankGold : item.isCurrentUser ? styles.rankMe : null;
-          const openProfile = () =>
-            navigateToUserProfile(nav, {
-              uid: item.userId,
-              username: item.username?.trim() || undefined,
-            });
           return (
             <Pressable
-              style={({ pressed }) => [
-                styles.row,
-                podiumRow,
-                pressed && { opacity: 0.92 },
-              ]}
-              onPress={openProfile}
-              accessibilityRole="button"
-              accessibilityLabel={`Rank ${item.rank}, ${item.name}, ${scoreMain}`}
+              style={({ pressed }) => [styles.row, podiumRow, pressed && { opacity: 0.92 }]}
+              onPress={() =>
+                navigateToUserProfile(nav, {
+                  uid: item.userId,
+                  username: item.username?.trim() || undefined,
+                })
+              }
             >
-              <Text style={[styles.rank, podiumRank]}>
-                {item.rank}
-              </Text>
+              <View style={styles.rankCol}>
+                <Text
+                  style={[styles.rank, podiumRank]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.85}
+                >
+                  {item.rank}
+                </Text>
+              </View>
               <View style={styles.avatarWrap}>
                 {item.avatarUrl ? (
                   <Image source={{ uri: item.avatarUrl }} style={styles.avatarImg} contentFit="cover" />
@@ -385,19 +475,15 @@ export function TopScreen() {
                 )}
               </View>
               <View style={styles.rowBody}>
-                <View style={styles.rowBodyMain}>
-                  <View style={styles.nameScoreRow}>
-                    <Text style={styles.name} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-                    <View style={styles.scoreCol}>
-                      <Text style={[styles.score, item.isCurrentUser && styles.scoreMe]}>{scoreMain}</Text>
-                    </View>
-                  </View>
-                  {item.username?.trim() ? (
-                    <UsernameLink uid={item.userId} username={item.username.trim()} style={styles.handle} />
-                  ) : null}
+                <View style={styles.nameScoreRow}>
+                  <Text style={styles.name} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  <Text style={[styles.score, item.isCurrentUser && styles.scoreMe]}>{scoreMain}</Text>
                 </View>
+                {item.username?.trim() ? (
+                  <UsernameLink uid={item.userId} username={item.username.trim()} style={styles.handle} />
+                ) : null}
               </View>
             </Pressable>
           );
@@ -416,7 +502,7 @@ const styles = StyleSheet.create({
   sub: { marginTop: 2, fontSize: 11, fontWeight: '600', color: colors.muted },
   segment: {
     flexDirection: 'row',
-    gap: 6,
+    gap: 4,
     marginBottom: 12,
     padding: 4,
     borderRadius: 14,
@@ -436,8 +522,19 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     elevation: 1,
   },
-  segLabel: { fontSize: 13, fontWeight: '800', color: colors.muted },
+  segLabel: { fontSize: 12, fontWeight: '800', color: colors.muted },
   segLabelOn: { color: colors.text },
+  mostImprovedCard: {
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#E67E22',
+    backgroundColor: 'rgba(255, 152, 0, 0.12)',
+  },
+  mostImprovedBadge: { fontSize: 13, fontWeight: '900', color: '#C0392B' },
+  mostImprovedName: { marginTop: 4, fontSize: 17, fontWeight: '900', color: colors.text },
+  mostImprovedMeta: { marginTop: 4, fontSize: 12, fontWeight: '700', color: colors.muted },
   errorBanner: {
     marginBottom: 10,
     paddingVertical: 10,
@@ -450,11 +547,7 @@ const styles = StyleSheet.create({
   },
   list: { paddingBottom: 24, gap: 10 },
   empty: { marginTop: 24, fontSize: 14, fontWeight: '600', color: colors.muted },
-  emptyLoading: {
-    marginTop: 48,
-    alignItems: 'center',
-    gap: 14,
-  },
+  emptyLoading: { marginTop: 48, alignItems: 'center', gap: 14 },
   emptyLoadingText: { fontSize: 14, fontWeight: '700', color: colors.muted },
   row: {
     flexDirection: 'row',
@@ -477,12 +570,18 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     backgroundColor: 'rgba(39, 174, 96, 0.08)',
   },
+  rankCol: {
+    width: 40,
+    flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   rank: {
-    width: 28,
     fontSize: 16,
     fontWeight: '900',
     color: colors.muted,
     textAlign: 'center',
+    fontVariant: ['tabular-nums'],
   },
   rankMe: { color: colors.moss },
   rankGold: { color: '#B8860B' },
@@ -504,7 +603,6 @@ const styles = StyleSheet.create({
   },
   avatarInitials: { fontSize: 14, fontWeight: '900', color: colors.text },
   rowBody: { flex: 1, minWidth: 0 },
-  rowBodyMain: { flex: 1, gap: 2 },
   nameScoreRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -513,7 +611,6 @@ const styles = StyleSheet.create({
   },
   name: { flex: 1, fontSize: 15, fontWeight: '800', color: colors.text, minWidth: 0 },
   handle: { fontSize: 12, fontWeight: '700', color: colors.muted },
-  scoreCol: { alignItems: 'flex-end', justifyContent: 'center', maxWidth: '46%' },
   score: { fontSize: 15, fontWeight: '900', color: colors.moss },
   scoreMe: { color: colors.moss },
 });

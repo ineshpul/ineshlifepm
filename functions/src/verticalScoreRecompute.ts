@@ -2,31 +2,19 @@ import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import { onDocumentCreated, onDocumentDeleted, onDocumentWritten } from 'firebase-functions/v2/firestore';
 
-import { incrementLifetimeAndLeaperBoard } from './leaperPoints';
+import { incrementUserLeapInches } from './leaperPoints';
 import {
-  bestLeapXpToDisplayInches,
-  computeInactivityDecay,
-  computeLifetimePower,
-  computeLiveVerticalScore,
-  computePostVerticalXP,
-  computeRecentQualityAvg,
-  leapDateKeyGapDays,
+  computePostLeapInches,
+  countsForStreak,
+  isAwardedLeapVideo,
+  leapInchesFromVideo,
   updateStreakState,
 } from './verticalScoreEngine';
-import type { PostMetricsSnapshot, PostVerticalXpInput } from './verticalScoreTypes';
-import { leapChallengeDateKeyFromMs } from './timeKeys';
-import {
-  DAILY_CHALLENGE_STATS_COLLECTION,
-  FIRST_LEAP_BONUS_XP,
-  FIRST_POST_OF_DAY_BONUS_XP,
-} from './verticalXpBonuses';
+import { leapChallengeDateKeyFromMs, nySundayWeekStartKey } from './timeKeys';
 
 const REGION = 'us-central1';
 const POST_COLLECTION = 'videos';
-const SCORE_WRITE_BATCH = 120;
-const MS_PER_DAY = 86400000;
-const RECENT_QUALITY_DAYS = 28;
-const AWARDED_XP_PAGE = 500;
+const PAGE = 500;
 
 function toMillis(v: unknown): number {
   if (v && typeof (v as { toMillis?: () => number }).toMillis === 'function') {
@@ -35,8 +23,15 @@ function toMillis(v: unknown): number {
   return 0;
 }
 
-function windowStartMs28(nowMs: number): number {
-  return nowMs - RECENT_QUALITY_DAYS * MS_PER_DAY;
+function dayKeyVariants(key: string): Set<string> {
+  const out = new Set<string>([key]);
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(key).trim());
+  if (m) {
+    const pad = (n: string) => String(Number(n)).padStart(2, '0');
+    out.add(`${m[1]}-${pad(m[2])}-${pad(m[3])}`);
+    out.add(`${m[1]}-${Number(m[2])}-${Number(m[3])}`);
+  }
+  return out;
 }
 
 async function countUniqueNonOwnerCommenters(
@@ -59,119 +54,33 @@ async function syncNonOwnerUniqueCommentersAfterCommentChange(
   if (added) {
     const q = await col.where('uid', '==', commenterUid).limit(2).get();
     if (q.size === 1) {
-      await videoRef.update({
-        nonOwnerUniqueCommenters: admin.firestore.FieldValue.increment(1),
-      });
+      await videoRef.update({ nonOwnerUniqueCommenters: admin.firestore.FieldValue.increment(1) });
     }
   } else {
     const q = await col.where('uid', '==', commenterUid).limit(1).get();
     if (q.empty) {
-      await videoRef.update({
-        nonOwnerUniqueCommenters: admin.firestore.FieldValue.increment(-1),
-      });
+      await videoRef.update({ nonOwnerUniqueCommenters: admin.firestore.FieldValue.increment(-1) });
     }
   }
 }
 
-/** Sum `verticalXP` on all awarded+approved posts (pagination-safe). Used when `lifetimeVerticalXP` is missing. */
-async function sumAwardedVerticalXpForOwner(
-  db: admin.firestore.Firestore,
+async function countNonOwnerViews(
+  videoRef: admin.firestore.DocumentReference,
   ownerId: string
 ): Promise<number> {
-  let total = 0;
-  let last: admin.firestore.QueryDocumentSnapshot | undefined;
-  for (;;) {
-    let q = db
-      .collection(POST_COLLECTION)
-      .where('uid', '==', ownerId)
-      .orderBy('createdAt', 'desc')
-      .limit(AWARDED_XP_PAGE);
-    if (last) q = q.startAfter(last);
-    const snap = await q.get();
-    if (snap.empty) break;
-    for (const d of snap.docs) {
-      const data = d.data() as Record<string, unknown>;
-      if (data.awardedVerticalXP === true && String(data.moderationStatus ?? '') === 'approved') {
-        total += Math.max(0, Math.round(Number(data.verticalXP ?? 0)));
-      }
-    }
-    if (snap.size < AWARDED_XP_PAGE) break;
-    last = snap.docs[snap.docs.length - 1];
+  const snap = await videoRef.collection('viewMarks').get();
+  let n = 0;
+  for (const d of snap.docs) {
+    if (d.id !== ownerId) n += 1;
   }
-  return total;
+  return n;
 }
 
-async function findBestAwardedVerticalXpForOwner(
-  db: admin.firestore.Firestore,
-  ownerId: string
-): Promise<{ postId: string | null; gainPoints: number; displayInches: number }> {
-  let bestId: string | null = null;
-  let bestXp = 0;
-  let last: admin.firestore.QueryDocumentSnapshot | undefined;
-  for (;;) {
-    let q = db
-      .collection(POST_COLLECTION)
-      .where('uid', '==', ownerId)
-      .orderBy('createdAt', 'desc')
-      .limit(AWARDED_XP_PAGE);
-    if (last) q = q.startAfter(last);
-    const snap = await q.get();
-    if (snap.empty) break;
-    for (const d of snap.docs) {
-      const data = d.data() as Record<string, unknown>;
-      if (data.deleted === true) continue;
-      if (data.awardedVerticalXP !== true) continue;
-      if (String(data.moderationStatus ?? '') !== 'approved') continue;
-      const xp = Math.max(0, Math.round(Number(data.verticalXP ?? 0)));
-      if (xp > bestXp) {
-        bestXp = xp;
-        bestId = d.id;
-      }
-    }
-    if (snap.size < AWARDED_XP_PAGE) break;
-    last = snap.docs[snap.docs.length - 1];
-  }
-  if (!bestId || bestXp <= 0) {
-    return { postId: null, gainPoints: 0, displayInches: 0 };
-  }
-  return {
-    postId: bestId,
-    gainPoints: bestXp,
-    displayInches: bestLeapXpToDisplayInches(bestXp),
-  };
-}
-
-async function resolveChallengeDifficulty(
-  db: admin.firestore.Firestore,
-  challengeDate: string,
-  videoData: Record<string, unknown>
-): Promise<number> {
-  const v = Number(videoData.challengeDifficulty);
-  if (Number.isFinite(v) && v >= 1 && v <= 5) return v;
-  try {
-    const snap = await db.doc(`challenges/${challengeDate}`).get();
-    const c = Number(snap.data()?.challengeDifficulty ?? snap.data()?.difficulty);
-    if (Number.isFinite(c) && c >= 1 && c <= 5) return c;
-  } catch {
-    /* noop */
-  }
-  return 2;
-}
-
-async function loadEngagementForXp(
+async function loadEngagementForLeap(
   videoRef: admin.firestore.DocumentReference,
   ownerId: string,
   data: Record<string, unknown>
-): Promise<{
-  likes: number;
-  uniqueComments: number;
-  commentFallback: number;
-  shares: number;
-  saves: number;
-  views: number;
-  uniqueViews?: number;
-  reports: number;
-}> {
+): Promise<{ likes: number; comments: number; shares: number; views: number }> {
   const likesCol = videoRef.collection('likes');
   const [likesTotalAgg, selfLikeSnap] = await Promise.all([
     likesCol.count().get(),
@@ -181,30 +90,45 @@ async function loadEngagementForXp(
   if (selfLikeSnap.exists) likes = Math.max(0, likes - 1);
 
   const storedUnique = Number(data.nonOwnerUniqueCommenters);
-  let uniqueComments = Number.isFinite(storedUnique) ? Math.max(0, Math.floor(storedUnique)) : NaN;
-  if (!Number.isFinite(uniqueComments)) {
-    uniqueComments = await countUniqueNonOwnerCommenters(videoRef, ownerId);
+  let comments = Number.isFinite(storedUnique) ? Math.max(0, Math.floor(storedUnique)) : NaN;
+  if (!Number.isFinite(comments)) {
+    comments = await countUniqueNonOwnerCommenters(videoRef, ownerId);
   }
-  const commentFallback = Math.max(0, Math.floor(Number(data.commentsCount ?? 0)));
+
+  const views = await countNonOwnerViews(videoRef, ownerId);
 
   return {
     likes,
-    uniqueComments,
-    commentFallback,
+    comments,
     shares: Math.max(0, Number(data.shareCount ?? data.shares ?? 0)),
-    saves: Math.max(0, Number(data.saveCount ?? data.saves ?? 0)),
-    views: Math.max(0, Number(data.viewCount ?? data.views ?? 0)),
-    uniqueViews: Number(data.uniqueViewCount ?? data.uniqueViews) || undefined,
-    reports: Math.max(0, Number(data.reportCount ?? data.reports ?? 0)),
+    views,
   };
 }
 
-function suspiciousPenaltyFromVideo(data: Record<string, unknown>): number {
-  const a = Number(data.suspiciousActivityPenalty ?? data.suspiciousScore ?? data.fraudScore ?? 0);
-  return Number.isFinite(a) && a > 0 ? Math.min(60, a) : 0;
+async function userHasOtherAwardedLeapOnDay(
+  db: admin.firestore.Firestore,
+  ownerId: string,
+  dayKey: string,
+  excludeVideoId: string
+): Promise<boolean> {
+  const keys = dayKeyVariants(dayKey);
+  const snap = await db
+    .collection(POST_COLLECTION)
+    .where('uid', '==', ownerId)
+    .where('challengeDate', 'in', [...keys].slice(0, 30))
+    .limit(20)
+    .get();
+  for (const d of snap.docs) {
+    if (d.id === excludeVideoId) continue;
+    const data = d.data() as Record<string, unknown>;
+    if (data.deleted === true) continue;
+    if (String(data.moderationStatus ?? '') !== 'approved') continue;
+    if (isAwardedLeapVideo(data)) return true;
+  }
+  return false;
 }
 
-async function awardVerticalXpFirstApproval(
+async function awardLeapInchesFirstApproval(
   db: admin.firestore.Firestore,
   videoRef: admin.firestore.DocumentReference,
   videoId: string,
@@ -214,470 +138,400 @@ async function awardVerticalXpFirstApproval(
   if (!owner) return;
   const nowMs = Date.now();
   const challengeDate = String(data.challengeDate ?? leapChallengeDateKeyFromMs(nowMs)).trim();
-  const eng = await loadEngagementForXp(videoRef, owner, data);
-  const difficulty = await resolveChallengeDifficulty(db, challengeDate, data);
+  const eng = await loadEngagementForLeap(videoRef, owner, data);
   const userRef = db.doc(`users/${owner}`);
-  const userSnap = await userRef.get();
-  const u = userSnap.data() ?? {};
-  const priorStreak = Math.max(0, Math.floor(Number(u.activeLeapStreakDays ?? 0)));
-  const priorLongest = Math.max(0, Math.floor(Number(u.longestLeapStreakDays ?? 0)));
-  const lastKey = String(u.lastApprovedLeapDateKey ?? '').trim();
-
-  const streakForXp = priorStreak;
-  const streakNext = updateStreakState({
-    lastApprovedLeapDateKey: lastKey,
-    newApprovedLeapDayKey: challengeDate,
-    priorActiveStreak: priorStreak,
-    priorLongest: priorLongest,
-  });
-
-  const statsRef = db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${challengeDate}`);
+  const attemptRef = db.doc(`postAttempts/${owner}_${challengeDate}`);
+  const otherToday = await userHasOtherAwardedLeapOnDay(db, owner, challengeDate, videoId);
 
   const br = await db.runTransaction(async (tx) => {
     const vSnap = await tx.get(videoRef);
     if (!vSnap.exists) return null;
     const vd = vSnap.data() as Record<string, unknown>;
-    if (vd.awardedVerticalXP === true) return null;
+    if (isAwardedLeapVideo(vd)) return null;
     if (String(vd.moderationStatus ?? '') !== 'approved') return null;
 
     const uSnap = await tx.get(userRef);
     const ud = uSnap.data() ?? {};
-    const hasFirstLeap = ud.hasReceivedFirstLeapBonus === true;
-    const firstLeapBonusXP = hasFirstLeap ? 0 : FIRST_LEAP_BONUS_XP;
+    const hasEver = ud.hasApprovedLeapEver === true;
 
-    const sSnap = await tx.get(statsRef);
-    const sd = sSnap.data() as Record<string, unknown> | undefined;
-    const existingWinner = String(sd?.firstPostBonusAwardedPostId ?? '').trim();
-    let firstPostOfDayBonusXP = 0;
-    if (!existingWinner) {
-      firstPostOfDayBonusXP = FIRST_POST_OF_DAY_BONUS_XP;
-    } else if (existingWinner === videoId) {
-      firstPostOfDayBonusXP = FIRST_POST_OF_DAY_BONUS_XP;
-    }
+    const attSnap = await tx.get(attemptRef);
+    const baseReduction = Math.max(
+      0,
+      Number(vd.leapBaseReductionInches ?? attSnap.data()?.leapBaseReductionInches ?? 0)
+    );
 
-    const xpIn: PostVerticalXpInput = {
+    const priorStreak = Math.max(0, Math.floor(Number(ud.activeLeapStreakDays ?? 0)));
+    const priorLongest = Math.max(0, Math.floor(Number(ud.longestLeapStreakDays ?? 0)));
+    const lastKey = String(ud.lastApprovedLeapDateKey ?? '').trim();
+
+    const computed = computePostLeapInches({
+      streakDays: priorStreak,
+      isFirstEverLeap: !hasEver,
+      isFirstPostOfDay: !otherToday,
+      baseInchesReduction: baseReduction,
       likes: eng.likes,
-      uniqueComments: eng.uniqueComments,
-      commentCountFallback: eng.commentFallback,
+      comments: eng.comments,
       shares: eng.shares,
-      saves: eng.saves,
-      reports: eng.reports,
-      uniqueViews: eng.uniqueViews,
-      storedViews: eng.views,
       views: eng.views,
-      challengeDifficulty: difficulty,
-      activeLeapStreakDays: streakForXp,
-      suspiciousActivityPenalty: suspiciousPenaltyFromVideo(data),
-      firstLeapBonusXP,
-      firstPostOfDayBonusXP,
-    };
-    const computed = computePostVerticalXP(xpIn);
+    });
+
+    const streakNext = updateStreakState({
+      lastApprovedLeapDateKey: lastKey,
+      newApprovedLeapDayKey: challengeDate,
+      priorActiveStreak: priorStreak,
+      priorLongest: priorLongest,
+    });
 
     tx.set(
       videoRef,
       {
-        verticalXP: computed.postVerticalXP,
-        approvalXP: computed.approvalXP,
-        difficultyXP: computed.difficultyXP,
-        qualityXP: computed.qualityXP,
-        engagementXP: computed.engagementXP,
-        streakBonusXP: computed.streakBonusXP,
-        firstLeapBonusXP: computed.firstLeapBonusXP,
-        firstPostOfDayBonusXP: computed.firstPostOfDayBonusXP,
-        penaltyXP: computed.penaltyXP,
-        qualityScore: computed.qualityScore,
-        engagementUnits: computed.engagementUnits,
-        weightedEngagementRate: computed.weightedEngagementRate,
-        challengeDifficulty: computed.challengeDifficultyUsed,
-        challengeCompleted: vd.challengeCompleted !== false,
+        leapInches: computed.leapInches,
+        leapNominalBaseInches: computed.nominalBaseInches,
+        leapBaseReductionInches: computed.baseInchesReduction,
+        leapBaseInches: computed.baseInches,
+        leapStreakMultiplier: computed.streakMultiplier,
+        leapEngagementInches: computed.engagementInches,
+        leapInchesAwarded: true,
+        leapInchesAwardedAt: admin.firestore.FieldValue.serverTimestamp(),
+        leapStreakDaysBasis: priorStreak,
+        leapWasFirstEver: !hasEver,
+        leapWasFirstPostOfDay: !otherToday,
         moderationStatus: 'approved',
         approvedAt: admin.firestore.FieldValue.serverTimestamp(),
-        verticalXPAwardedAt: admin.firestore.FieldValue.serverTimestamp(),
         awardedVerticalXP: true,
-        verticalXpStreakDaysBasis: streakForXp,
-        challengeDifficultyUsedForXp: computed.challengeDifficultyUsed,
+        verticalXP: 0,
       },
       { merge: true }
     );
 
-    const userPatch: Record<string, unknown> = {
-      activeLeapStreakDays: streakNext.activeLeapStreakDays,
-      longestLeapStreakDays: streakNext.longestLeapStreakDays,
-      lastApprovedLeapDateKey: challengeDate,
-    };
-    if (firstLeapBonusXP > 0) {
-      userPatch.hasReceivedFirstLeapBonus = true;
-    }
-    tx.set(userRef, userPatch, { merge: true });
-
-    if (firstPostOfDayBonusXP > 0) {
-      tx.set(
-        statsRef,
-        {
-          firstPostBonusAwardedPostId: videoId,
-          firstPostBonusAwardedUserId: owner,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-    }
+    tx.set(
+      userRef,
+      {
+        activeLeapStreakDays: streakNext.activeLeapStreakDays,
+        longestLeapStreakDays: streakNext.longestLeapStreakDays,
+        lastApprovedLeapDateKey: challengeDate,
+        hasApprovedLeapEver: true,
+      },
+      { merge: true }
+    );
 
     return computed;
   });
 
   if (!br) return;
 
-  await incrementLifetimeAndLeaperBoard(db, owner, br.postVerticalXP, nowMs, nowMs);
-
+  await incrementUserLeapInches(db, owner, br.leapInches, challengeDate, nowMs, nowMs);
   try {
-    await recomputeVerticalScoreAdmin(owner);
+    await recomputeUserLeapStatsAdmin(owner);
   } catch (e) {
     logger.error('recompute after award failed', { owner, videoId, e });
   }
 }
 
-async function clearFirstPostOfDayStatsIfWinner(
-  db: admin.firestore.Firestore,
-  challengeDate: string,
-  videoId: string
-): Promise<void> {
-  const key = String(challengeDate ?? '').trim();
-  if (!key) return;
-  const statsRef = db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${key}`);
-  const st = await statsRef.get();
-  if (!st.exists) return;
-  const wid = String(st.data()?.firstPostBonusAwardedPostId ?? '').trim();
-  if (wid === videoId) {
-    await statsRef.set(
-      {
-        firstPostBonusAwardedPostId: admin.firestore.FieldValue.delete(),
-        firstPostBonusAwardedUserId: admin.firestore.FieldValue.delete(),
-      },
-      { merge: true }
-    );
-  }
-}
-
-async function revokeVerticalXpForVideo(
+async function revokeLeapInchesForVideo(
   db: admin.firestore.Firestore,
   videoRef: admin.firestore.DocumentReference,
   videoId: string,
-  beforeData: Record<string, unknown>
+  beforeData: Record<string, unknown>,
+  revertStreak: boolean
 ): Promise<void> {
   const owner = String(beforeData.uid ?? '').trim();
-  if (!owner || beforeData.awardedVerticalXP !== true) return;
-  const xp = Math.max(0, Math.round(Number(beforeData.verticalXP ?? 0)));
-  if (xp <= 0) return;
-  const awardMs = toMillis(beforeData.verticalXPAwardedAt ?? beforeData.approvedAt ?? beforeData.createdAt);
+  if (!owner || !isAwardedLeapVideo(beforeData)) return;
+  const inches = leapInchesFromVideo(beforeData);
+  if (inches <= 0) return;
+
+  const awardMs = toMillis(beforeData.leapInchesAwardedAt ?? beforeData.approvedAt ?? beforeData.createdAt);
   const nowMs = Date.now();
-  const hadFirstLeap = Math.max(0, Math.round(Number(beforeData.firstLeapBonusXP ?? 0))) > 0;
   const challengeDate = String(beforeData.challengeDate ?? '').trim();
+  const dayKey = challengeDate || leapChallengeDateKeyFromMs(awardMs > 0 ? awardMs : nowMs);
 
-  await incrementLifetimeAndLeaperBoard(db, owner, -xp, awardMs > 0 ? awardMs : nowMs, nowMs);
-
-  if (hadFirstLeap) {
-    await db.doc(`users/${owner}`).set({ hasReceivedFirstLeapBonus: false }, { merge: true });
-  }
-  if (Math.max(0, Math.round(Number(beforeData.firstPostOfDayBonusXP ?? 0))) > 0 && challengeDate) {
-    await clearFirstPostOfDayStatsIfWinner(db, challengeDate, videoId);
-  }
+  await incrementUserLeapInches(db, owner, -inches, dayKey, awardMs > 0 ? awardMs : nowMs, nowMs);
 
   await videoRef.set(
     {
+      leapInchesAwarded: false,
+      leapInchesRevokedAt: admin.firestore.FieldValue.serverTimestamp(),
+      leapInches: 0,
+      leapEngagementInches: 0,
       awardedVerticalXP: false,
-      verticalXPRevokedAt: admin.firestore.FieldValue.serverTimestamp(),
       verticalXP: 0,
-      penaltyXP: 0,
-      streakBonusXP: 0,
-      engagementXP: 0,
-      qualityXP: 0,
-      difficultyXP: 0,
-      approvalXP: 0,
-      firstLeapBonusXP: 0,
-      firstPostOfDayBonusXP: 0,
     },
     { merge: true }
   );
+
+  if (revertStreak) {
+    /* Streak is not reverted for null/reject per product spec. */
+  }
+
   try {
-    await recomputeVerticalScoreAdmin(owner);
+    await recomputeUserLeapStatsAdmin(owner);
   } catch (e) {
     logger.error('recompute after revoke failed', { owner, videoId, e });
   }
 }
 
-/**
- * Recompute `verticalXP` and breakdown for an already-awarded video (e.g. engagement deltas or backfill).
- * Applies optional forced bonus amounts; defaults preserve stored `firstLeapBonusXP` / `firstPostOfDayBonusXP`.
- */
-export async function adminRetotalAwardedVideoXp(
+export async function adminRetotalAwardedVideoLeapInches(
   db: admin.firestore.Firestore,
-  videoId: string,
-  opts?: { forcedFirstLeap?: number; forcedFirstPost?: number }
+  videoId: string
 ): Promise<{ delta: number }> {
   const videoRef = db.doc(`${POST_COLLECTION}/${videoId}`);
   const snap = await videoRef.get();
   if (!snap.exists) return { delta: 0 };
   const data = snap.data() as Record<string, unknown>;
-  if (String(data.moderationStatus ?? '') !== 'approved' || data.awardedVerticalXP !== true) {
+  if (String(data.moderationStatus ?? '') !== 'approved' || !isAwardedLeapVideo(data)) {
     return { delta: 0 };
   }
   const owner = String(data.uid ?? '').trim();
   if (!owner) return { delta: 0 };
 
-  const eng = await loadEngagementForXp(videoRef, owner, data);
+  const eng = await loadEngagementForLeap(videoRef, owner, data);
   const challengeDate = String(data.challengeDate ?? '');
-  const diffUsed = Number(data.challengeDifficultyUsedForXp ?? data.challengeDifficulty);
-  let diff = diffUsed;
-  if (!Number.isFinite(diff) || diff < 1 || diff > 5) {
-    diff = await resolveChallengeDifficulty(db, challengeDate, data);
-  }
-  const streakBasis = Math.max(0, Math.floor(Number(data.verticalXpStreakDaysBasis ?? 0)));
-  const fl =
-    opts?.forcedFirstLeap !== undefined
-      ? Math.max(0, Math.round(opts.forcedFirstLeap))
-      : Math.max(0, Math.round(Number(data.firstLeapBonusXP ?? 0)));
-  const fd =
-    opts?.forcedFirstPost !== undefined
-      ? Math.max(0, Math.round(opts.forcedFirstPost))
-      : Math.max(0, Math.round(Number(data.firstPostOfDayBonusXP ?? 0)));
+  const streakBasis = Math.max(0, Math.floor(Number(data.leapStreakDaysBasis ?? 0)));
+  const isFirstEver = data.leapWasFirstEver === true;
+  const isFirstPost = data.leapWasFirstPostOfDay === true;
+  const baseReduction = Math.max(0, Number(data.leapBaseReductionInches ?? 0));
 
-  const br = computePostVerticalXP({
+  const br = computePostLeapInches({
+    streakDays: streakBasis,
+    isFirstEverLeap: isFirstEver,
+    isFirstPostOfDay: isFirstPost,
+    baseInchesReduction: baseReduction,
     likes: eng.likes,
-    uniqueComments: eng.uniqueComments,
-    commentCountFallback: eng.commentFallback,
+    comments: eng.comments,
     shares: eng.shares,
-    saves: eng.saves,
-    reports: eng.reports,
-    uniqueViews: eng.uniqueViews,
-    storedViews: eng.views,
     views: eng.views,
-    challengeDifficulty: diff,
-    activeLeapStreakDays: streakBasis,
-    suspiciousActivityPenalty: suspiciousPenaltyFromVideo(data),
-    firstLeapBonusXP: fl,
-    firstPostOfDayBonusXP: fd,
   });
-  const oldXp = Math.max(0, Math.round(Number(data.verticalXP ?? 0)));
-  const delta = br.postVerticalXP - oldXp;
+
+  const oldInches = leapInchesFromVideo(data);
+  const delta = Math.round((br.leapInches - oldInches) * 10) / 10;
   if (delta === 0) {
     await videoRef.set(
       {
-        qualityScore: br.qualityScore,
-        engagementUnits: br.engagementUnits,
-        weightedEngagementRate: br.weightedEngagementRate,
-        firstLeapBonusXP: br.firstLeapBonusXP,
-        firstPostOfDayBonusXP: br.firstPostOfDayBonusXP,
+        leapEngagementInches: br.engagementInches,
+        leapNominalBaseInches: br.nominalBaseInches,
+        leapBaseReductionInches: br.baseInchesReduction,
+        leapBaseInches: br.baseInches,
+        leapStreakMultiplier: br.streakMultiplier,
       },
       { merge: true }
     );
     return { delta: 0 };
   }
-  const awardMs = toMillis(data.verticalXPAwardedAt ?? data.approvedAt ?? data.createdAt);
+
+  const awardMs = toMillis(data.leapInchesAwardedAt ?? data.approvedAt ?? data.createdAt);
   const nowMs = Date.now();
-  await incrementLifetimeAndLeaperBoard(db, owner, delta, awardMs > 0 ? awardMs : nowMs, nowMs);
+  const dayKey = challengeDate || leapChallengeDateKeyFromMs(awardMs > 0 ? awardMs : nowMs);
+  await incrementUserLeapInches(db, owner, delta, dayKey, awardMs > 0 ? awardMs : nowMs, nowMs);
   await videoRef.set(
     {
-      verticalXP: br.postVerticalXP,
-      approvalXP: br.approvalXP,
-      difficultyXP: br.difficultyXP,
-      qualityXP: br.qualityXP,
-      engagementXP: br.engagementXP,
-      streakBonusXP: br.streakBonusXP,
-      firstLeapBonusXP: br.firstLeapBonusXP,
-      firstPostOfDayBonusXP: br.firstPostOfDayBonusXP,
-      penaltyXP: br.penaltyXP,
-      qualityScore: br.qualityScore,
-      engagementUnits: br.engagementUnits,
-      weightedEngagementRate: br.weightedEngagementRate,
+      leapInches: br.leapInches,
+      leapEngagementInches: br.engagementInches,
+      leapNominalBaseInches: br.nominalBaseInches,
+      leapBaseReductionInches: br.baseInchesReduction,
+      leapBaseInches: br.baseInches,
+      leapStreakMultiplier: br.streakMultiplier,
     },
     { merge: true }
   );
   try {
-    await recomputeVerticalScoreAdmin(owner);
+    await recomputeUserLeapStatsAdmin(owner);
   } catch {
     /* noop */
   }
   return { delta };
 }
 
-export async function maybeRefreshVideoVerticalXpAfterEngagement(videoId: string): Promise<void> {
+export async function maybeRefreshVideoLeapInchesAfterEngagement(videoId: string): Promise<void> {
   try {
-    await adminRetotalAwardedVideoXp(admin.firestore(), videoId);
+    await adminRetotalAwardedVideoLeapInches(admin.firestore(), videoId);
   } catch (e) {
-    logger.error('vertical XP engagement refresh failed', { videoId, e });
+    logger.error('leap inches engagement refresh failed', { videoId, e });
   }
 }
 
-async function buildSnapshotsForOwner(ownerId: string, db: admin.firestore.Firestore): Promise<PostMetricsSnapshot[]> {
-  const q = db
-    .collection(POST_COLLECTION)
-    .where('uid', '==', ownerId)
-    .orderBy('createdAt', 'desc')
-    .limit(SCORE_WRITE_BATCH);
+async function sumLeapInchesForOwner(
+  db: admin.firestore.Firestore,
+  ownerId: string,
+  filter?: (data: Record<string, unknown>) => boolean
+): Promise<number> {
+  let total = 0;
+  let last: admin.firestore.QueryDocumentSnapshot | undefined;
+  for (;;) {
+    let q = db
+      .collection(POST_COLLECTION)
+      .where('uid', '==', ownerId)
+      .orderBy('createdAt', 'desc')
+      .limit(PAGE);
+    if (last) q = q.startAfter(last);
+    const snap = await q.get();
+    if (snap.empty) break;
+    for (const d of snap.docs) {
+      const data = d.data() as Record<string, unknown>;
+      if (data.deleted === true) continue;
+      if (String(data.moderationStatus ?? '') !== 'approved') continue;
+      if (!isAwardedLeapVideo(data)) continue;
+      if (filter && !filter(data)) continue;
+      total += leapInchesFromVideo(data);
+    }
+    if (snap.size < PAGE) break;
+    last = snap.docs[snap.docs.length - 1];
+  }
+  return Math.round(total * 10) / 10;
+}
 
-  const snap = await q.get();
-  const now = Date.now();
-  const start = windowStartMs28(now);
-  const out: PostMetricsSnapshot[] = [];
+async function maxDayLeapInchesForOwner(db: admin.firestore.Firestore, ownerId: string): Promise<number> {
+  const byDay = new Map<string, number>();
+  let last: admin.firestore.QueryDocumentSnapshot | undefined;
+  for (;;) {
+    let q = db
+      .collection(POST_COLLECTION)
+      .where('uid', '==', ownerId)
+      .orderBy('createdAt', 'desc')
+      .limit(PAGE);
+    if (last) q = q.startAfter(last);
+    const snap = await q.get();
+    if (snap.empty) break;
+    for (const d of snap.docs) {
+      const data = d.data() as Record<string, unknown>;
+      if (!countsForStreak(data) || !isAwardedLeapVideo(data)) continue;
+      const k = String(data.challengeDate ?? '').trim();
+      if (!k) continue;
+      byDay.set(k, (byDay.get(k) ?? 0) + leapInchesFromVideo(data));
+    }
+    if (snap.size < PAGE) break;
+    last = snap.docs[snap.docs.length - 1];
+  }
+  let max = 0;
+  for (const v of byDay.values()) max = Math.max(max, v);
+  return Math.round(max * 10) / 10;
+}
 
+async function rebuildStreakFromVideos(
+  db: admin.firestore.Firestore,
+  ownerId: string
+): Promise<{ active: number; longest: number; lastKey: string }> {
+  const days: string[] = [];
+  let last: admin.firestore.QueryDocumentSnapshot | undefined;
+  for (;;) {
+    let q = db
+      .collection(POST_COLLECTION)
+      .where('uid', '==', ownerId)
+      .orderBy('createdAt', 'asc')
+      .limit(PAGE);
+    if (last) q = q.startAfter(last);
+    const snap = await q.get();
+    if (snap.empty) break;
+    for (const d of snap.docs) {
+      const data = d.data() as Record<string, unknown>;
+      if (!countsForStreak(data)) continue;
+      const k = String(data.challengeDate ?? '').trim();
+      if (k && !days.includes(k)) days.push(k);
+    }
+    if (snap.size < PAGE) break;
+    last = snap.docs[snap.docs.length - 1];
+  }
+  days.sort();
+  let active = 0;
+  let longest = 0;
+  let lastKey = '';
+  for (const k of days) {
+    const next = updateStreakState({
+      lastApprovedLeapDateKey: lastKey,
+      newApprovedLeapDayKey: k,
+      priorActiveStreak: active,
+      priorLongest: longest,
+    });
+    active = next.activeLeapStreakDays;
+    longest = next.longestLeapStreakDays;
+    lastKey = k;
+  }
+  return { active, longest, lastKey };
+}
+
+/** One-time per recompute: materialize `leapInches` on legacy `awardedVerticalXP` videos. */
+async function migrateLegacyAwardedVideosToLeapInches(
+  db: admin.firestore.Firestore,
+  ownerId: string
+): Promise<void> {
+  let snap: admin.firestore.QuerySnapshot;
+  try {
+    snap = await db
+      .collection(POST_COLLECTION)
+      .where('uid', '==', ownerId)
+      .where('awardedVerticalXP', '==', true)
+      .limit(40)
+      .get();
+  } catch {
+    return;
+  }
   for (const d of snap.docs) {
     const data = d.data() as Record<string, unknown>;
-    if (String(data.moderationStatus ?? '') !== 'approved') continue;
-    if (data.deleted === true) continue;
-
-    const createdAtMs = toMillis(data.createdAt);
-    const effectiveCreated = createdAtMs > 0 ? createdAtMs : now;
-    if (effectiveCreated < start) continue;
-
-    const likesCol = d.ref.collection('likes');
-    const [likesTotalAgg, selfLikeSnap] = await Promise.all([
-      likesCol.count().get(),
-      likesCol.doc(ownerId).get(),
-    ]);
-    let likes = likesTotalAgg.data().count;
-    if (selfLikeSnap.exists) likes = Math.max(0, likes - 1);
-
-    const storedUnique = Number(data.nonOwnerUniqueCommenters);
-    let comments = Number.isFinite(storedUnique) ? Math.max(0, Math.floor(storedUnique)) : NaN;
-    if (!Number.isFinite(comments)) {
-      comments = await countUniqueNonOwnerCommenters(d.ref, ownerId);
+    if (Number(data.leapInches ?? 0) > 0 && data.leapInchesAwarded === true) continue;
+    try {
+      await adminRetotalAwardedVideoLeapInches(db, d.id);
+    } catch {
+      /* skip single video */
     }
-
-    const views = Number(data.viewCount ?? data.views ?? 0);
-    const shares = Number(data.shareCount ?? data.shares ?? 0);
-    const saves = Number(data.saveCount ?? data.saves ?? 0);
-    const reports = Number(data.reportCount ?? data.reports ?? 0);
-    const deleted = Boolean(data.deleted ?? false);
-    const challengeCompleted = data.challengeCompleted !== false;
-    const verticalXP = data.awardedVerticalXP === true ? Math.max(0, Number(data.verticalXP ?? 0)) : undefined;
-    const challengeDate = String(data.challengeDate ?? '').trim() || undefined;
-
-    out.push({
-      postId: d.id,
-      ownerId,
-      createdAtMs: effectiveCreated,
-      challengeDate,
-      views,
-      likes,
-      comments,
-      shares,
-      saves,
-      reports,
-      deleted,
-      challengeCompleted,
-      verticalXP,
-    });
   }
-
-  return out;
 }
 
-export async function recomputeVerticalScoreAdmin(ownerId: string): Promise<void> {
+/** Full user stats recompute from awarded videos (source of truth). */
+export async function recomputeUserLeapStatsAdmin(ownerId: string): Promise<void> {
   if (!ownerId) return;
   const db = admin.firestore();
+  await migrateLegacyAwardedVideosToLeapInches(db, ownerId);
   const userRef = db.doc(`users/${ownerId}`);
-  const userSnap = await userRef.get();
-  const adjustment = Number(userSnap.data()?.verticalScoreAdjustment ?? 0);
-
-  const posts = await buildSnapshotsForOwner(ownerId, db);
   const now = Date.now();
-  const start28 = windowStartMs28(now);
-
-  let lifetime = Number(userSnap.data()?.lifetimeVerticalXP ?? NaN);
-  if (!Number.isFinite(lifetime) || lifetime < 0) {
-    lifetime = await sumAwardedVerticalXpForOwner(db, ownerId);
-  }
-
-  const qualityScores: number[] = [];
-  let recentApprovedLeapCount = 0;
-  for (const p of posts) {
-    if (p.createdAtMs < start28) continue;
-    recentApprovedLeapCount += 1;
-    const vid = await db.doc(`${POST_COLLECTION}/${p.postId}`).get();
-    const vd = vid.data() as Record<string, unknown> | undefined;
-    const storedQs = Number(vd?.qualityScore);
-    if (Number.isFinite(storedQs) && storedQs >= 0 && storedQs <= 1) {
-      qualityScores.push(storedQs);
-    } else {
-      const br = computePostVerticalXP({
-        likes: p.likes,
-        uniqueComments: p.comments,
-        commentCountFallback: p.comments,
-        shares: p.shares,
-        saves: p.saves,
-        reports: p.reports,
-        storedViews: p.views,
-        views: p.views,
-        challengeDifficulty: 2,
-        activeLeapStreakDays: 0,
-        firstLeapBonusXP: 0,
-        firstPostOfDayBonusXP: 0,
-      });
-      qualityScores.push(br.qualityScore);
-    }
-  }
-  const recentQualityAvg = computeRecentQualityAvg(qualityScores);
-
-  const udata = userSnap.data() ?? {};
-  let lastKey = String(udata.lastApprovedLeapDateKey ?? '').trim();
-  if (!lastKey) {
-    let bestKey = '';
-    for (const p of posts) {
-      const k = String(p.challengeDate ?? '').trim();
-      if (!k) continue;
-      if (!bestKey || k > bestKey) bestKey = k;
-    }
-    lastKey = bestKey;
-  }
-
   const todayKey = leapChallengeDateKeyFromMs(now);
-  const missedDays = lastKey ? leapDateKeyGapDays(lastKey, todayKey) : 0;
-  const inactivityDecay = computeInactivityDecay(missedDays);
+  const weekKey = nySundayWeekStartKey(now);
+  const todayKeys = dayKeyVariants(todayKey);
 
-  const activeStreak = Math.max(0, Math.floor(Number(udata.activeLeapStreakDays ?? 0)));
-  const safetyPenalty = Math.max(0, Number(udata.safetyPenalty ?? 0));
-
-  const rawLive = computeLiveVerticalScore({
-    lifetimeVerticalXP: lifetime,
-    activeLeapStreakDays: activeStreak,
-    recentQualityAvg,
-    inactivityDecay,
-    safetyPenalty,
+  const lifetime = await sumLeapInchesForOwner(db, ownerId);
+  const todayDayPoints = await sumLeapInchesForOwner(db, ownerId, (data) => {
+    const k = String(data.challengeDate ?? '').trim();
+    return todayKeys.has(k);
   });
-  const combinedScore = Math.max(0, Math.round(rawLive + adjustment));
+  const weekPoints = await sumLeapInchesForOwner(db, ownerId, (data) => {
+    const ms = toMillis(data.leapInchesAwardedAt ?? data.approvedAt ?? data.createdAt);
+    return nySundayWeekStartKey(ms > 0 ? ms : now) === weekKey;
+  });
+  const highestDay = await maxDayLeapInchesForOwner(db, ownerId);
+  const streak = await rebuildStreakFromVideos(db, ownerId);
 
-  const best = await findBestAwardedVerticalXpForOwner(db, ownerId);
-  const lifetimePower = computeLifetimePower(lifetime);
-  const streakPower = Math.min(15, activeStreak * 1.2);
-  const recentQualityPower = Math.min(15, recentQualityAvg * 15);
-
-  const breakdown = {
-    lifetimePower: Math.round(lifetimePower * 100) / 100,
-    streakPower: Math.round(streakPower * 100) / 100,
-    recentQualityPower: Math.round(recentQualityPower * 100) / 100,
-    inactivityDecay,
-    safetyPenalty,
-    lifetimeVerticalXP: lifetime,
-    activeLeapStreakDays: activeStreak,
-    recentQualityAvg,
-  };
+  const uSnap = await userRef.get();
+  const ud = uSnap.data() ?? {};
+  const storedWeekKey = String(ud.leaperWeekKey ?? '');
+  let priorWeekPoints = Math.max(0, Number(ud.leaperPriorWeekPoints ?? 0));
+  let priorWeekKey = String(ud.leaperPriorWeekKey ?? '');
+  if (storedWeekKey && storedWeekKey !== weekKey) {
+    priorWeekPoints = Math.max(0, Number(ud.leaperWeekPoints ?? 0));
+    priorWeekKey = storedWeekKey;
+  }
 
   const patch: Record<string, unknown> = {
-    verticalScore: combinedScore,
-    verticalScoreBreakdown: breakdown,
-    verticalScoreUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    lifetimeVerticalXP: lifetime,
-    recentQualityAvg,
-    recentApprovedLeapCount,
-    inactivityDecay,
-    bestVerticalGainPoints: best.gainPoints,
-    highestJumpDisplayInches: best.displayInches,
+    leaperLifetimePoints: lifetime,
+    leaperWeekKey: weekKey,
+    leaperWeekPoints: weekPoints,
+    leaperPriorWeekPoints: priorWeekPoints,
+    leaperPriorWeekKey: priorWeekKey,
+    highestDayLeapInches: highestDay,
+    highestJumpDisplayInches: highestDay,
+    activeLeapStreakDays: streak.active,
+    longestLeapStreakDays: streak.longest,
+    lastApprovedLeapDateKey: streak.lastKey || String(ud.lastApprovedLeapDateKey ?? ''),
+    leapStatsUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
-  if (best.postId) patch.bestVerticalGainPostId = best.postId;
-  else patch.bestVerticalGainPostId = admin.firestore.FieldValue.delete();
+
+  if (todayDayPoints > 0) {
+    patch.leaperDayKey = todayKey;
+    patch.leaperDayPoints = todayDayPoints;
+  }
 
   await userRef.set(patch, { merge: true });
 }
+
+/** @deprecated Alias for callers still named recomputeVerticalScoreAdmin */
+export const recomputeVerticalScoreAdmin = recomputeUserLeapStatsAdmin;
 
 async function ownerUidFromVideoId(videoId: string): Promise<string | null> {
   const snap = await admin.firestore().doc(`${POST_COLLECTION}/${videoId}`).get();
@@ -692,9 +546,9 @@ export const onVerticalScoreVideoCreated = onDocumentCreated(
     const uid = String(event.data?.data()?.uid ?? '');
     if (!uid) return;
     try {
-      await recomputeVerticalScoreAdmin(uid);
+      await recomputeUserLeapStatsAdmin(uid);
     } catch (e) {
-      logger.error('verticalScore recompute failed (video create)', { uid, e });
+      logger.error('leap stats recompute failed (video create)', { uid, e });
     }
   }
 );
@@ -705,9 +559,9 @@ export const onVerticalScoreVideoDeleted = onDocumentDeleted(
     const uid = String(event.data?.data()?.uid ?? '');
     if (!uid) return;
     try {
-      await recomputeVerticalScoreAdmin(uid);
+      await recomputeUserLeapStatsAdmin(uid);
     } catch (e) {
-      logger.error('verticalScore recompute failed (video delete)', { uid, e });
+      logger.error('leap stats recompute failed (video delete)', { uid, e });
     }
   }
 );
@@ -725,39 +579,48 @@ export const onVerticalScoreVideoApprovedLeaper = onDocumentWritten(
     const owner = String(after.uid ?? '').trim();
     if (!owner) return;
 
-    if (
-      before &&
-      String(before.moderationStatus ?? '') === 'approved' &&
-      String(after.moderationStatus ?? '') !== 'approved' &&
-      before.awardedVerticalXP === true
-    ) {
+    const afterStatus = String(after.moderationStatus ?? '');
+    const beforeStatus = before ? String(before.moderationStatus ?? '') : '';
+
+    if (beforeStatus === 'approved' && afterStatus === 'nulled' && before && isAwardedLeapVideo(before)) {
       try {
-        await revokeVerticalXpForVideo(admin.firestore(), videoRef, videoId, before);
+        await revokeLeapInchesForVideo(admin.firestore(), videoRef, videoId, before, false);
       } catch (e) {
-        logger.warn('revoke vertical XP failed', { videoId, owner, e });
+        logger.warn('revoke leap inches (null) failed', { videoId, owner, e });
       }
       return;
     }
 
-    if (String(after.moderationStatus ?? '') === 'approved') {
-      if (before && String(before.moderationStatus ?? '') === 'approved') {
-        /* already approved */
-      } else if (after.awardedVerticalXP === true) {
-        /* noop */
-      } else {
+    if (
+      before &&
+      beforeStatus === 'approved' &&
+      afterStatus !== 'approved' &&
+      afterStatus !== 'nulled' &&
+      isAwardedLeapVideo(before as Record<string, unknown>)
+    ) {
+      try {
+        await revokeLeapInchesForVideo(admin.firestore(), videoRef, videoId, before, false);
+      } catch (e) {
+        logger.warn('revoke leap inches failed', { videoId, owner, e });
+      }
+      return;
+    }
+
+    if (afterStatus === 'approved') {
+      if (beforeStatus !== 'approved' && !isAwardedLeapVideo(after)) {
         try {
-          await awardVerticalXpFirstApproval(admin.firestore(), videoRef, videoId, after);
+          await awardLeapInchesFirstApproval(admin.firestore(), videoRef, videoId, after);
         } catch (e) {
-          logger.warn('award vertical XP failed', { videoId, owner, e });
+          logger.warn('award leap inches failed', { videoId, owner, e });
         }
         return;
       }
     }
 
     try {
-      await recomputeVerticalScoreAdmin(owner);
+      await recomputeUserLeapStatsAdmin(owner);
     } catch (e) {
-      logger.error('verticalScore recompute failed (video write)', { owner, e });
+      logger.error('leap stats recompute failed (video write)', { owner, e });
     }
   }
 );
@@ -784,12 +647,11 @@ export const onVerticalScoreLikeWrite = onDocumentWritten(
       return;
     }
     const owner = await ownerUidFromVideoId(videoId);
-    if (!owner) return;
-    if (likerId && likerId === owner) return;
+    if (!owner || (likerId && likerId === owner)) return;
     try {
-      await maybeRefreshVideoVerticalXpAfterEngagement(videoId);
+      await maybeRefreshVideoLeapInchesAfterEngagement(videoId);
     } catch (e) {
-      logger.warn('vertical XP engagement refresh failed (like)', { videoId, e });
+      logger.warn('leap inches refresh failed (like)', { videoId, e });
     }
   }
 );
@@ -836,9 +698,9 @@ export const onVerticalScoreCommentWrite = onDocumentWritten(
     }
     if (commenterUid && commenterUid === owner) return;
     try {
-      await maybeRefreshVideoVerticalXpAfterEngagement(videoId);
+      await maybeRefreshVideoLeapInchesAfterEngagement(videoId);
     } catch (e) {
-      logger.warn('vertical XP engagement refresh failed (comment)', { videoId, e });
+      logger.warn('leap inches refresh failed (comment)', { videoId, e });
     }
   }
 );

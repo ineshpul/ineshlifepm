@@ -10,6 +10,7 @@
     "serve": "firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions",
     "backfill:leap": "npm run build && node lib/runBackfillLeapLeaperPointsScript.js",
+    "recompute:all": "npm run build && node lib/runRecomputeAllVerticalScoresScript.js",
     "dedupe:usernames": "npm run build && node lib/scripts/dedupeUsernames.js",
     "dedupe:usernames:execute": "npm run build && node lib/scripts/dedupeUsernames.js --execute"
   },

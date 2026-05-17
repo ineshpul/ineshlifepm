@@ -38,6 +38,7 @@ import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
 import { deleteOwnedVideo } from '../services/deleteVideo';
+import { staffNullVideo } from '../services/nullVideo';
 import { navigateToRecord } from '../navigation/navigationHelpers';
 import { useAppState } from '../state/appState';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
@@ -159,6 +160,7 @@ export function FeedScreen() {
   const [followingRows, setFollowingRows] = React.useState<FollowingRow[]>([]);
   const [activeVideoId, setActiveVideoId] = React.useState<string | null>(null);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
+  const [nullingId, setNullingId] = React.useState<string | null>(null);
   const [unreadNotifications, setUnreadNotifications] = React.useState(0);
   const [showScrollTop, setShowScrollTop] = React.useState(false);
   /** Lifts the reel bottom sheet above the keyboard (fixed-height KAV was ineffective here). */
@@ -332,6 +334,35 @@ export function FeedScreen() {
     });
     return () => handle.cancel?.();
   }, [canViewEveryoneFeed, feedHydrated, pageHeight, displayVideos]);
+
+  const canStaffMod = Boolean(user?.isAdmin || user?.isModerator);
+
+  const confirmStaffNull = (item: FeedVideo) => {
+    if (!canStaffMod || !user?.uid || item.ownerUid === user.uid) return;
+    if (item.moderationStatus === 'nulled') return;
+    Alert.alert(
+      'Null this leap?',
+      'Removes inches for this video. Streak is not reverted. Only use for policy violations.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Null video',
+          style: 'destructive',
+          onPress: () =>
+            void (async () => {
+              setNullingId(item.id);
+              try {
+                await staffNullVideo(item.id);
+              } catch (e) {
+                showError('Null failed', e);
+              } finally {
+                setNullingId(null);
+              }
+            })(),
+        },
+      ]
+    );
+  };
 
   const confirmDelete = (item: FeedVideo) => {
     if (!user?.uid || item.ownerUid !== user.uid) return;
@@ -706,11 +737,30 @@ export function FeedScreen() {
                         targetUsername={item.username}
                       />
                     ) : null}
+                    {canStaffMod && item.ownerUid !== user?.uid ? (
+                      item.moderationStatus === 'nulled' ? (
+                        <Text style={styles.nulledBadge}>Nulled</Text>
+                      ) : item.moderationStatus === 'approved' ? (
+                        <TouchableOpacity
+                          onPress={() => confirmStaffNull(item)}
+                          disabled={nullingId === item.id}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel="Null this leap"
+                        >
+                          <Text style={styles.nullLink}>
+                            {nullingId === item.id ? '…' : 'Null'}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null
+                    ) : null}
                     {user?.uid && item.ownerUid === user.uid ? (
                       <TouchableOpacity
                         onPress={() => confirmDelete(item)}
                         disabled={deletingId === item.id}
                         hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Delete video"
                       >
                         <Text style={styles.deleteLink}>
                           {deletingId === item.id ? '…' : 'Delete'}
@@ -1062,6 +1112,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     flexShrink: 0,
+  },
+  nullLink: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#C0392B',
+    paddingTop: 2,
+  },
+  nulledBadge: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: colors.muted,
+    letterSpacing: 0.4,
   },
   deleteLink: {
     fontSize: 13,

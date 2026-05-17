@@ -62,8 +62,8 @@ export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
   });
 }
 
-/** Vertical Score cost to buy one extra recording attempt (server-enforced). */
-export const ATTEMPT_PURCHASE_VERTICAL_COST = 5;
+/** Inches deducted from leap base (not day totals) when a bonus recording attempt is purchased. */
+export const ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES = 5;
 
 export async function consumeRecordingAttempt(args: { uid: string; challengeDate: string }) {
   const { uid, challengeDate } = args;

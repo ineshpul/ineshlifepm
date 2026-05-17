@@ -84,6 +84,41 @@ export function nySundayWeekStartKey(ms: number): string {
   return nyDateKey(new Date(ms));
 }
 
+/** All seven NY calendar `YYYY-MM-DD` keys for Sun–Sat week starting on `weekStartKey` (a Sunday). */
+export function nySundayWeekDateKeys(weekStartKey: string): string[] {
+  const start = normalizeNyDateKey(weekStartKey, '');
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start);
+  if (!m) return [];
+  let y = Number(m[1]);
+  let mo = Number(m[2]);
+  let d = Number(m[3]);
+  const keys: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    keys.push(`${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+    const next = nextNyCalendarDay(y, mo, d);
+    y = next.y;
+    mo = next.mo;
+    d = next.d;
+  }
+  return keys;
+}
+
+/** Ms until the next NY Sunday 00:00 (start of a new Sun–Sat leaperboard week). */
+export function msUntilNextNySundayWeekStart(nowMs: number): number {
+  const weekStart = nySundayWeekStartKey(nowMs);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(weekStart);
+  if (!m) return 86_400_000;
+  const next = nextNyCalendarDay(Number(m[1]), Number(m[2]), Number(m[3]));
+  for (let i = 0; i < 6; i++) {
+    const n = nextNyCalendarDay(next.y, next.mo, next.d);
+    next.y = n.y;
+    next.mo = n.mo;
+    next.d = n.d;
+  }
+  const nextWeekStartMs = utcMsForNyWallClock(next.y, next.mo, next.d, 0, 0);
+  return Math.max(1, nextWeekStartMs - nowMs);
+}
+
 /** The NY Sunday week that immediately precedes `currentWeekStartKey` (another Sunday `YYYY-MM-DD`). */
 export function prevNySundayWeekStartKey(currentWeekStartKey: string): string | null {
   const n = normalizeNyDateKey(currentWeekStartKey, '');

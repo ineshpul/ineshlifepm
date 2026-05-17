@@ -26,45 +26,13 @@ import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { showError } from '../utils/ui';
 import { markAllNotificationsRead, subscribeFollowing, type FollowingRow } from '../services/social';
 import { setAppBadgeCount } from '../services/pushNotifications';
-import {
-  leaperTotalsToDisplayInches,
-  normalizeVerticalScoreBreakdown,
-  verticalScoreTier,
-  verticalScoreToDisplayInches,
-} from '../lib/verticalScore';
+import { formatLeapGainTodayBanner, formatLeapInchesDisplay } from '../lib/verticalScore';
+import { HighestLeapSheet } from '../components/profile/HighestLeapSheet';
+import { useProfileStats } from '../components/profile/useProfileStats';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { saveUserPublicProfile } from '../services/userProfile';
 import { UsernameTakenError } from '../services/usernameClaim';
 import { useChallengeWindow } from '../state/challenge';
-import { computeFeedViewingFromNow, normalizeNyDateKey, prevNyDateKey } from '../utils/nyTime';
-
-function ScoreBar({ label, value }: { label: string; value: number }) {
-  const pct = Math.max(0, Math.min(100, value));
-  return (
-    <View style={scoreBarStyles.row}>
-      <Text style={scoreBarStyles.label}>{label}</Text>
-      <View style={scoreBarStyles.track}>
-        <View style={[scoreBarStyles.fill, { width: `${pct}%` }]} />
-      </View>
-    </View>
-  );
-}
-
-const scoreBarStyles = StyleSheet.create({
-  row: { marginTop: 10, gap: 4 },
-  label: { fontSize: 11, fontWeight: '800', color: colors.muted, letterSpacing: 0.6 },
-  track: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#E5E7EB',
-    overflow: 'hidden',
-  },
-  fill: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.moss,
-  },
-});
 
 type MyVideo = {
   id: string;
@@ -137,69 +105,13 @@ export function MeScreen() {
   const photoUrl = String(profile?.photoUrl ?? '').trim();
   const schoolRaw =
     profile?.school != null && String(profile.school).trim() !== '' ? String(profile.school).trim() : '';
-  const highestJumpDisplayInches = Math.round(
-    Number(profile?.highestJumpDisplayInches ?? 0)
-  );
-  const bestVerticalGainPoints = Math.round(Number(profile?.bestVerticalGainPoints ?? 0));
-  const bestVerticalGainPostId = String(profile?.bestVerticalGainPostId ?? '').trim();
-  const canOpenBestLeap = Boolean(bestVerticalGainPostId);
-  const challengesCompleted = Number(profile?.challengesCompleted ?? 0);
-  const likesReceivedStored = Number(profile?.likesReceived ?? 0);
   useChallengeWindow();
-
-  const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
-
-  const likesReceivedDerived = React.useMemo(() => {
-    // `videos.likesCount` is maintained by Cloud Functions; summing here keeps the profile UI correct
-    // even if we haven't backfilled user-level aggregates.
-    return myVideos.reduce((sum, v) => sum + (Number.isFinite(v.likesCount) ? v.likesCount : 0), 0);
-  }, [myVideos]);
-
-  /**
-   * Consecutive NY leap-day keys with an **approved** video.
-   * Count ends at **today** if posted today; otherwise at **yesterday** if posted yesterday (today still “open”),
-   * so the streak does not drop to 0 just because you have not posted today’s leap yet. If you miss a full day
-   * (no approved post for today or yesterday), the chain is broken → 0. Then we walk backward day-by-day
-   * until the first gap.
-   */
-  const streakDaysDerived = React.useMemo(() => {
-    if (myVideos.length === 0) return 0;
-    const postedKeys = new Set<string>();
-    for (const v of myVideos) {
-      if (String(v.moderationStatus ?? '').toLowerCase() !== 'approved') continue;
-      const k = normalizeNyDateKey(v.challengeDate, viewingChallengeDateKey);
-      if (k) postedKeys.add(k);
-    }
-    const todayK = viewingChallengeDateKey;
-    const yesterdayK = prevNyDateKey(todayK);
-    let start: string | null = null;
-    if (postedKeys.has(todayK)) start = todayK;
-    else if (postedKeys.has(yesterdayK)) start = yesterdayK;
-    else return 0;
-
-    let cursor = start;
-    let count = 0;
-    for (let i = 0; i < 500; i++) {
-      if (!postedKeys.has(cursor)) break;
-      count += 1;
-      cursor = prevNyDateKey(cursor);
-    }
-    return count;
-  }, [myVideos, viewingChallengeDateKey]);
-
-  const likesReceived = likesReceivedDerived > 0 ? likesReceivedDerived : likesReceivedStored;
-  const streakDays = streakDaysDerived;
+  const [highestLeapOpen, setHighestLeapOpen] = React.useState(false);
+  const stats = useProfileStats(profile as Record<string, unknown> | undefined, myVideos);
 
   const initials =
     (username.split(/[\s_]+/).filter(Boolean)[0]?.[0] ?? 'U').toUpperCase() +
     (username.split(/[\s_]+/).filter(Boolean)[1]?.[0] ?? '').toUpperCase();
-
-  const verticalScore = Math.round(Number(profile?.verticalScore ?? 0));
-  const breakdown = normalizeVerticalScoreBreakdown(profile?.verticalScoreBreakdown);
-  const lifetimeVerticalXP = Math.round(Number(profile?.lifetimeVerticalXP ?? profile?.leaperLifetimePoints ?? 0));
-  const tier = verticalScoreTier(verticalScore);
-  const liveHeightIn = verticalScoreToDisplayInches(verticalScore);
-  const careerPeakIn = leaperTotalsToDisplayInches(lifetimeVerticalXP);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -317,118 +229,85 @@ export function MeScreen() {
         </View>
 
         <View style={styles.scoreCard}>
-          <View style={styles.scoreHeader}>
-            <Text style={styles.scoreTitle}>YOUR VERTICAL</Text>
-            <View style={styles.tierPill}>
-              <Text style={styles.tierPillText}>{tier.label}</Text>
-            </View>
-          </View>
-          <Text style={styles.scoreNumber}>
-            {liveHeightIn}
-            <Text style={styles.scoreInSuffix}> in</Text>
-          </Text>
-          <Text style={styles.scoreTierHint}>{tier.hint}</Text>
-          {careerPeakIn > 0 ? (
-            <Text style={styles.scoreLifetimeFoot}>Career peak {careerPeakIn} in</Text>
-          ) : null}
-          <View style={styles.breakdownBlock}>
-            <ScoreBar label="Lift" value={Math.min(100, (breakdown.lifetimePower / 70) * 100)} />
-            <ScoreBar label="Streak" value={Math.min(100, (breakdown.streakPower / 15) * 100)} />
-            <ScoreBar label="Rhythm" value={Math.min(100, (breakdown.recentQualityPower / 15) * 100)} />
-            <Text style={styles.decayFoot}>Quiet stretches can ease your rank — stay active to climb.</Text>
-          </View>
+          <Text style={styles.scoreTitle}>ALL-TIME VERTICAL</Text>
+          <Text style={styles.scoreNumber}>{formatLeapInchesDisplay(stats.allTimeIn)}</Text>
+          <Text style={styles.scoreTierHint}>All-time distance travelled from leaping</Text>
         </View>
-
-        <Pressable
-          disabled={!canOpenBestLeap}
-          onPress={() => {
-            if (canOpenBestLeap) nav.navigate('VideoPost', { videoId: bestVerticalGainPostId });
-          }}
-          style={({ pressed }) => [
-            styles.jumpCard,
-            canOpenBestLeap && (pressed ? styles.jumpCardPressed : styles.jumpCardTappable),
-          ]}
-          accessibilityRole={canOpenBestLeap ? 'button' : undefined}
-          accessibilityLabel={canOpenBestLeap ? 'Watch your best leap' : undefined}
-        >
-          <View style={styles.jumpHeader}>
-            <Text style={styles.jumpLabel}>HIGHEST LEAP</Text>
-            <View style={styles.inPill}>
-              <View style={styles.redDot} />
-              <Text style={styles.inText}>IN</Text>
-            </View>
-          </View>
-          <Text style={styles.jumpHeight}>{highestJumpDisplayInches} in</Text>
-          <View style={styles.jumpBody}>
-            <View style={styles.jumpBar} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.jumpTitle}>
-                {bestVerticalGainPoints > 0 ? 'Your highest ever leap' : 'Post leaps to build impact'}
-              </Text>
-            </View>
-          </View>
-          {canOpenBestLeap ? (
-            <View style={styles.jumpWatchRow}>
-              <Text style={styles.jumpWatchText}>Watch this leap</Text>
-              <Ionicons name="chevron-forward" size={18} color={colors.coral} />
-            </View>
-          ) : null}
-        </Pressable>
 
         <View style={styles.statsRow}>
+          <Pressable
+            style={({ pressed }) => [styles.stat, styles.statTappable, pressed && styles.statPressed]}
+            onPress={() => setHighestLeapOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="View highest leap"
+          >
+            <Text style={styles.statNum}>{formatLeapInchesDisplay(stats.highestDayIn)}</Text>
+            <Text style={styles.statLabel}>HIGHEST{'\n'}LEAP</Text>
+          </Pressable>
           <View style={styles.stat}>
-            <Text style={styles.statNum}>{challengesCompleted}</Text>
-            <Text style={styles.statLabel}>CHALLENGES{'\n'}COMPLETED</Text>
+            <Text style={styles.statNum}>{formatLeapInchesDisplay(stats.weeklyLeapIn)}</Text>
+            <Text style={styles.statLabel}>WEEKLY{'\n'}TOTAL</Text>
           </View>
           <View style={styles.stat}>
-            <Text style={styles.statNum}>{streakDays}</Text>
+            <Text style={styles.statNum}>{stats.streakDays}</Text>
             <Text style={styles.statLabel}>DAY{'\n'}STREAK</Text>
           </View>
-          <View style={styles.stat}>
-            <Text style={styles.statNum}>{likesReceived}</Text>
-            <Text style={styles.statLabel}>LIKES{'\n'}RECEIVED</Text>
+        </View>
+
+        {stats.hasPostedTodayLeap ? (
+          <View style={styles.dailyBanner}>
+            <Text style={styles.dailyBannerText}>{formatLeapGainTodayBanner(stats.dailyLeapIn)}</Text>
           </View>
-        </View>
+        ) : null}
 
-        <View style={styles.followingSection}>
-          <Text style={styles.followingTitle}>FOLLOWING</Text>
-          <Text style={styles.followingHint}>
-            People you follow. Follower counts are not shown on Leap.
+        <TouchableOpacity
+          style={styles.openLeapsCta}
+          onPress={() => nav.navigate('MyLeaps')}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Open your leaps feed"
+        >
+          <Text style={styles.openLeapsCtaText}>
+            {myVideos.length > 0
+              ? `Open feed · ${myVideos.length} leap${myVideos.length === 1 ? '' : 's'}`
+              : 'Open your leaps'}
           </Text>
-          {following.length === 0 ? (
-            <Text style={styles.followingEmpty}>Follow people from the Feed.</Text>
-          ) : (
-            <TouchableOpacity
-              style={styles.openLeapsCta}
-              onPress={() => nav.navigate('FollowingList')}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel="Open following list"
-            >
-              <Text style={styles.openLeapsCtaText}>
-                {following.length} {following.length === 1 ? 'person' : 'people'} you follow
-              </Text>
-              <Ionicons name="chevron-forward" size={18} color={colors.coral} />
-            </TouchableOpacity>
-          )}
-        </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.coral} />
+        </TouchableOpacity>
 
-        <View style={styles.leapsSection}>
-          <Text style={styles.leapsTitle}>YOUR LEAPS</Text>
+        {following.length === 0 ? (
           <TouchableOpacity
             style={styles.openLeapsCta}
-            onPress={() => nav.navigate('MyLeaps')}
+            onPress={() => nav.navigate('FollowingList')}
             activeOpacity={0.85}
             accessibilityRole="button"
-            accessibilityLabel="Open your leaps feed"
+            accessibilityLabel="Open following list"
+          >
+            <Text style={styles.openLeapsCtaText}>Follow people from the Feed</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.coral} />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.openLeapsCta}
+            onPress={() => nav.navigate('FollowingList')}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Open following list"
           >
             <Text style={styles.openLeapsCtaText}>
-              {myVideos.length > 0 ? `Open feed · ${myVideos.length} leap${myVideos.length === 1 ? '' : 's'}` : 'Open your leaps'}
+              {following.length} {following.length === 1 ? 'person' : 'people'} you follow
             </Text>
             <Ionicons name="chevron-forward" size={18} color={colors.coral} />
           </TouchableOpacity>
-        </View>
+        )}
       </ScrollView>
+
+      <HighestLeapSheet
+        visible={highestLeapOpen}
+        onClose={() => setHighestLeapOpen(false)}
+        postId={stats.bestPostId}
+        fallbackInches={stats.highestDayIn}
+      />
 
       <Modal visible={editProfileOpen} animationType="slide" transparent>
         <KeyboardAvoidingView
@@ -660,6 +539,17 @@ const styles = StyleSheet.create({
   jumpBar: { width: 6, height: 56, borderRadius: 3, backgroundColor: '#D1FAE5' },
   jumpTitle: { fontSize: 14, fontWeight: '900', color: colors.text },
   statsRow: { flexDirection: 'row', gap: 12, marginTop: 14 },
+  dailyBanner: {
+    marginTop: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E6F4D7',
+    backgroundColor: colors.cardTint,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  dailyBannerText: { fontSize: 16, fontWeight: '900', color: colors.moss },
   stat: {
     flex: 1,
     borderRadius: 18,
@@ -670,6 +560,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  statTappable: { borderColor: 'rgba(39, 174, 96, 0.35)' },
+  statPressed: { opacity: 0.92 },
   statNum: { fontSize: 20, fontWeight: '900', color: colors.text },
   statLabel: {
     fontSize: 10,

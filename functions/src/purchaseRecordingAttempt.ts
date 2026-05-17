@@ -1,12 +1,10 @@
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
+import { BONUS_ATTEMPT_BASE_REDUCTION_INCHES } from './verticalScoreEngine';
 import { leapChallengeDateKeyFromMs } from './timeKeys';
-import { recomputeVerticalScoreAdmin } from './verticalScoreRecompute';
 
 const REGION = 'us-central1';
-
-const COST = 5;
 
 function normalizeDateKey(raw: string): string {
   const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(raw ?? '').trim());
@@ -25,8 +23,8 @@ function maxAttemptsFromChallenge(data: admin.firestore.DocumentData | undefined
 }
 
 /**
- * Spend Vertical Score to restore one recording attempt when the daily ledger is exhausted.
- * Writes `verticalScoreAdjustment` (merged into displayed score on recompute).
+ * Restore one recording attempt when the daily ledger is exhausted.
+ * Marks the leap so {@link BONUS_ATTEMPT_BASE_REDUCTION_INCHES} is deducted from post base at award time.
  */
 export const purchaseRecordingAttemptCallable = onCall({ region: REGION }, async (request) => {
   const uid = request.auth?.uid;
@@ -44,22 +42,12 @@ export const purchaseRecordingAttemptCallable = onCall({ region: REGION }, async
   const attemptId = `${uid}_${challengeDate}`;
   const attemptRef = db.doc(`postAttempts/${attemptId}`);
   const videoRef = db.doc(`videos/${attemptId}`);
-  const userRef = db.doc(`users/${uid}`);
   const challengeRef = db.doc(`challenges/${challengeDate}`);
 
   await db.runTransaction(async (tx) => {
     const videoSnap = await tx.get(videoRef);
     if (videoSnap.exists) {
       throw new HttpsError('failed-precondition', 'You already posted for this leap.');
-    }
-
-    const userSnap = await tx.get(userRef);
-    const score = Math.round(Number(userSnap.data()?.verticalScore ?? 0));
-    if (score < COST) {
-      throw new HttpsError(
-        'failed-precondition',
-        `You need at least ${COST} Vertical Score (you have ${score}).`
-      );
     }
 
     const chSnap = await tx.get(challengeRef);
@@ -81,27 +69,14 @@ export const purchaseRecordingAttemptCallable = onCall({ region: REGION }, async
         challengeDate,
         used: nextUsed,
         max,
+        leapBaseReductionInches: BONUS_ATTEMPT_BASE_REDUCTION_INCHES,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-    tx.set(
-      userRef,
-      {
-        verticalScoreAdjustment: admin.firestore.FieldValue.increment(-COST),
       },
       { merge: true }
     );
   });
 
-  await recomputeVerticalScoreAdmin(uid);
-
-  const [userAfter, attAfter, chAfter] = await Promise.all([
-    userRef.get(),
-    attemptRef.get(),
-    challengeRef.get(),
-  ]);
+  const [attAfter, chAfter] = await Promise.all([attemptRef.get(), challengeRef.get()]);
 
   const max = maxAttemptsFromChallenge(chAfter.data());
   const used = Number(attAfter.data()?.used ?? 0);
@@ -109,7 +84,6 @@ export const purchaseRecordingAttemptCallable = onCall({ region: REGION }, async
   return {
     ok: true,
     remaining: Math.max(0, max - used),
-    verticalScore: Math.round(Number(userAfter.data()?.verticalScore ?? 0)),
-    cost: COST,
+    baseReductionInches: BONUS_ATTEMPT_BASE_REDUCTION_INCHES,
   };
 });

@@ -1,12 +1,9 @@
 import * as admin from 'firebase-admin';
 import * as logger from 'firebase-functions/logger';
 
-import {
-  LEGACY_LEAP_APPROVED_PTS,
-  incrementLifetimeAndLeaperBoard,
-  incrementLifetimeTotalsOnly,
-} from './leaperPoints';
-import { nySundayWeekStartKey } from './timeKeys';
+import { incrementUserLeapInches } from './leaperPoints';
+import { LEAP_BASE_INCHES } from './verticalScoreEngine';
+import { leapChallengeDateKeyFromMs, nySundayWeekStartKey } from './timeKeys';
 
 export type BackfillLeapLeaperPointsResult = {
   ok: boolean;
@@ -96,9 +93,10 @@ export async function runBackfillLeapLeaperPointsPage(
       }
 
       if (creditAllToCurrentNyWeek || eventWeek === thisWeekKey) {
-        await incrementLifetimeAndLeaperBoard(db, owner, LEGACY_LEAP_APPROVED_PTS, eventMs, nowMs);
+        const challengeDate = String(data.challengeDate ?? '').trim() || leapChallengeDateKeyFromMs(eventMs);
+        await incrementUserLeapInches(db, owner, LEAP_BASE_INCHES, challengeDate, eventMs, nowMs);
       } else {
-        await incrementLifetimeTotalsOnly(db, owner, LEGACY_LEAP_APPROVED_PTS);
+        await incrementUserLeapInches(db, owner, LEAP_BASE_INCHES, '', eventMs, nowMs);
         lifetimeOnly += 1;
       }
 

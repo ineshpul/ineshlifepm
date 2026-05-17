@@ -104,7 +104,7 @@ export function AdminVideoModerationScreen() {
     setTimeout(() => setRefreshing(false), 600);
   }, []);
 
-  const setStatus = async (id: string, next: 'approved' | 'rejected') => {
+  const setStatus = async (id: string, next: 'approved' | 'rejected' | 'nulled') => {
     if (!canMod || !isFirebaseConfigured()) {
       showError('Not allowed', new Error('Moderator access required.'));
       return;
@@ -112,7 +112,10 @@ export function AdminVideoModerationScreen() {
     setActingOn(id);
     try {
       await updateDoc(doc(firestore(), 'videos', id), { moderationStatus: next });
-      showInfo(next === 'approved' ? 'Approved' : 'Rejected', `Video ${id}`);
+      showInfo(
+        next === 'approved' ? 'Approved' : next === 'nulled' ? 'Nulled' : 'Rejected',
+        `Video ${id}`
+      );
     } catch (e) {
       showError('Update failed', e);
     } finally {
@@ -188,7 +191,18 @@ export function AdminVideoModerationScreen() {
     }
   };
 
-  const setManualStatus = (next: 'approved' | 'rejected') => {
+  const confirmNull = (id: string) => {
+    Alert.alert(
+      'Null this video?',
+      'No inches awarded; streak is not affected. Use for policy violations on published leaps.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Null video', style: 'destructive', onPress: () => void setStatus(id, 'nulled') },
+      ]
+    );
+  };
+
+  const setManualStatus = (next: 'approved' | 'rejected' | 'nulled') => {
     const id = manualId.trim();
     if (!id) return;
     if (next === 'rejected') {
@@ -196,6 +210,8 @@ export function AdminVideoModerationScreen() {
         { text: 'Cancel', style: 'cancel' },
         { text: 'Reject', style: 'destructive', onPress: () => void setStatus(id, 'rejected') },
       ]);
+    } else if (next === 'nulled') {
+      confirmNull(id);
     } else {
       void setStatus(id, 'approved');
     }
@@ -333,9 +349,9 @@ export function AdminVideoModerationScreen() {
                   style={{ flex: 1 }}
                 />
                 <PrimaryButton
-                  title="Delete"
+                  title="Null"
                   variant="outline"
-                  onPress={() => confirmDelete(manualId.trim())}
+                  onPress={() => setManualStatus('nulled')}
                   disabled={!manualId.trim()}
                   style={{ flex: 1 }}
                 />
@@ -347,6 +363,13 @@ export function AdminVideoModerationScreen() {
                   style={{ flex: 1 }}
                 />
               </View>
+              <PrimaryButton
+                title="Delete video"
+                variant="outline"
+                onPress={() => confirmDelete(manualId.trim())}
+                disabled={!manualId.trim()}
+                style={{ marginTop: 8 }}
+              />
             </View>
           }
         />

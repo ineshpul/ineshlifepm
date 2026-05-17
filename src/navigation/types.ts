@@ -17,7 +17,8 @@ export type RootStackParamList = {
   MutedUsers: undefined;
   LegalDocument: { docId: LegalDocId };
   UserProfile: { uid: string; username?: string };
-  FollowingList: undefined;
+  /** Own list when omitted; another user’s list when `uid` is set (requires their visibility setting). */
+  FollowingList: { uid?: string; username?: string } | undefined;
   /** Full-screen reel of only your posts (opened from Me, not a tab). */
   MyLeaps: undefined;
   /** Full-screen reel for another user (opened from profile). */

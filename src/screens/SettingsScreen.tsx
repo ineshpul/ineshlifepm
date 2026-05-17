@@ -1,5 +1,6 @@
 import * as React from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Linking,
@@ -33,9 +34,12 @@ import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/fireb
 import { LEAP_SUPPORT_EMAIL } from '../constants/support';
 import type { LegalDocId } from '../content/settingsLegal';
 import { showError, showInfo } from '../utils/ui';
-import { verticalScoreToDisplayInches } from '../lib/verticalScore';
+import { formatLeapInchesDisplay } from '../lib/verticalScore';
+import { backfillAllUsersLeapStats } from '../services/backfillVerticalScores';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { saveUserPublicProfile } from '../services/userProfile';
+import { setShowFollowingListToOthers } from '../services/profilePrivacy';
+import { showFollowingListToOthers } from '../lib/profileVisibility';
 
 function SectionHeader({ title }: { title: string }) {
   return (
@@ -153,6 +157,9 @@ export function SettingsScreen() {
 
   const [profileBioFs, setProfileBioFs] = React.useState('');
   const [serverPhotoUrl, setServerPhotoUrl] = React.useState('');
+  const [showFollowingToOthers, setShowFollowingToOthers] = React.useState(true);
+  const [backfillBusy, setBackfillBusy] = React.useState(false);
+  const [backfillProgress, setBackfillProgress] = React.useState('');
   const [providers, setProviders] = React.useState<string[]>([]);
 
   React.useEffect(() => {
@@ -169,6 +176,7 @@ export function SettingsScreen() {
       const bio = d ? String(d.bio ?? '') : '';
       setProfileBioFs(bio);
       setServerPhotoUrl(d?.photoUrl ? String(d.photoUrl) : '');
+      setShowFollowingToOthers(showFollowingListToOthers(d as Record<string, unknown> | undefined));
     });
   }, [user?.uid]);
 
@@ -202,6 +210,41 @@ export function SettingsScreen() {
     }
   };
 
+  const runBackfillAllLeapStats = () => {
+    if (!user?.isAdmin || backfillBusy) return;
+    Alert.alert(
+      'Backfill all leap stats?',
+      'Recomputes every user’s inches, weekly totals (Sun–Sat), streaks, and best leap from approved videos. This can take several minutes.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Run backfill',
+          onPress: () =>
+            void (async () => {
+              setBackfillBusy(true);
+              setBackfillProgress('Starting…');
+              try {
+                const r = await backfillAllUsersLeapStats(({ processed, pages }) => {
+                  setBackfillProgress(`${processed} users · batch ${pages}`);
+                });
+                const failNote =
+                  r.failedCount > 0 ? ` ${r.failedCount} could not be updated.` : '';
+                showInfo(
+                  'Backfill complete',
+                  `Updated ${r.processed} users in ${r.pages} batches.${failNote}`
+                );
+              } catch (e) {
+                showError('Backfill failed', e);
+              } finally {
+                setBackfillBusy(false);
+                setBackfillProgress('');
+              }
+            })(),
+        },
+      ]
+    );
+  };
+
   const refreshVerticalScore = async () => {
     if (!user?.uid) {
       showInfo('Sign in', 'You need an account to refresh your board height.');
@@ -210,8 +253,7 @@ export function SettingsScreen() {
     try {
       const r = await recomputeVerticalScoreForUser(user.uid);
       if (r) {
-        const inches = verticalScoreToDisplayInches(r.verticalScore);
-        showInfo('Board height', `Updated to ${inches} in.`);
+        showInfo('Leap stats', `All-time: ${formatLeapInchesDisplay(r.leaperLifetimePoints)}`);
       } else showError('Could not update', new Error('Check your connection or try again.'));
     } catch (e) {
       showError('Could not update', e);
@@ -460,6 +502,16 @@ export function SettingsScreen() {
             onValueChange={(v) => patch({ showStreakPublic: v })}
           />
           <Separator />
+          <RowToggle
+            label="Show my following list to others"
+            subtitle="When off, others cannot see who you follow on your profile."
+            value={showFollowingToOthers}
+            onValueChange={(v) => {
+              setShowFollowingToOthers(v);
+              if (user?.uid) void setShowFollowingListToOthers(user.uid, v);
+            }}
+          />
+          <Separator />
           <RowChevron label="Blocked users" onPress={() => nav.navigate('BlockedUsers')} />
           <Separator />
           <RowChevron label="Muted users" onPress={() => nav.navigate('MutedUsers')} />
@@ -536,6 +588,34 @@ export function SettingsScreen() {
             }
           />
         </Card>
+
+        {user?.isAdmin ? (
+          <>
+            <SectionHeader title="Admin" />
+            <Card>
+              <TouchableOpacity
+                style={styles.row}
+                onPress={() => runBackfillAllLeapStats()}
+                disabled={backfillBusy}
+                activeOpacity={0.65}
+              >
+                <View style={styles.rowTextCol}>
+                  <Text style={styles.rowLabel}>Backfill all leap stats</Text>
+                  <Text style={styles.rowSub}>
+                    {backfillBusy && backfillProgress
+                      ? backfillProgress
+                      : 'Recompute inches, weekly board, and streaks for every user.'}
+                  </Text>
+                </View>
+                {backfillBusy ? (
+                  <ActivityIndicator size="small" color={colors.moss} />
+                ) : (
+                  <Ionicons name="chevron-forward" size={18} color={colors.muted2} />
+                )}
+              </TouchableOpacity>
+            </Card>
+          </>
+        ) : null}
 
         <SectionHeader title="Help / Legal" />
         <Card>

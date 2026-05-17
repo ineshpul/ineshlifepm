@@ -12,6 +12,7 @@ import {
 } from './verticalScoreRecompute';
 import { recomputeVerticalScoreCallable } from './verticalScoreCallable';
 import { backfillVerticalScoresCallable } from './backfillVerticalScoresCallable';
+import { backfillAllVerticalScoresOnceCallable } from './backfillAllVerticalScoresOnceCallable';
 import { backfillVerticalXpBonusesCallable } from './backfillVerticalXpBonusesCallable';
 import { recordVideoViewCallable } from './recordVideoView';
 import { backfillLeapLeaperPointsCallable } from './backfillLeapLeaperPointsCallable';
@@ -30,6 +31,7 @@ export {
   onVerticalScoreVideoDeleted,
   recomputeVerticalScoreCallable,
   backfillVerticalScoresCallable,
+  backfillAllVerticalScoresOnceCallable,
   backfillVerticalXpBonusesCallable,
   recordVideoViewCallable,
   backfillLeapLeaperPointsCallable,

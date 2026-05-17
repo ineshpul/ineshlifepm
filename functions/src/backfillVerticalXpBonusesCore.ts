@@ -1,72 +1,11 @@
 import * as admin from 'firebase-admin';
 
-import { adminRetotalAwardedVideoXp, recomputeVerticalScoreAdmin } from './verticalScoreRecompute';
-import {
-  DAILY_CHALLENGE_STATS_COLLECTION,
-  FIRST_LEAP_BONUS_XP,
-  FIRST_POST_OF_DAY_BONUS_XP,
-} from './verticalXpBonuses';
-import { leapChallengeDateKeyFromMs, nyDateKeyFromMs } from './timeKeys';
+import { adminRetotalAwardedVideoLeapInches, recomputeUserLeapStatsAdmin } from './verticalScoreRecompute';
+import { isAwardedLeapVideo } from './verticalScoreEngine';
 
 const POST_COLLECTION = 'videos';
 
-/** Earliest `createdAt` among awarded+approved posts for this user (paginated). */
-export async function findEarliestAwardedApprovedVideoId(
-  db: admin.firestore.Firestore,
-  uid: string
-): Promise<string | null> {
-  let last: admin.firestore.QueryDocumentSnapshot | undefined;
-  for (;;) {
-    let q = db
-      .collection(POST_COLLECTION)
-      .where('uid', '==', uid)
-      .orderBy('createdAt', 'asc')
-      .limit(120);
-    if (last) q = q.startAfter(last);
-    const snap = await q.get();
-    if (snap.empty) break;
-    for (const d of snap.docs) {
-      const x = d.data() as Record<string, unknown>;
-      if (String(x.moderationStatus ?? '') !== 'approved') continue;
-      if (x.awardedVerticalXP !== true) continue;
-      return d.id;
-    }
-    if (snap.size < 120) break;
-    last = snap.docs[snap.docs.length - 1];
-  }
-  return null;
-}
-
-/** Globally earliest awarded+approved post for `challengeDate` (by `createdAt`). */
-export async function findFirstPostOfDayWinnerId(
-  db: admin.firestore.Firestore,
-  dayKey: string
-): Promise<string | null> {
-  const key = String(dayKey ?? '').trim();
-  if (!key) return null;
-  const snap = await db
-    .collection(POST_COLLECTION)
-    .where('challengeDate', '==', key)
-    .where('moderationStatus', '==', 'approved')
-    .where('awardedVerticalXP', '==', true)
-    .orderBy('createdAt', 'asc')
-    .limit(1)
-    .get();
-  if (snap.empty) return null;
-  return snap.docs[0]!.id;
-}
-
-export function defaultDayKeysForBonusBackfill(nowMs: number, spanDays: number): string[] {
-  const keys = new Set<string>();
-  const span = Math.min(Math.max(spanDays, 1), 120);
-  for (let i = 0; i < span; i++) {
-    const ms = nowMs - i * 86400000;
-    keys.add(leapChallengeDateKeyFromMs(ms));
-    keys.add(nyDateKeyFromMs(ms));
-  }
-  return [...keys];
-}
-
+/** Re-total leap inches on every awarded video for a user page (legacy bonus backfill → inches model). */
 export async function runBackfillFirstLeapBonusesUserPage(
   db: admin.firestore.Firestore,
   opts: { cursorUid: string; pageSize: number; dryRun: boolean }
@@ -84,20 +23,15 @@ export async function runBackfillFirstLeapBonusesUserPage(
   for (const udoc of snap.docs) {
     const uid = udoc.id;
     try {
-      const vid = await findEarliestAwardedApprovedVideoId(db, uid);
-      if (!vid) {
-        processed += 1;
-        continue;
-      }
-      const vs = await db.doc(`${POST_COLLECTION}/${vid}`).get();
-      const vd = vs.data() as Record<string, unknown> | undefined;
-      const curFl = Math.max(0, Math.round(Number(vd?.firstLeapBonusXP ?? 0)));
       if (!opts.dryRun) {
-        if (curFl < FIRST_LEAP_BONUS_XP) {
-          await adminRetotalAwardedVideoXp(db, vid, { forcedFirstLeap: FIRST_LEAP_BONUS_XP });
-          await recomputeVerticalScoreAdmin(uid);
+        const vids = await db.collection(POST_COLLECTION).where('uid', '==', uid).limit(120).get();
+        for (const vd of vids.docs) {
+          const data = vd.data() as Record<string, unknown>;
+          if (isAwardedLeapVideo(data)) {
+            await adminRetotalAwardedVideoLeapInches(db, vd.id);
+          }
         }
-        await db.doc(`users/${uid}`).set({ hasReceivedFirstLeapBonus: true }, { merge: true });
+        await recomputeUserLeapStatsAdmin(uid);
       }
       processed += 1;
     } catch {
@@ -109,49 +43,32 @@ export async function runBackfillFirstLeapBonusesUserPage(
   return { processed, nextCursorUid: lastUid, done: snap.size < pageSize, failedUids };
 }
 
+/** @deprecated Day-winner stats unused in inches model; no-op page for callable compatibility. */
+export async function runBackfillFirstPostOfDayStatsPage(
+  _db: admin.firestore.Firestore,
+  opts: { cursorDayKey: string; dayKeys: string[]; dryRun: boolean }
+): Promise<{ processed: number; nextCursorDayKey: string | null; done: boolean }> {
+  const keys = opts.dayKeys ?? [];
+  return { processed: keys.length, nextCursorDayKey: null, done: true };
+}
+
 export async function runBackfillFirstPostOfDayForDayKeys(
   db: admin.firestore.Firestore,
   dayKeys: string[],
-  opts: { dryRun: boolean; overwriteStats: boolean }
-): Promise<{ daysProcessed: number; details: { dayKey: string; winnerId: string | null; skipped?: boolean }[] }> {
-  const details: { dayKey: string; winnerId: string | null; skipped?: boolean }[] = [];
-  let daysProcessed = 0;
-  const uniq = [...new Set(dayKeys.map((k) => String(k ?? '').trim()).filter(Boolean))];
+  opts: { dryRun: boolean; overwriteStats?: boolean }
+): Promise<{ processed: number }> {
+  return runBackfillFirstPostOfDayStatsPage(db, {
+    cursorDayKey: '',
+    dayKeys,
+    dryRun: opts.dryRun,
+  });
+}
 
-  for (const dayKey of uniq) {
-    const winnerId = await findFirstPostOfDayWinnerId(db, dayKey);
-    if (!winnerId) {
-      details.push({ dayKey, winnerId: null });
-      daysProcessed += 1;
-      continue;
-    }
-    const statsRef = db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayKey}`);
-    const st = await statsRef.get();
-    const existing = String(st.data()?.firstPostBonusAwardedPostId ?? '').trim();
-    if (existing && existing !== winnerId && !opts.overwriteStats) {
-      details.push({ dayKey, winnerId: winnerId, skipped: true });
-      daysProcessed += 1;
-      continue;
-    }
-    const vSnap = await db.doc(`${POST_COLLECTION}/${winnerId}`).get();
-    const owner = String(vSnap.data()?.uid ?? '').trim();
-    if (!opts.dryRun) {
-      if (!existing || opts.overwriteStats || existing === winnerId) {
-        await statsRef.set(
-          {
-            firstPostBonusAwardedPostId: winnerId,
-            firstPostBonusAwardedUserId: owner,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
-      }
-      await adminRetotalAwardedVideoXp(db, winnerId, { forcedFirstPost: FIRST_POST_OF_DAY_BONUS_XP });
-      if (owner) await recomputeVerticalScoreAdmin(owner);
-    }
-    details.push({ dayKey, winnerId });
-    daysProcessed += 1;
+export function defaultDayKeysForBonusBackfill(nowMs: number, spanDays: number): string[] {
+  const span = Math.min(Math.max(spanDays, 1), 120);
+  const keys: string[] = [];
+  for (let i = 0; i < span; i++) {
+    keys.push(String(nowMs - i * 86400000));
   }
-
-  return { daysProcessed, details };
+  return keys;
 }

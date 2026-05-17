@@ -1,8 +1,7 @@
 /**
  * Leaderboard timeframe keys (public contract).
- * Accepts legacy labels used elsewhere in the app.
  */
-export type LeaderboardTimeframe = 'daily' | 'all_time';
+export type LeaderboardTimeframe = 'daily' | 'weekly' | 'all_time';
 
 export function parseLeaderboardTimeframe(raw: unknown): LeaderboardTimeframe | null {
   const s = String(raw ?? '')
@@ -10,6 +9,7 @@ export function parseLeaderboardTimeframe(raw: unknown): LeaderboardTimeframe | 
     .toLowerCase()
     .replace(/-/g, '_');
   if (s === 'daily') return 'daily';
+  if (s === 'weekly' || s === 'week') return 'weekly';
   if (s === 'all_time' || s === 'alltime' || s === 'all') return 'all_time';
   return null;
 }
@@ -18,12 +18,11 @@ export type LeaderboardWireRow = {
   rank: number;
   userId: string;
   name: string;
-  /** Firestore @handle for navigation / header hint (may be empty). */
   username: string;
   avatarUrl?: string;
   score: number;
-  /** Tie-break for all-time board (internal lifetime total; UI maps to inches). */
-  lifetimeVerticalXP?: number;
+  /** All-time tie-break (cumulative inches). */
+  lifetimeInches?: number;
   isCurrentUser: boolean;
 };
 
@@ -51,7 +50,6 @@ export function initialsFromDisplayName(name: string): string {
   return (single.slice(0, 2) || '?').toUpperCase();
 }
 
-/** Stable order: score desc, then user id asc (deterministic ties). */
 export function sortLeaderboardDocs<T extends { id: string; score: number }>(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
@@ -59,14 +57,13 @@ export function sortLeaderboardDocs<T extends { id: string; score: number }>(row
   });
 }
 
-/** All-time: `verticalScore` desc, then `lifetimeVerticalXP` desc, then uid. */
 export function sortAllTimeLeaderboardDocs<
-  T extends { id: string; score: number; lifetimeVerticalXP?: number },
+  T extends { id: string; score: number; lifetimeInches?: number },
 >(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
-    const lb = Number(b.lifetimeVerticalXP ?? 0);
-    const la = Number(a.lifetimeVerticalXP ?? 0);
+    const lb = Number(b.lifetimeInches ?? b.score ?? 0);
+    const la = Number(a.lifetimeInches ?? a.score ?? 0);
     if (lb !== la) return lb - la;
     return a.id.localeCompare(b.id);
   });
@@ -79,7 +76,7 @@ export function wireRowsFromSorted<
     name: string;
     username: string;
     avatarUrl?: string;
-    lifetimeVerticalXP?: number;
+    lifetimeInches?: number;
   },
 >(sorted: T[], currentUid: string | undefined): LeaderboardWireRow[] {
   return sorted.map((row, i) => ({
@@ -89,7 +86,7 @@ export function wireRowsFromSorted<
     username: row.username,
     avatarUrl: row.avatarUrl,
     score: row.score,
-    lifetimeVerticalXP: row.lifetimeVerticalXP,
+    lifetimeInches: row.lifetimeInches,
     isCurrentUser: Boolean(currentUid && row.id === currentUid),
   }));
 }

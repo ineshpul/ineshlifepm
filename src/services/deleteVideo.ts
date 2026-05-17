@@ -79,5 +79,5 @@ async function deleteVideoByRef(
     }
   }
 
-  scheduleVerticalScoreRecompute(ownerUidForLedger, 500);
+  scheduleVerticalScoreRecompute(ownerUidForLedger);
 }

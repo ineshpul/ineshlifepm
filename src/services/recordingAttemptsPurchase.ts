@@ -4,8 +4,7 @@ import { firebaseAuth, firebaseFunctions, isFirebaseConfigured } from '../fireba
 
 export async function purchaseRecordingAttemptWithScore(challengeDate: string): Promise<{
   remaining: number;
-  verticalScore: number;
-  cost: number;
+  baseReductionInches: number;
 }> {
   if (!isFirebaseConfigured()) {
     throw new Error('Firebase is not configured.');
@@ -15,5 +14,8 @@ export async function purchaseRecordingAttemptWithScore(challengeDate: string): 
 
   const fn = httpsCallable(firebaseFunctions(), 'purchaseRecordingAttemptCallable');
   const res = await fn({ challengeDate });
-  return res.data as { remaining: number; verticalScore: number; cost: number };
+  return res.data as {
+    remaining: number;
+    baseReductionInches: number;
+  };
 }

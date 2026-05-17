@@ -27,7 +27,7 @@ import { useAuth } from '../state/auth';
 import { getPlayerFacingChallenge, useChallengeWindow, useTodayChallenge } from '../state/challenge';
 import { firestore, isFirebaseConfigured, storage } from '../firebase/firebase';
 import {
-  ATTEMPT_PURCHASE_VERTICAL_COST,
+  ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES,
   commitPostedVideo,
   consumeRecordingAttempt,
   refundRecordingAttemptIfNoPostedVideo,
@@ -40,6 +40,7 @@ import { CHALLENGE_INSTRUCTIONS } from '../content/challengeCopy';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import * as MediaLibrary from 'expo-media-library';
 import * as Device from 'expo-device';
+import { BONUS_ATTEMPT_BASE_REDUCTION_INCHES } from '../lib/verticalScore';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { getExpoExtra } from '../config/expoExtra';
 import { purchaseRecordingAttemptWithScore } from '../services/recordingAttemptsPurchase';
@@ -149,7 +150,7 @@ export function RecordScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
   const attemptsLeft = attemptsRemaining;
-  const [verticalScoreDisplay, setVerticalScoreDisplay] = React.useState(0);
+  const [bonusBasePending, setBonusBasePending] = React.useState(false);
   const [purchaseBusy, setPurchaseBusy] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
   const [countdown, setCountdown] = React.useState<number | null>(null);
@@ -158,6 +159,8 @@ export function RecordScreen() {
   const [cameraFacing, setCameraFacing] = React.useState<'front' | 'back'>('front');
   const [uploading, setUploading] = React.useState(false);
   const [uploadPct, setUploadPct] = React.useState(0);
+  /** After bytes finish uploading, Firestore commit can take a while — show a distinct phase. */
+  const [postSaving, setPostSaving] = React.useState(false);
   const cameraReadyRef = React.useRef(false);
   const cameraRef = React.useRef<CameraView>(null);
   const countdownAbortRef = React.useRef(false);
@@ -173,14 +176,15 @@ export function RecordScreen() {
 
   React.useEffect(() => {
     if (!user?.uid || !isFirebaseConfigured()) {
-      setVerticalScoreDisplay(0);
+      setBonusBasePending(false);
       return;
     }
-    const ref = doc(firestore(), 'users', user.uid);
+    const ref = doc(firestore(), 'postAttempts', `${user.uid}_${viewingChallengeDateKey}`);
     return onSnapshot(ref, (snap) => {
-      setVerticalScoreDisplay(Math.round(Number(snap.data()?.verticalScore ?? 0)));
+      const reduction = Number(snap.data()?.leapBaseReductionInches ?? 0);
+      setBonusBasePending(reduction >= BONUS_ATTEMPT_BASE_REDUCTION_INCHES);
     });
-  }, [user?.uid]);
+  }, [user?.uid, viewingChallengeDateKey]);
 
   const cameraPermissionPending = permission == null;
   const canUseCamera = permission?.granted === true;
@@ -484,6 +488,7 @@ export function RecordScreen() {
 
     const runUpload = async () => {
       setUploading(true);
+      setPostSaving(false);
       uploadProgressGateRef.current = { lastShown: -1, lastAt: 0 };
       try {
       // If Firebase isn't configured yet (or user isn't authenticated), still unlock the app
@@ -522,7 +527,20 @@ export function RecordScreen() {
       };
 
       const task = uploadBytesResumable(rref, blob, { contentType });
+      const UPLOAD_TIMEOUT_MS = 12 * 60 * 1000;
       await new Promise<void>((resolve, reject) => {
+        const uploadTimeout = setTimeout(() => {
+          try {
+            task.cancel();
+          } catch {
+            /* ignore */
+          }
+          reject(
+            new Error(
+              'Upload timed out. Stay on this screen on Wi‑Fi and try again, or use a shorter clip.'
+            )
+          );
+        }, UPLOAD_TIMEOUT_MS);
         task.on(
           'state_changed',
           (snapshot) => {
@@ -531,11 +549,18 @@ export function RecordScreen() {
               reportUploadProgress((100 * snapshot.bytesTransferred) / total);
             }
           },
-          (err) => reject(err),
-          () => resolve()
+          (err) => {
+            clearTimeout(uploadTimeout);
+            reject(err);
+          },
+          () => {
+            clearTimeout(uploadTimeout);
+            resolve();
+          }
         );
       });
       setUploadPct(100);
+      setPostSaving(true);
       const downloadUrl = await getDownloadURL(task.snapshot.ref);
 
       try {
@@ -613,6 +638,7 @@ export function RecordScreen() {
       showError('Post failed', e);
     } finally {
       setUploadPct(0);
+      setPostSaving(false);
       setUploading(false);
     }
     };
@@ -634,26 +660,20 @@ export function RecordScreen() {
 
   const onPurchaseAttemptPress = React.useCallback(() => {
     if (!user?.uid || !isFirebaseConfigured()) return;
-    if (verticalScoreDisplay < ATTEMPT_PURCHASE_VERTICAL_COST) {
-      showInfo(
-        'Not enough Vertical Score',
-        `You need at least ${ATTEMPT_PURCHASE_VERTICAL_COST} Vertical Score to unlock another attempt.`
-      );
-      return;
-    }
     Alert.alert(
       'Get another attempt?',
-      `Spend ${ATTEMPT_PURCHASE_VERTICAL_COST} Vertical Score for one more recording try?`,
+      `Costs ${ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES} in from your leap base when you post (5→0 in base, or 10→5 in for a first post). Engagement still adds on top.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: `Spend ${ATTEMPT_PURCHASE_VERTICAL_COST}`,
+          text: 'Unlock attempt',
           onPress: () => {
             setPurchaseBusy(true);
             void (async () => {
               try {
                 await purchaseRecordingAttemptWithScore(viewingChallengeDateKey);
-                showInfo('Attempt added', 'You can record again.');
+                setBonusBasePending(true);
+                showInfo('Attempt added', 'Your next posted leap will use the reduced base.');
               } catch (e) {
                 showError('Could not unlock attempt', e);
               } finally {
@@ -664,7 +684,7 @@ export function RecordScreen() {
         },
       ]
     );
-  }, [user?.uid, verticalScoreDisplay, viewingChallengeDateKey]);
+  }, [user?.uid, viewingChallengeDateKey]);
 
   return (
     <Screen withSafeArea={false} style={styles.screen}>
@@ -765,23 +785,17 @@ export function RecordScreen() {
         <View style={styles.outOfAttemptsCard}>
           <Text style={styles.outOfAttemptsTitle}>Out of attempts</Text>
           <Text style={styles.outOfAttemptsBody}>
-            You have used every recording try for this leap. Spend Vertical Score to get one more take, or post if you
-            are happy with your clip.
+            You have used all attempts for this leap. Spend 5in to leap again
           </Text>
-          <Text style={styles.outOfAttemptsScore}>Vertical Score: {verticalScoreDisplay}</Text>
-          {verticalScoreDisplay < ATTEMPT_PURCHASE_VERTICAL_COST ? (
-            <Text style={styles.outOfAttemptsHint}>
-              Need at least {ATTEMPT_PURCHASE_VERTICAL_COST} Vertical Score to buy another attempt.
-            </Text>
-          ) : null}
+          <Text style={styles.outOfAttemptsHint}>
+            {bonusBasePending
+              ? `Base reduction active (−${ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES} in from base on post).`
+              : `Normal base 5→0 in · first-post base 10→5 in · engagement unchanged.`}
+          </Text>
           <PrimaryButton
-            title={
-              purchaseBusy
-                ? '…'
-                : `Spend ${ATTEMPT_PURCHASE_VERTICAL_COST} score · +1 attempt`
-            }
+            title={purchaseBusy ? '…' : bonusBasePending ? '+1 attempt unlocked' : '+1 attempt (−5 in base)'}
             variant="outline"
-            disabled={purchaseBusy || verticalScoreDisplay < ATTEMPT_PURCHASE_VERTICAL_COST}
+            disabled={purchaseBusy || bonusBasePending}
             onPress={onPurchaseAttemptPress}
             style={styles.outOfAttemptsBtn}
           />
@@ -810,7 +824,15 @@ export function RecordScreen() {
               </Text>
             </View>
             <PrimaryButton
-              title={uploading ? (uploadPct > 0 ? `POST ${uploadPct}%` : 'POSTING…') : 'POST'}
+              title={
+                postSaving
+                  ? 'SAVING…'
+                  : uploading
+                    ? uploadPct > 0
+                      ? `UPLOAD ${uploadPct}%`
+                      : 'UPLOADING…'
+                    : 'POST'
+              }
               variant="green"
               onPress={onPost}
               style={styles.postBtn}

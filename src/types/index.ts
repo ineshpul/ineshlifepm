@@ -1,1 +1,5 @@
-export type { PostMetricsSnapshot, VerticalScoreBreakdownFirestore, VerticalScoreComputationResult } from './verticalScore';
+export type {
+  PostLeapInchesInput,
+  PostLeapInchesBreakdown,
+  LeapStatsRecomputeResult,
+} from './verticalScore';
