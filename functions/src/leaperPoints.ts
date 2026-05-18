@@ -1,5 +1,9 @@
 import * as admin from 'firebase-admin';
-import { leapChallengeDateKeyFromMs, nySundayWeekStartKey } from './timeKeys';
+import {
+  leapChallengeDateKeyFromMs,
+  nyLeapWeekStartKeyFromChallengeDate,
+  nySundayWeekStartKey,
+} from './timeKeys';
 
 /**
  * Apply inch deltas to user leaperboard aggregates (all-time, daily, weekly).
@@ -18,7 +22,7 @@ export async function incrementUserLeapInches(
   if (inch === 0) return;
 
   const dayKey = String(challengeDayKey ?? '').trim() || leapChallengeDateKeyFromMs(awardMs);
-  const weekKeyAward = nySundayWeekStartKey(awardMs);
+  const weekKeyAward = nyLeapWeekStartKeyFromChallengeDate(dayKey);
   const weekKeyNow = nySundayWeekStartKey(nowMs);
 
   const ref = db.doc(`users/${ownerId}`);

@@ -64,14 +64,8 @@ function nyWeekdaySun0(ms: number): number {
   return map[w] ?? 0;
 }
 
-/**
- * Start of the NY “TV week” (Sunday–Saturday): canonical `YYYY-MM-DD` of the Sunday that begins
- * the week containing `ms`. Weekly leaperboard resets when this key changes (each Sunday in NY).
- *
- * Steps back **one NY calendar day at a time** from today's noon. Using `noon - 40h` was wrong
- * around DST and could land on Tue/Wed while reporting "Sun", breaking weekly Firestore queries.
- */
-export function nySundayWeekStartKey(ms: number): string {
+/** Calendar Sunday (NY) for the Sun–Sat week containing `ms` (ignores noon leap boundaries). */
+function nyCalendarSundayWeekStartKey(ms: number): string {
   let { y, mo, d } = nyCalendarPartsFromUtc(ms);
   let noon = utcMsForNyWallClock(y, mo, d, 12, 0);
   for (let i = 0; i < 8; i++) {
@@ -82,6 +76,29 @@ export function nySundayWeekStartKey(ms: number): string {
     noon -= 86_400_000;
   }
   return nyDateKey(new Date(ms));
+}
+
+/**
+ * Leap week key: Sunday **noon ET** → next Sunday noon ET (same boundary as daily leaps).
+ * Value is the `YYYY-MM-DD` of the Sunday when that week's leap launches.
+ */
+export function nySundayWeekStartKey(ms: number): string {
+  const calendarSunday = nyCalendarSundayWeekStartKey(ms);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(calendarSunday);
+  if (!m) return calendarSunday;
+  const sundayNoon = utcMsForNyWallClock(Number(m[1]), Number(m[2]), Number(m[3]), 12, 0);
+  if (ms < sundayNoon) {
+    const prev = prevNySundayWeekStartKey(calendarSunday);
+    return prev ?? calendarSunday;
+  }
+  return calendarSunday;
+}
+
+/** Week key for a leap `challengeDate` label (noon-to-noon day). */
+export function nyLeapWeekStartKeyFromChallengeDate(challengeDateKey: string): string {
+  const ms = nyDateKeyToSortUtcMs(challengeDateKey, 0);
+  if (ms <= 0) return nySundayWeekStartKey(Date.now());
+  return nySundayWeekStartKey(ms);
 }
 
 /** All seven NY calendar `YYYY-MM-DD` keys for Sun–Sat week starting on `weekStartKey` (a Sunday). */
@@ -103,20 +120,22 @@ export function nySundayWeekDateKeys(weekStartKey: string): string[] {
   return keys;
 }
 
-/** Ms until the next NY Sunday 00:00 (start of a new Sun–Sat leaperboard week). */
+/** Ms until the next NY Sunday noon ET (start of the next leap week). */
 export function msUntilNextNySundayWeekStart(nowMs: number): number {
   const weekStart = nySundayWeekStartKey(nowMs);
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(weekStart);
   if (!m) return 86_400_000;
-  const next = nextNyCalendarDay(Number(m[1]), Number(m[2]), Number(m[3]));
-  for (let i = 0; i < 6; i++) {
-    const n = nextNyCalendarDay(next.y, next.mo, next.d);
-    next.y = n.y;
-    next.mo = n.mo;
-    next.d = n.d;
+  let y = Number(m[1]);
+  let mo = Number(m[2]);
+  let d = Number(m[3]);
+  for (let i = 0; i < 7; i++) {
+    const next = nextNyCalendarDay(y, mo, d);
+    y = next.y;
+    mo = next.mo;
+    d = next.d;
   }
-  const nextWeekStartMs = utcMsForNyWallClock(next.y, next.mo, next.d, 0, 0);
-  return Math.max(1, nextWeekStartMs - nowMs);
+  const nextWeekNoonMs = utcMsForNyWallClock(y, mo, d, 12, 0);
+  return Math.max(1, nextWeekNoonMs - nowMs);
 }
 
 /** The NY Sunday week that immediately precedes `currentWeekStartKey` (another Sunday `YYYY-MM-DD`). */

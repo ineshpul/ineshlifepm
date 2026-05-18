@@ -4,6 +4,11 @@ import { registerRootComponent } from 'expo';
 
 import App from './App';
 
+// Show events in Firebase / GA4 DebugView during development builds.
+if (__DEV__) {
+  (globalThis as { RNFBDebug?: boolean }).RNFBDebug = true;
+}
+
 enableScreens(true);
 
 // registerRootComponent calls AppRegistry.registerComponent('main', () => App);

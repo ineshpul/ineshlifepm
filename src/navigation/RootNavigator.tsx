@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications';
 import {
   NavigationContainer,
   createNavigationContainerRef,
+  type NavigationState,
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
@@ -31,6 +32,7 @@ import { handleNotificationNavigation } from './notificationNavigation';
 import { AppTabs } from './Tabs';
 import { VerifyEmailScreen } from '../screens/VerifyEmailScreen';
 import { TermsGateScreen } from '../screens/TermsGateScreen';
+import { logNativeScreenView } from '../services/nativeAnalytics';
 import { hasAcceptedTerms, subscribeTermsAcceptance } from '../state/termsAcceptance';
 
 const MainStack = createNativeStackNavigator<MainStackParamList>();
@@ -42,6 +44,14 @@ const screenOptions = { headerShown: false } as const;
 
 /** No SignIn / SignUp here — duplicate route names confused iOS native stack + Expo Go after login. */
 export const rootNavigationRef = createNavigationContainerRef<MainStackParamList>();
+
+function activeRouteName(state: NavigationState | undefined): string | undefined {
+  if (!state) return undefined;
+  const route = state.routes[state.index ?? 0];
+  const nested = route.state as NavigationState | undefined;
+  if (nested) return activeRouteName(nested);
+  return route.name;
+}
 
 function LoggedInStack() {
   return (
@@ -208,6 +218,11 @@ export function RootNavigator() {
     return () => sub.remove();
   }, [authed]);
 
+  const onNavStateChange = React.useCallback((state: NavigationState | undefined) => {
+    const name = activeRouteName(state);
+    if (name) void logNativeScreenView(name);
+  }, []);
+
   if (!authReady) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f7f8f6' }}>
@@ -217,7 +232,7 @@ export function RootNavigator() {
   }
 
   return (
-    <NavigationContainer ref={rootNavigationRef} key={navKey}>
+    <NavigationContainer ref={rootNavigationRef} key={navKey} onStateChange={onNavStateChange}>
       {authed && needsEmailVerification ? (
         <VerifyEmailScreen />
       ) : authed && termsReady && !termsOk ? (

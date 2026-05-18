@@ -23,6 +23,7 @@ export function streakMultiplierForDays(streakDays: number): number {
 export type PostLeapInchesInput = {
   streakDays: number;
   isFirstEverLeap: boolean;
+  /** Global first approved leap on this challenge day (10 in base). */
   isFirstPostOfDay: boolean;
   baseInchesReduction?: number;
   likes: number;

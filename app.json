@@ -16,6 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.leapmvp.app",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSCameraUsageDescription": "Leap needs camera access to record your daily challenge.",
         "NSMicrophoneUsageDescription": "Leap needs microphone access to record audio with your video.",
@@ -61,7 +62,16 @@
       ],
       "expo-web-browser",
       "expo-media-library",
-      "expo-video"
+      "expo-video",
+      "@react-native-firebase/app",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {

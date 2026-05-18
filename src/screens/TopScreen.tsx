@@ -101,7 +101,7 @@ export function TopScreen() {
     return () => clearTimeout(id);
   }, [leapWindow.msUntilNextLock, leapDayKey]);
 
-  /** Sun–Sat week rolls at NY midnight each Sunday (after Saturday night). */
+  /** Leap week rolls at NY Sunday noon (when the new week’s leap launches). */
   React.useEffect(() => {
     const ms = msUntilNextNySundayWeekStart(clock);
     if (!Number.isFinite(ms) || ms <= 0) return;

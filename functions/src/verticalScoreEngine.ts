@@ -29,6 +29,7 @@ export type PostLeapInchesInput = {
   /** Active streak days **before** this leap (for multiplier). */
   streakDays: number;
   isFirstEverLeap: boolean;
+  /** Global first approved leap on this challenge day (not per-user first post). */
   isFirstPostOfDay: boolean;
   /** From bonus recording purchase — reduces nominal base before streak (5→0, 10→5). */
   baseInchesReduction?: number;

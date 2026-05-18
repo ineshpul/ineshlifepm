@@ -72,8 +72,19 @@ function nyWeekdaySun0(ms: number): number {
   return map[w] ?? 0;
 }
 
-/** `YYYY-MM-DD` of the Sunday (NY) that starts the week containing `ms`. Must match app `nySundayWeekStartKey`. */
-export function nySundayWeekStartKey(ms: number): string {
+function nextNyCalendarDay(y: number, mo: number, d: number) {
+  const t = utcMsForNyWallClock(y, mo, d, 12, 0) + 25 * 3600000;
+  return nyCalendarPartsFromUtc(t);
+}
+
+function prevNySundayWeekStartKey(currentWeekStartKey: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(currentWeekStartKey ?? '').trim());
+  if (!m) return null;
+  const noon = utcMsForNyWallClock(Number(m[1]), Number(m[2]), Number(m[3]), 12, 0);
+  return nyCalendarSundayWeekStartKey(noon - 7 * 86_400_000);
+}
+
+function nyCalendarSundayWeekStartKey(ms: number): string {
   let { y, mo, d } = nyCalendarPartsFromUtc(ms);
   let noon = utcMsForNyWallClock(y, mo, d, 12, 0);
   for (let i = 0; i < 8; i++) {
@@ -84,4 +95,31 @@ export function nySundayWeekStartKey(ms: number): string {
     noon -= 86_400_000;
   }
   return nyDateKeyFromMs(ms);
+}
+
+/**
+ * Leap week key: Sunday noon ET → next Sunday noon ET. Must match app `nySundayWeekStartKey`.
+ */
+export function nySundayWeekStartKey(ms: number): string {
+  const calendarSunday = nyCalendarSundayWeekStartKey(ms);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(calendarSunday);
+  if (!m) return calendarSunday;
+  const sundayNoon = utcMsForNyWallClock(Number(m[1]), Number(m[2]), Number(m[3]), 12, 0);
+  if (ms < sundayNoon) {
+    const prev = prevNySundayWeekStartKey(calendarSunday);
+    return prev ?? calendarSunday;
+  }
+  return calendarSunday;
+}
+
+/** Week key for a leap `challengeDate` label. */
+export function nyLeapWeekStartKeyFromChallengeDate(challengeDateKey: string): string {
+  const raw = String(challengeDateKey ?? '').trim();
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw);
+  if (!m) return nySundayWeekStartKey(Date.now());
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const noon = utcMsForNyWallClock(y, mo, d, 12, 0);
+  return nySundayWeekStartKey(noon);
 }

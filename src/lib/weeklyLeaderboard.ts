@@ -3,8 +3,8 @@ import { collection, getDocs, limit, query, where } from 'firebase/firestore';
 import { firestore } from '../firebase/firebase';
 import {
   challengeDateKeysForFirestoreIn,
+  nyLeapWeekStartKeyFromChallengeDate,
   nySundayWeekDateKeys,
-  nySundayWeekStartKey,
 } from '../utils/nyTime';
 
 export type WeeklyVideoScore = {
@@ -13,23 +13,7 @@ export type WeeklyVideoScore = {
   username: string;
 };
 
-function awardMsFromVideo(data: Record<string, unknown>): number {
-  const awarded = data.leapInchesAwardedAt;
-  if (awarded && typeof (awarded as { toMillis?: () => number }).toMillis === 'function') {
-    return (awarded as { toMillis: () => number }).toMillis();
-  }
-  const approved = data.approvedAt;
-  if (approved && typeof (approved as { toMillis?: () => number }).toMillis === 'function') {
-    return (approved as { toMillis: () => number }).toMillis();
-  }
-  const created = data.createdAt;
-  if (created && typeof (created as { toMillis?: () => number }).toMillis === 'function') {
-    return (created as { toMillis: () => number }).toMillis();
-  }
-  return 0;
-}
-
-/** Sum approved leap inches per user for the NY Sun–Sat week (award-time week key). */
+/** Sum approved leap inches per user for the NY leap week (Sun noon → next Sun noon). */
 export async function weeklyLeaderboardFromVideos(weekKey: string): Promise<WeeklyVideoScore[]> {
   const dateKeys = nySundayWeekDateKeys(weekKey);
   const inKeys = challengeDateKeysForFirestoreIn(dateKeys);
@@ -49,8 +33,8 @@ export async function weeklyLeaderboardFromVideos(weekKey: string): Promise<Week
     if (String(data.moderationStatus ?? '') === 'nulled') return;
     const uid = String(data.uid ?? '').trim();
     if (!uid) return;
-    const ms = awardMsFromVideo(data);
-    if (ms > 0 && nySundayWeekStartKey(ms) !== weekKey) return;
+    const cd = String(data.challengeDate ?? '').trim();
+    if (nyLeapWeekStartKeyFromChallengeDate(cd) !== weekKey) return;
     const raw = Number(data.leapInches ?? data.leapInchesAwarded ?? 0);
     const inch = Number.isFinite(raw) && raw > 0 ? raw : 0;
     if (inch <= 0) return;

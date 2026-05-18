@@ -10,7 +10,17 @@ import {
   leapInchesFromVideo,
   updateStreakState,
 } from './verticalScoreEngine';
-import { leapChallengeDateKeyFromMs, nySundayWeekStartKey } from './timeKeys';
+import {
+  canonicalChallengeDayKey,
+  claimGlobalFirstPostOfDayInTransaction,
+  resolveGlobalFirstApprovedVideoIdForDay,
+} from './leapDayFirstPost';
+import { DAILY_CHALLENGE_STATS_COLLECTION } from './verticalXpBonuses';
+import {
+  leapChallengeDateKeyFromMs,
+  nyLeapWeekStartKeyFromChallengeDate,
+  nySundayWeekStartKey,
+} from './timeKeys';
 
 const REGION = 'us-central1';
 const POST_COLLECTION = 'videos';
@@ -105,29 +115,6 @@ async function loadEngagementForLeap(
   };
 }
 
-async function userHasOtherAwardedLeapOnDay(
-  db: admin.firestore.Firestore,
-  ownerId: string,
-  dayKey: string,
-  excludeVideoId: string
-): Promise<boolean> {
-  const keys = dayKeyVariants(dayKey);
-  const snap = await db
-    .collection(POST_COLLECTION)
-    .where('uid', '==', ownerId)
-    .where('challengeDate', 'in', [...keys].slice(0, 30))
-    .limit(20)
-    .get();
-  for (const d of snap.docs) {
-    if (d.id === excludeVideoId) continue;
-    const data = d.data() as Record<string, unknown>;
-    if (data.deleted === true) continue;
-    if (String(data.moderationStatus ?? '') !== 'approved') continue;
-    if (isAwardedLeapVideo(data)) return true;
-  }
-  return false;
-}
-
 async function awardLeapInchesFirstApproval(
   db: admin.firestore.Firestore,
   videoRef: admin.firestore.DocumentReference,
@@ -141,7 +128,8 @@ async function awardLeapInchesFirstApproval(
   const eng = await loadEngagementForLeap(videoRef, owner, data);
   const userRef = db.doc(`users/${owner}`);
   const attemptRef = db.doc(`postAttempts/${owner}_${challengeDate}`);
-  const otherToday = await userHasOtherAwardedLeapOnDay(db, owner, challengeDate, videoId);
+  const dayStatsKey = canonicalChallengeDayKey(challengeDate);
+  const dayStatsRef = db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayStatsKey}`);
 
   const br = await db.runTransaction(async (tx) => {
     const vSnap = await tx.get(videoRef);
@@ -155,10 +143,20 @@ async function awardLeapInchesFirstApproval(
     const hasEver = ud.hasApprovedLeapEver === true;
 
     const attSnap = await tx.get(attemptRef);
+    const dayStatsSnap = await tx.get(dayStatsRef);
     const baseReduction = Math.max(
       0,
       Number(vd.leapBaseReductionInches ?? attSnap.data()?.leapBaseReductionInches ?? 0)
     );
+
+    const isGlobalFirstOfDay = claimGlobalFirstPostOfDayInTransaction({
+      tx,
+      statsRef: dayStatsRef,
+      statsSnap: dayStatsSnap,
+      videoId,
+      ownerUid: owner,
+      challengeDate,
+    });
 
     const priorStreak = Math.max(0, Math.floor(Number(ud.activeLeapStreakDays ?? 0)));
     const priorLongest = Math.max(0, Math.floor(Number(ud.longestLeapStreakDays ?? 0)));
@@ -167,7 +165,7 @@ async function awardLeapInchesFirstApproval(
     const computed = computePostLeapInches({
       streakDays: priorStreak,
       isFirstEverLeap: !hasEver,
-      isFirstPostOfDay: !otherToday,
+      isFirstPostOfDay: isGlobalFirstOfDay,
       baseInchesReduction: baseReduction,
       likes: eng.likes,
       comments: eng.comments,
@@ -195,7 +193,9 @@ async function awardLeapInchesFirstApproval(
         leapInchesAwardedAt: admin.firestore.FieldValue.serverTimestamp(),
         leapStreakDaysBasis: priorStreak,
         leapWasFirstEver: !hasEver,
-        leapWasFirstPostOfDay: !otherToday,
+        leapWasGlobalFirstPostOfDay: isGlobalFirstOfDay,
+        /** @deprecated Use leapWasGlobalFirstPostOfDay — kept for legacy readers. */
+        leapWasFirstPostOfDay: isGlobalFirstOfDay,
         moderationStatus: 'approved',
         approvedAt: admin.firestore.FieldValue.serverTimestamp(),
         awardedVerticalXP: true,
@@ -288,13 +288,14 @@ export async function adminRetotalAwardedVideoLeapInches(
   const challengeDate = String(data.challengeDate ?? '');
   const streakBasis = Math.max(0, Math.floor(Number(data.leapStreakDaysBasis ?? 0)));
   const isFirstEver = data.leapWasFirstEver === true;
-  const isFirstPost = data.leapWasFirstPostOfDay === true;
+  const globalFirstId = await resolveGlobalFirstApprovedVideoIdForDay(db, challengeDate);
+  const isGlobalFirstOfDay = globalFirstId === videoId;
   const baseReduction = Math.max(0, Number(data.leapBaseReductionInches ?? 0));
 
   const br = computePostLeapInches({
     streakDays: streakBasis,
     isFirstEverLeap: isFirstEver,
-    isFirstPostOfDay: isFirstPost,
+    isFirstPostOfDay: isGlobalFirstOfDay,
     baseInchesReduction: baseReduction,
     likes: eng.likes,
     comments: eng.comments,
@@ -312,6 +313,8 @@ export async function adminRetotalAwardedVideoLeapInches(
         leapBaseReductionInches: br.baseInchesReduction,
         leapBaseInches: br.baseInches,
         leapStreakMultiplier: br.streakMultiplier,
+        leapWasGlobalFirstPostOfDay: isGlobalFirstOfDay,
+        leapWasFirstPostOfDay: isGlobalFirstOfDay,
       },
       { merge: true }
     );
@@ -330,6 +333,8 @@ export async function adminRetotalAwardedVideoLeapInches(
       leapBaseReductionInches: br.baseInchesReduction,
       leapBaseInches: br.baseInches,
       leapStreakMultiplier: br.streakMultiplier,
+      leapWasGlobalFirstPostOfDay: isGlobalFirstOfDay,
+      leapWasFirstPostOfDay: isGlobalFirstOfDay,
     },
     { merge: true }
   );
@@ -492,8 +497,8 @@ export async function recomputeUserLeapStatsAdmin(ownerId: string): Promise<void
     return todayKeys.has(k);
   });
   const weekPoints = await sumLeapInchesForOwner(db, ownerId, (data) => {
-    const ms = toMillis(data.leapInchesAwardedAt ?? data.approvedAt ?? data.createdAt);
-    return nySundayWeekStartKey(ms > 0 ? ms : now) === weekKey;
+    const k = String(data.challengeDate ?? '').trim();
+    return nyLeapWeekStartKeyFromChallengeDate(k) === weekKey;
   });
   const highestDay = await maxDayLeapInchesForOwner(db, ownerId);
   const streak = await rebuildStreakFromVideos(db, ownerId);

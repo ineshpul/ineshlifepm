@@ -3,6 +3,7 @@
 export type PostLeapInchesInput = {
   streakDays: number;
   isFirstEverLeap: boolean;
+  /** Global first approved leap on this challenge day. */
   isFirstPostOfDay: boolean;
   likes: number;
   comments: number;
