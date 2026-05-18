@@ -41,6 +41,7 @@ type MyVideo = {
   url: string;
   createdAtMs: number;
   moderationStatus: string;
+  leapInches: number;
   likesCount: number;
   commentsCount: number;
 };
@@ -81,6 +82,7 @@ export function MeScreen() {
             const data: any = d.data();
             const createdAtMs =
               typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+            const leapInches = Number(data?.leapInches ?? data?.leapInchesAwarded ?? 0);
             return {
               id: d.id,
               challengeDate: String(data?.challengeDate ?? ''),
@@ -88,12 +90,12 @@ export function MeScreen() {
               url: String(data?.url ?? ''),
               createdAtMs,
               moderationStatus: String(data?.moderationStatus ?? ''),
+              leapInches: Number.isFinite(leapInches) ? leapInches : 0,
               likesCount: Number(data?.likesCount ?? 0),
               commentsCount: Number(data?.commentsCount ?? 0),
             } satisfies MyVideo;
           })
-          .sort((a, b) => b.createdAtMs - a.createdAtMs)
-          .slice(0, 50);
+          .sort((a, b) => b.createdAtMs - a.createdAtMs);
         setMyVideos(rows);
       },
       () => setMyVideos([])

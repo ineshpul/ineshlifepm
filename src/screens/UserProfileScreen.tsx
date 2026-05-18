@@ -41,6 +41,7 @@ type ProfileVideo = {
   url: string;
   createdAtMs: number;
   moderationStatus: string;
+  leapInches: number;
   maxDurationSeconds: number;
   likesCount: number;
   commentsCount: number;
@@ -122,6 +123,7 @@ export function UserProfileScreen({ route, navigation }: Props) {
             const data: any = d.data();
             const createdAtMs =
               typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+            const leapInches = Number(data?.leapInches ?? data?.leapInchesAwarded ?? 0);
             return {
               id: d.id,
               challengeDate: String(data?.challengeDate ?? ''),
@@ -129,6 +131,7 @@ export function UserProfileScreen({ route, navigation }: Props) {
               url: String(data?.url ?? ''),
               createdAtMs,
               moderationStatus: String(data?.moderationStatus ?? ''),
+              leapInches: Number.isFinite(leapInches) ? leapInches : 0,
               maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
               likesCount: Number(data?.likesCount ?? 0),
               commentsCount: Number(data?.commentsCount ?? 0),
@@ -136,8 +139,7 @@ export function UserProfileScreen({ route, navigation }: Props) {
               username: String(data?.username ?? usernameHint ?? profile?.username ?? 'user'),
             } satisfies ProfileVideo;
           })
-          .sort((a, b) => b.createdAtMs - a.createdAtMs)
-          .slice(0, 50);
+          .sort((a, b) => b.createdAtMs - a.createdAtMs);
         setVideos(rows);
       },
       () => setVideos([])

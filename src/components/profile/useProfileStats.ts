@@ -1,6 +1,11 @@
 import * as React from 'react';
 
 import {
+  dailyLeapInchesFromProfileVideos,
+  weeklyLeapInchesFromProfileVideos,
+  type ProfileLeapVideo,
+} from '../../lib/profileLeapStats';
+import {
   cumulativeLeapInchesFromUser,
   dailyLeapInchesFromUser,
   highestDayLeapInchesFromUser,
@@ -8,10 +13,7 @@ import {
 } from '../../lib/verticalScore';
 import { computeFeedViewingFromNow, normalizeNyDateKey, nySundayWeekStartKey } from '../../utils/nyTime';
 
-export type ProfileVideoLike = {
-  challengeDate: string;
-  moderationStatus: string;
-};
+export type ProfileVideoLike = ProfileLeapVideo;
 
 export function useProfileStats(
   profile: Record<string, unknown> | undefined,
@@ -21,8 +23,10 @@ export function useProfileStats(
   const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
 
   const allTimeIn = cumulativeLeapInchesFromUser(profile);
-  const dailyLeapIn = dailyLeapInchesFromUser(profile);
-  const weeklyLeapIn = weeklyLeapInchesFromUser(profile, weekKey);
+  const dailyFromVideos = dailyLeapInchesFromProfileVideos(videos, viewingChallengeDateKey);
+  const weeklyFromVideos = weeklyLeapInchesFromProfileVideos(videos, weekKey);
+  const dailyLeapIn = Math.max(dailyFromVideos, dailyLeapInchesFromUser(profile));
+  const weeklyLeapIn = Math.max(weeklyFromVideos, weeklyLeapInchesFromUser(profile, weekKey));
   const highestDayIn = highestDayLeapInchesFromUser(profile);
   const streakDays = Math.max(0, Math.floor(Number(profile?.activeLeapStreakDays ?? 0)));
 
