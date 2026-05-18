@@ -67,6 +67,11 @@ service cloud.firestore {
         );
     }
 
+    /** Any signed-in user may read approved video metadata (leaperboard, profiles). Playback is gated in Storage + app. */
+    function canReadApprovedVideoMetadata() {
+      return signedIn();
+    }
+
     function videoDoc(videoId) {
       return get(/databases/$(database)/documents/videos/$(videoId)).data;
     }
@@ -79,7 +84,7 @@ service cloud.firestore {
           || videoDoc(videoId).uid == request.auth.uid
           || (
             videoDoc(videoId).moderationStatus == 'approved'
-            && viewerPostedCurrentLeap()
+            && canReadApprovedVideoMetadata()
           )
         );
     }
@@ -331,7 +336,7 @@ service cloud.firestore {
           || resource.data.uid == request.auth.uid
           || (
             resource.data.moderationStatus == 'approved'
-            && viewerPostedCurrentLeap()
+            && canReadApprovedVideoMetadata()
           )
         );
 

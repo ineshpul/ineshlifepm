@@ -33,28 +33,31 @@ import {
   type LeaderboardTimeframe,
   type LeaderboardWireRow,
 } from '../lib/leaderboardRows';
+import { computeFeedViewingFromNow, normalizeNyDateKey } from '../utils/nyTime';
 import {
-  computeFeedViewingFromNow,
-  msUntilNextNySundayWeekStart,
-  nySundayWeekStartKey,
-  prevNySundayWeekStartKey,
-} from '../utils/nyTime';
-import { fetchUserProfilesByIds } from '../lib/fetchUserProfiles';
-import {
-  leapDayLeaderboardFromVideos,
-  weeklyLeaderboardFromVideos,
-} from '../lib/weeklyLeaderboard';
+  getCurrentWeekKey,
+  getPriorWeekKey,
+  msUntilNextWeekReset,
+  normalizeWeekKey,
+} from '../lib/getCurrentWeekKey';
+import { logWeeklyLeaperboardWeekKeyDebug } from '../lib/weekKeyDebug';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { UsernameLink } from '../components/UsernameLink';
 import { navigateToUserProfile } from '../navigation/navigationHelpers';
 import {
   cumulativeLeapInchesFromUser,
+  dailyLeapInchesFromUser,
   formatLeapGainDisplay,
   formatLeapInchesDisplay,
+  priorWeekLeapInchesFromUser,
   weekOverWeekGrowthPct,
+  weeklyLeapInchesFromUser,
 } from '../lib/verticalScore';
 
 const LIST_LIMIT = 100;
+
+/** Step 1 verify: set to `'2026-05-17'` to force the Firestore query; null = use getCurrentWeekKey(). */
+const WEEK_KEY_QUERY_HARDCODE: string | null = null;
 
 type AccRow = {
   id: string;
@@ -76,6 +79,7 @@ function pickMostImproved(acc: AccRow[]): {
   let best: AccRow | null = null;
   let bestPct = -Infinity;
   for (const row of acc) {
+    if (row.score <= 0) continue;
     const prior = row.priorWeek ?? 0;
     if (prior <= 0) continue;
     const pct = weekOverWeekGrowthPct(row.score, prior);
@@ -114,7 +118,10 @@ export function TopScreen() {
 
   const leapWindow = React.useMemo(() => computeFeedViewingFromNow(clock), [clock]);
   const leapDayKey = leapWindow.viewingChallengeDateKey;
-  const weekKey = React.useMemo(() => nySundayWeekStartKey(clock), [clock]);
+  const weekKey = React.useMemo(
+    () => getCurrentWeekKey(new Date(clock), 'America/New_York'),
+    [clock]
+  );
 
   React.useEffect(() => {
     const t = setInterval(() => setClock(Date.now()), 15_000);
@@ -131,11 +138,20 @@ export function TopScreen() {
 
   /** Leap week rolls at NY Sunday noon (when the new week’s leap launches). */
   React.useEffect(() => {
-    const ms = msUntilNextNySundayWeekStart(clock);
+    const ms = msUntilNextWeekReset(clock);
     if (!Number.isFinite(ms) || ms <= 0) return;
     const id = setTimeout(() => setClock(Date.now()), Math.min(ms + 400, 8 * 86_400_000));
     return () => clearTimeout(id);
   }, [weekKey, clock]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (timeframe !== 'weekly') return;
+      const key = getCurrentWeekKey(new Date(), 'America/New_York');
+      // eslint-disable-next-line no-console
+      console.log('[weekly leaperboard] getCurrentWeekKey() =>', key);
+    }, [timeframe])
+  );
 
   useFocusEffect(
     React.useCallback(() => {
@@ -174,77 +190,136 @@ export function TopScreen() {
         if (cancelled || subscriptionIdRef.current !== subId) return;
 
         if (timeframe === 'daily') {
-          void (async () => {
-            try {
-              const fromVideos = await leapDayLeaderboardFromVideos(leapDayKey);
-              if (cancelled || subscriptionIdRef.current !== subId) return;
-              const profiles = await fetchUserProfilesByIds(fromVideos.map((r) => r.uid));
-              if (cancelled || subscriptionIdRef.current !== subId) return;
-              const acc: AccRow[] = fromVideos.map((v) => {
-                const ud = profiles.get(v.uid);
-                return {
-                  id: v.uid,
-                  score: v.score,
-                  name: ud ? leaderboardDisplayName(ud) : v.username,
-                  username: String(ud?.username ?? v.username).trim() || v.username,
-                  avatarUrl: ud ? leaderboardAvatarUrl(ud) : undefined,
-                  lifetimeInches: ud ? cumulativeLeapInchesFromUser(ud) : undefined,
-                };
+          const dayKey = normalizeNyDateKey(leapDayKey, '');
+
+          const publishDaily = (snap: { docs: { id: string; data: () => Record<string, unknown> }[] }) => {
+            if (cancelled || subscriptionIdRef.current !== subId) return;
+            const acc: AccRow[] = [];
+            snap.docs.forEach((d) => {
+              const data = d.data();
+              const storedKey = normalizeNyDateKey(String(data.leaperDayKey ?? ''), '');
+              if (storedKey && storedKey !== dayKey) return;
+              const score = dailyLeapInchesFromUser(data, dayKey);
+              if (score <= 0) return;
+              acc.push({
+                id: d.id,
+                score,
+                name: leaderboardDisplayName(data),
+                username: String(data.username ?? '').trim(),
+                avatarUrl: leaderboardAvatarUrl(data),
+                lifetimeInches: cumulativeLeapInchesFromUser(data),
               });
-              setMostImproved(null);
-              const sorted = sortLeaderboardDocs(acc);
-              setRows(wireRowsFromSorted(sorted, user?.uid));
-              setLeaderboardError(null);
-              setLeaderboardHydrated(true);
-            } catch {
+            });
+            setMostImproved(null);
+            const sorted = sortLeaderboardDocs(acc);
+            setRows(wireRowsFromSorted(sorted, user?.uid));
+            setLeaderboardError(null);
+            setLeaderboardHydrated(true);
+          };
+
+          const keyedQ = query(
+            collection(firestore(), 'users'),
+            where('leaperDayKey', '==', dayKey),
+            orderBy('leaperDayPoints', 'desc'),
+            limit(LIST_LIMIT)
+          );
+
+          const broadQ = query(
+            collection(firestore(), 'users'),
+            orderBy('leaperDayPoints', 'desc'),
+            limit(LIST_LIMIT)
+          );
+
+          unsub = onSnapshot(
+            keyedQ,
+            (snap) => publishDaily(snap),
+            () => {
               if (cancelled || subscriptionIdRef.current !== subId) return;
-              setRows([]);
-              setMostImproved(null);
-              setLeaderboardError('Could not load the leaperboard. Pull to refresh or try again.');
-              setLeaderboardHydrated(true);
+              unsub?.();
+              unsub = onSnapshot(
+                broadQ,
+                (snap) => publishDaily(snap),
+                () => {
+                  if (subscriptionIdRef.current !== subId) return;
+                  setRows([]);
+                  setMostImproved(null);
+                  setLeaderboardError('Could not load the leaperboard. Pull to refresh or try again.');
+                  setLeaderboardHydrated(true);
+                }
+              );
             }
-          })();
+          );
           return;
         }
 
         if (timeframe === 'weekly') {
-          void (async () => {
-            try {
-              const fromVideos = await weeklyLeaderboardFromVideos(weekKey);
-              if (cancelled || subscriptionIdRef.current !== subId) return;
-              const prevWeekKey = prevNySundayWeekStartKey(weekKey);
-              const prevVideos = prevWeekKey ? await weeklyLeaderboardFromVideos(prevWeekKey) : [];
-              if (cancelled || subscriptionIdRef.current !== subId) return;
-              const priorByUid = new Map(prevVideos.map((r) => [r.uid, r.score]));
-              const profiles = await fetchUserProfilesByIds(fromVideos.map((r) => r.uid));
-              if (cancelled || subscriptionIdRef.current !== subId) return;
+          const computedWeekKey = getCurrentWeekKey(new Date(clock), 'America/New_York');
+          // eslint-disable-next-line no-console
+          console.log('[weekly leaperboard] getCurrentWeekKey() =>', computedWeekKey);
+          void logWeeklyLeaperboardWeekKeyDebug();
+          const currentWeekKey = WEEK_KEY_QUERY_HARDCODE ?? computedWeekKey;
+          const wk = normalizeWeekKey(currentWeekKey);
+          const priorWk = getPriorWeekKey(wk) ?? '';
 
-              const acc: AccRow[] = fromVideos.map((v) => {
-                const ud = profiles.get(v.uid);
-                return {
-                  id: v.uid,
-                  score: v.score,
-                  name: ud ? leaderboardDisplayName(ud) : v.username,
-                  username: String(ud?.username ?? v.username).trim() || v.username,
-                  avatarUrl: ud ? leaderboardAvatarUrl(ud) : undefined,
-                  lifetimeInches: ud ? cumulativeLeapInchesFromUser(ud) : undefined,
-                  priorWeek: priorByUid.get(v.uid) ?? 0,
-                };
+          const publishWeekly = (snap: { docs: { id: string; data: () => Record<string, unknown> }[] }) => {
+            if (cancelled || subscriptionIdRef.current !== subId) return;
+            const acc: AccRow[] = [];
+            snap.docs.forEach((d) => {
+              const data = d.data();
+              const storedKey = normalizeWeekKey(String(data.leaperWeekKey ?? ''));
+              if (storedKey && storedKey !== wk) return;
+              const score = weeklyLeapInchesFromUser(data, wk);
+              if (score <= 0) return;
+              const priorWeek = priorWk ? priorWeekLeapInchesFromUser(data, priorWk) : 0;
+              acc.push({
+                id: d.id,
+                score,
+                name: leaderboardDisplayName(data),
+                username: String(data.username ?? '').trim(),
+                avatarUrl: leaderboardAvatarUrl(data),
+                lifetimeInches: cumulativeLeapInchesFromUser(data),
+                priorWeek,
               });
+            });
+            setMostImproved(pickMostImproved(acc));
+            const sorted = sortLeaderboardDocs(acc);
+            setRows(wireRowsFromSorted(sorted, user?.uid));
+            setLeaderboardError(null);
+            setLeaderboardHydrated(true);
+          };
 
-              setMostImproved(pickMostImproved(acc));
-              const sorted = sortLeaderboardDocs(acc);
-              setRows(wireRowsFromSorted(sorted, user?.uid));
-              setLeaderboardError(null);
-              setLeaderboardHydrated(true);
-            } catch {
+          const keyedQ = query(
+            collection(firestore(), 'users'),
+            where('leaperWeekKey', '==', wk),
+            orderBy('leaperWeekPoints', 'desc'),
+            limit(LIST_LIMIT)
+          );
+
+          const broadQ = query(
+            collection(firestore(), 'users'),
+            orderBy('leaperWeekPoints', 'desc'),
+            limit(LIST_LIMIT)
+          );
+
+          unsub = onSnapshot(
+            keyedQ,
+            (snap) => publishWeekly(snap),
+            () => {
               if (cancelled || subscriptionIdRef.current !== subId) return;
-              setRows([]);
-              setMostImproved(null);
-              setLeaderboardError('Could not load the leaperboard. Pull to refresh or try again.');
-              setLeaderboardHydrated(true);
+              unsub?.();
+              unsub = onSnapshot(
+                broadQ,
+                (snap) => publishWeekly(snap),
+                () => {
+                  if (subscriptionIdRef.current !== subId) return;
+                  setRows([]);
+                  setMostImproved(null);
+                  setLeaderboardError('Could not load the leaperboard. Pull to refresh or try again.');
+                  setLeaderboardHydrated(true);
+                }
+              );
             }
-          })();
+          );
           return;
         }
 
@@ -301,10 +376,11 @@ export function TopScreen() {
       clearTimeout(safetyTimer);
       unsub?.();
     };
-  }, [user?.uid, timeframe, leapDayKey, weekKey, clock]);
+  }, [user?.uid, timeframe, leapDayKey, weekKey]);
 
   const scoreForRow = (item: LeaderboardWireRow) => {
     if (timeframe === 'daily') return formatLeapGainDisplay(item.score);
+    if (timeframe === 'weekly') return formatLeapInchesDisplay(item.score);
     return formatLeapInchesDisplay(item.score);
   };
 

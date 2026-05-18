@@ -1,3 +1,5 @@
+import { normalizeWeekKey } from './getCurrentWeekKey';
+
 /**
  * Leap vertical scoring — inches only (mirrors `functions/src/verticalScoreEngine.ts`).
  */
@@ -120,8 +122,13 @@ export function cumulativeLeapInchesFromUser(data: Record<string, unknown> | und
   return Number.isFinite(lp) && lp >= 0 ? lp : 0;
 }
 
-export function dailyLeapInchesFromUser(data: Record<string, unknown> | undefined): number {
+export function dailyLeapInchesFromUser(
+  data: Record<string, unknown> | undefined,
+  dayKey?: string
+): number {
   if (!data) return 0;
+  const storedKey = String(data.leaperDayKey ?? '').trim();
+  if (dayKey && storedKey && storedKey !== dayKey) return 0;
   const dp = Number(data.leaperDayPoints ?? 0);
   return Number.isFinite(dp) && dp >= 0 ? Math.max(0, dp) : 0;
 }
@@ -131,10 +138,11 @@ export function weeklyLeapInchesFromUser(
   weekKey?: string
 ): number {
   if (!data) return 0;
-  const storedKey = String(data.leaperWeekKey ?? '').trim();
-  if (weekKey && storedKey && storedKey !== weekKey) return 0;
+  const storedKey = normalizeWeekKey(String(data.leaperWeekKey ?? ''));
+  const wk = weekKey ? normalizeWeekKey(weekKey) : '';
+  if (wk && storedKey && storedKey !== wk) return 0;
   const wp = Number(data.leaperWeekPoints ?? 0);
-  return Number.isFinite(wp) && wp > 0 ? wp : 0;
+  return Number.isFinite(wp) && wp >= 0 ? Math.max(0, wp) : 0;
 }
 
 export function priorWeekLeapInchesFromUser(
@@ -143,8 +151,9 @@ export function priorWeekLeapInchesFromUser(
 ): number {
   if (!data) return 0;
   if (expectedPriorWeekKey) {
-    const stored = String(data.leaperPriorWeekKey ?? '').trim();
-    if (stored && stored !== expectedPriorWeekKey) return 0;
+    const stored = normalizeWeekKey(String(data.leaperPriorWeekKey ?? ''));
+    const expected = normalizeWeekKey(expectedPriorWeekKey);
+    if (stored && expected && stored !== expected) return 0;
   }
   const pp = Number(data.leaperPriorWeekPoints ?? 0);
   return Number.isFinite(pp) && pp > 0 ? pp : 0;

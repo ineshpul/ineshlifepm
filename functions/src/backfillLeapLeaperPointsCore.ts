@@ -3,7 +3,8 @@ import * as logger from 'firebase-functions/logger';
 
 import { incrementUserLeapInches } from './leaperPoints';
 import { LEAP_BASE_INCHES } from './verticalScoreEngine';
-import { leapChallengeDateKeyFromMs, nySundayWeekStartKey } from './timeKeys';
+import { leapChallengeDateKeyFromMs } from './timeKeys';
+import { getCurrentWeekKey, weekStartKeyFromChallengeDate } from './getCurrentWeekKey';
 
 export type BackfillLeapLeaperPointsResult = {
   ok: boolean;
@@ -53,7 +54,7 @@ export async function runBackfillLeapLeaperPointsPage(
 
   const snap = await q.get();
   const nowMs = Date.now();
-  const thisWeekKey = nySundayWeekStartKey(nowMs);
+  const thisWeekKey = getCurrentWeekKey(new Date(nowMs));
 
   let examined = 0;
   let skipped = 0;
@@ -84,7 +85,9 @@ export async function runBackfillLeapLeaperPointsPage(
 
     const createdMs = toMillis(data.createdAt);
     const eventMs = createdMs > 0 ? createdMs : nowMs;
-    const eventWeek = nySundayWeekStartKey(eventMs);
+    const eventWeek = weekStartKeyFromChallengeDate(
+      String(data.challengeDate ?? '').trim() || leapChallengeDateKeyFromMs(eventMs)
+    );
 
     try {
       if (dryRun) {

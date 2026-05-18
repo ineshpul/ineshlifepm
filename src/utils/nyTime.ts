@@ -64,95 +64,22 @@ function nyWeekdaySun0(ms: number): number {
   return map[w] ?? 0;
 }
 
-/** Calendar Sunday (NY) for the Sun–Sat week containing `ms` (ignores noon leap boundaries). */
-function nyCalendarSundayWeekStartKey(ms: number): string {
-  let { y, mo, d } = nyCalendarPartsFromUtc(ms);
-  let noon = utcMsForNyWallClock(y, mo, d, 12, 0);
-  for (let i = 0; i < 8; i++) {
-    if (nyWeekdaySun0(noon) === 0) {
-      const p = nyCalendarPartsFromUtc(noon);
-      return `${p.y}-${String(p.mo).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`;
-    }
-    noon -= 86_400_000;
-  }
-  return nyDateKey(new Date(ms));
-}
+export {
+  challengeDateBelongsToLeapWeek,
+  getCurrentWeekKey,
+  getCurrentWeekKeyFromMs,
+  getCurrentWeekKeyFromMs as nySundayWeekStartKey,
+  getPriorWeekKey as prevNySundayWeekStartKey,
+  leapWeekChallengeDateKeys as nyLeapWeekChallengeDateKeys,
+  msUntilNextWeekReset as msUntilNextNySundayWeekStart,
+  normalizeWeekKey,
+  weekStartKeyFromChallengeDate as nyLeapWeekStartKeyFromChallengeDate,
+} from '../lib/getCurrentWeekKey';
 
-/**
- * Leap week key: Sunday **noon ET** → next Sunday noon ET (same boundary as daily leaps).
- * Value is the `YYYY-MM-DD` of the Sunday when that week's leap launches.
- */
-export function nySundayWeekStartKey(ms: number): string {
-  const calendarSunday = nyCalendarSundayWeekStartKey(ms);
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(calendarSunday);
-  if (!m) return calendarSunday;
-  const sundayNoon = utcMsForNyWallClock(Number(m[1]), Number(m[2]), Number(m[3]), 12, 0);
-  if (ms < sundayNoon) {
-    const prev = prevNySundayWeekStartKey(calendarSunday);
-    return prev ?? calendarSunday;
-  }
-  return calendarSunday;
-}
+import { calendarWeekDateKeys } from '../lib/getCurrentWeekKey';
 
-/** Week key for a leap `challengeDate` label (noon-to-noon day). */
-export function nyLeapWeekStartKeyFromChallengeDate(challengeDateKey: string): string {
-  const ms = nyDateKeyToSortUtcMs(challengeDateKey, 0);
-  if (ms <= 0) return nySundayWeekStartKey(Date.now());
-  return nySundayWeekStartKey(ms);
-}
-
-/** True when this post’s leap day belongs to the leap week that started on `weekStartKey` (a Sunday). */
-export function challengeDateBelongsToLeapWeek(challengeDateKey: string, weekStartKey: string): boolean {
-  const wk = normalizeNyDateKey(weekStartKey, '');
-  if (!wk) return false;
-  return nyLeapWeekStartKeyFromChallengeDate(challengeDateKey) === wk;
-}
-
-/** All seven NY calendar `YYYY-MM-DD` keys for Sun–Sat week starting on `weekStartKey` (a Sunday). */
-export function nySundayWeekDateKeys(weekStartKey: string): string[] {
-  const start = normalizeNyDateKey(weekStartKey, '');
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start);
-  if (!m) return [];
-  let y = Number(m[1]);
-  let mo = Number(m[2]);
-  let d = Number(m[3]);
-  const keys: string[] = [];
-  for (let i = 0; i < 7; i++) {
-    keys.push(`${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
-    const next = nextNyCalendarDay(y, mo, d);
-    y = next.y;
-    mo = next.mo;
-    d = next.d;
-  }
-  return keys;
-}
-
-/** Ms until the next NY Sunday noon ET (start of the next leap week). */
-export function msUntilNextNySundayWeekStart(nowMs: number): number {
-  const weekStart = nySundayWeekStartKey(nowMs);
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(weekStart);
-  if (!m) return 86_400_000;
-  let y = Number(m[1]);
-  let mo = Number(m[2]);
-  let d = Number(m[3]);
-  for (let i = 0; i < 7; i++) {
-    const next = nextNyCalendarDay(y, mo, d);
-    y = next.y;
-    mo = next.mo;
-    d = next.d;
-  }
-  const nextWeekNoonMs = utcMsForNyWallClock(y, mo, d, 12, 0);
-  return Math.max(1, nextWeekNoonMs - nowMs);
-}
-
-/** The NY Sunday week that immediately precedes `currentWeekStartKey` (another Sunday `YYYY-MM-DD`). */
-export function prevNySundayWeekStartKey(currentWeekStartKey: string): string | null {
-  const n = normalizeNyDateKey(currentWeekStartKey, '');
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(n);
-  if (!m) return null;
-  const noon = utcMsForNyWallClock(Number(m[1]), Number(m[2]), Number(m[3]), 12, 0);
-  return nySundayWeekStartKey(noon - 7 * 86_400_000);
-}
+/** @see calendarWeekDateKeys in getCurrentWeekKey */
+export const nySundayWeekDateKeys = calendarWeekDateKeys;
 
 /** Coerce `YYYY-M-D` / `YYYY-MM-DD` to canonical `YYYY-MM-DD` (invalid → `fallback`). */
 export function normalizeNyDateKey(raw: string, fallback: string): string {

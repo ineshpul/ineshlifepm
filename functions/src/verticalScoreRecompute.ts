@@ -2,7 +2,8 @@ import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import { onDocumentCreated, onDocumentDeleted, onDocumentWritten } from 'firebase-functions/v2/firestore';
 
-import { incrementUserLeapInches } from './leaperPoints';
+import { buildLeaperPointsPatch, incrementUserLeapInches } from './leaperPoints';
+import { recomputeUserWeeklyLeaperFields, writeUserWeeklyLeaperFields } from './weeklyLeaperFields';
 import {
   computePostLeapInches,
   countsForStreak,
@@ -16,11 +17,7 @@ import {
   resolveGlobalFirstApprovedVideoIdForDay,
 } from './leapDayFirstPost';
 import { DAILY_CHALLENGE_STATS_COLLECTION } from './verticalXpBonuses';
-import {
-  leapChallengeDateKeyFromMs,
-  nyLeapWeekStartKeyFromChallengeDate,
-  nySundayWeekStartKey,
-} from './timeKeys';
+import { leapChallengeDateKeyFromMs } from './timeKeys';
 
 const REGION = 'us-central1';
 const POST_COLLECTION = 'videos';
@@ -204,6 +201,8 @@ async function awardLeapInchesFirstApproval(
       { merge: true }
     );
 
+    const leaperPatch = buildLeaperPointsPatch(ud, computed.leapInches, challengeDate, nowMs);
+
     tx.set(
       userRef,
       {
@@ -211,6 +210,7 @@ async function awardLeapInchesFirstApproval(
         longestLeapStreakDays: streakNext.longestLeapStreakDays,
         lastApprovedLeapDateKey: challengeDate,
         hasApprovedLeapEver: true,
+        ...leaperPatch,
       },
       { merge: true }
     );
@@ -220,7 +220,11 @@ async function awardLeapInchesFirstApproval(
 
   if (!br) return;
 
-  await incrementUserLeapInches(db, owner, br.leapInches, challengeDate, nowMs, nowMs);
+  try {
+    await writeUserWeeklyLeaperFields(db, owner, nowMs);
+  } catch (e) {
+    logger.error('weekly leaper sync after award failed', { owner, videoId, e });
+  }
   try {
     await recomputeUserLeapStatsAdmin(owner);
   } catch (e) {
@@ -488,7 +492,6 @@ export async function recomputeUserLeapStatsAdmin(ownerId: string): Promise<void
   const userRef = db.doc(`users/${ownerId}`);
   const now = Date.now();
   const todayKey = leapChallengeDateKeyFromMs(now);
-  const weekKey = nySundayWeekStartKey(now);
   const todayKeys = dayKeyVariants(todayKey);
 
   const lifetime = await sumLeapInchesForOwner(db, ownerId);
@@ -496,29 +499,18 @@ export async function recomputeUserLeapStatsAdmin(ownerId: string): Promise<void
     const k = String(data.challengeDate ?? '').trim();
     return todayKeys.has(k);
   });
-  const weekPoints = await sumLeapInchesForOwner(db, ownerId, (data) => {
-    const k = String(data.challengeDate ?? '').trim();
-    return nyLeapWeekStartKeyFromChallengeDate(k) === weekKey;
-  });
+  const weeklyFields = await recomputeUserWeeklyLeaperFields(db, ownerId, now);
   const highestDay = await maxDayLeapInchesForOwner(db, ownerId);
   const streak = await rebuildStreakFromVideos(db, ownerId);
-
   const uSnap = await userRef.get();
   const ud = uSnap.data() ?? {};
-  const storedWeekKey = String(ud.leaperWeekKey ?? '');
-  let priorWeekPoints = Math.max(0, Number(ud.leaperPriorWeekPoints ?? 0));
-  let priorWeekKey = String(ud.leaperPriorWeekKey ?? '');
-  if (storedWeekKey && storedWeekKey !== weekKey) {
-    priorWeekPoints = Math.max(0, Number(ud.leaperWeekPoints ?? 0));
-    priorWeekKey = storedWeekKey;
-  }
 
   const patch: Record<string, unknown> = {
     leaperLifetimePoints: lifetime,
-    leaperWeekKey: weekKey,
-    leaperWeekPoints: weekPoints,
-    leaperPriorWeekPoints: priorWeekPoints,
-    leaperPriorWeekKey: priorWeekKey,
+    leaperWeekKey: weeklyFields.leaperWeekKey,
+    leaperWeekPoints: weeklyFields.leaperWeekPoints,
+    leaperPriorWeekPoints: weeklyFields.leaperPriorWeekPoints,
+    leaperPriorWeekKey: weeklyFields.leaperPriorWeekKey,
     highestDayLeapInches: highestDay,
     highestJumpDisplayInches: highestDay,
     activeLeapStreakDays: streak.active,

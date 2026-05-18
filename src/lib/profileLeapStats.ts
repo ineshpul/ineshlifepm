@@ -1,4 +1,4 @@
-import { challengeDateBelongsToLeapWeek, normalizeNyDateKey } from '../utils/nyTime';
+import { normalizeNyDateKey, nyLeapWeekChallengeDateKeys } from '../utils/nyTime';
 
 export type ProfileLeapVideo = {
   challengeDate: string;
@@ -8,7 +8,7 @@ export type ProfileLeapVideo = {
 };
 
 function inchFromVideo(v: ProfileLeapVideo): number {
-  const raw = Number(v.leapInches ?? v.leapInchesAwarded ?? 0);
+  const raw = Number(v.leapInches ?? 0);
   return Number.isFinite(raw) && raw > 0 ? raw : 0;
 }
 
@@ -33,10 +33,11 @@ export function weeklyLeapInchesFromProfileVideos(
   weekKey: string
 ): number {
   const wk = normalizeNyDateKey(weekKey, '');
+  const daySet = new Set(nyLeapWeekChallengeDateKeys(wk).map((k) => normalizeNyDateKey(k, k)));
   let sum = 0;
   for (const v of videos) {
     if (String(v.moderationStatus ?? '') !== 'approved') continue;
-    if (!challengeDateBelongsToLeapWeek(v.challengeDate, wk)) continue;
+    if (!daySet.has(normalizeNyDateKey(v.challengeDate, ''))) continue;
     sum += inchFromVideo(v);
   }
   return Math.round(sum * 10) / 10;

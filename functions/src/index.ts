@@ -19,6 +19,8 @@ import { backfillLeapLeaperPointsCallable } from './backfillLeapLeaperPointsCall
 import { purchaseRecordingAttemptCallable } from './purchaseRecordingAttempt';
 import { submitChallengeSuggestionCallable } from './challengeSuggestion';
 import { scheduledLeapViewingMeta } from './leapViewingMeta';
+import { getWeeklyLeaperboardCallable } from './getWeeklyLeaperboardCallable';
+import { backfillWeeklyLeaperWeekCallable } from './backfillWeeklyLeaperWeekCallable';
 
 admin.initializeApp();
 
@@ -38,6 +40,8 @@ export {
   purchaseRecordingAttemptCallable,
   submitChallengeSuggestionCallable,
   scheduledLeapViewingMeta,
+  getWeeklyLeaperboardCallable,
+  backfillWeeklyLeaperWeekCallable,
 };
 
 type ChatMessagePayload = {

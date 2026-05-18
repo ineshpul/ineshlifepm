@@ -36,6 +36,7 @@ import type { LegalDocId } from '../content/settingsLegal';
 import { showError, showInfo } from '../utils/ui';
 import { formatLeapInchesDisplay } from '../lib/verticalScore';
 import { backfillAllUsersLeapStats } from '../services/backfillVerticalScores';
+import { backfillAllUsersWeeklyLeaperFields } from '../services/backfillWeeklyLeaperWeek';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { saveUserPublicProfile } from '../services/userProfile';
 import { setShowFollowingListToOthers } from '../services/profilePrivacy';
@@ -208,6 +209,44 @@ export function SettingsScreen() {
     } catch (e) {
       showError('Could not save profile', e);
     }
+  };
+
+  const runRecomputeWeekly = () => {
+    if (!user?.isAdmin || backfillBusy) return;
+    Alert.alert(
+      'Recompute weekly leaperboard?',
+      'Updates leaperWeekKey and leaperWeekPoints for every user from approved leaps in the current week (Sun noon ET).',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Recompute',
+          onPress: () =>
+            void (async () => {
+              setBackfillBusy(true);
+              setBackfillProgress('Starting weekly recompute…');
+              try {
+                const r = await backfillAllUsersWeeklyLeaperFields(
+                  ({ examined, updated, failed, pages, weekKey }) => {
+                    setBackfillProgress(
+                      `Week ${weekKey} · ${updated}/${examined} users · batch ${pages}${failed > 0 ? ` · ${failed} failed` : ''}`
+                    );
+                  }
+                );
+                const failNote = r.failed > 0 ? ` ${r.failed} could not be updated.` : '';
+                showInfo(
+                  'Weekly recompute complete',
+                  `Updated ${r.updated} of ${r.examined} users for week ${r.weekKey}.${failNote}`
+                );
+              } catch (e) {
+                showError('Weekly recompute failed', e);
+              } finally {
+                setBackfillBusy(false);
+                setBackfillProgress('');
+              }
+            })(),
+        },
+      ]
+    );
   };
 
   const runBackfillAllLeapStats = () => {
@@ -595,16 +634,16 @@ export function SettingsScreen() {
             <Card>
               <TouchableOpacity
                 style={styles.row}
-                onPress={() => runBackfillAllLeapStats()}
+                onPress={() => runRecomputeWeekly()}
                 disabled={backfillBusy}
                 activeOpacity={0.65}
               >
                 <View style={styles.rowTextCol}>
-                  <Text style={styles.rowLabel}>Backfill all leap stats</Text>
+                  <Text style={styles.rowLabel}>Recompute weekly</Text>
                   <Text style={styles.rowSub}>
                     {backfillBusy && backfillProgress
                       ? backfillProgress
-                      : 'Recompute inches, weekly board, and streaks for every user.'}
+                      : 'Sync leaperWeekKey and leaperWeekPoints only (current Sun noon ET week).'}
                   </Text>
                 </View>
                 {backfillBusy ? (
@@ -612,6 +651,21 @@ export function SettingsScreen() {
                 ) : (
                   <Ionicons name="chevron-forward" size={18} color={colors.muted2} />
                 )}
+              </TouchableOpacity>
+              <Separator />
+              <TouchableOpacity
+                style={styles.row}
+                onPress={() => runBackfillAllLeapStats()}
+                disabled={backfillBusy}
+                activeOpacity={0.65}
+              >
+                <View style={styles.rowTextCol}>
+                  <Text style={styles.rowLabel}>Backfill all leap stats</Text>
+                  <Text style={styles.rowSub}>
+                    Recompute inches, weekly board, and streaks for every user.
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.muted2} />
               </TouchableOpacity>
             </Card>
           </>

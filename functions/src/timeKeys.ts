@@ -62,64 +62,48 @@ function utcMsForNyWallClock(y: number, mo: number, d: number, hh: number, mm: n
   return Date.now() + 60_000;
 }
 
-function nyWeekdaySun0(ms: number): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    weekday: 'short',
-  }).formatToParts(new Date(ms));
-  const w = (parts.find((p) => p.type === 'weekday')?.value ?? 'Sun').replace(/\./g, '').slice(0, 3);
-  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  return map[w] ?? 0;
+import {
+  calendarWeekDateKeys,
+  challengeDateBelongsToWeek,
+  getCurrentWeekKeyFromMs,
+  getPriorWeekKey,
+  leapWeekChallengeDateKeys,
+  normalizeWeekKey,
+  weekStartKeyFromChallengeDate,
+} from './getCurrentWeekKey';
+
+/** @see {@link getCurrentWeekKeyFromMs} — Sunday noon ET week boundary. */
+export const nySundayWeekStartKey = getCurrentWeekKeyFromMs;
+
+export const nyLeapWeekStartKeyFromChallengeDate = weekStartKeyFromChallengeDate;
+
+export const nyLeapWeekChallengeDateKeys = leapWeekChallengeDateKeys;
+
+export const nySundayWeekDateKeys = calendarWeekDateKeys;
+
+export const challengeDateBelongsToLeapWeek = challengeDateBelongsToWeek;
+
+export const prevNySundayWeekStartKey = getPriorWeekKey;
+
+const normalizeNyDateKey = normalizeWeekKey;
+
+/** Canonical + compact forms for `challengeDate ==` queries. */
+export function challengeDateQueryVariants(dateKey: string): string[] {
+  const canon = normalizeNyDateKey(dateKey);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(canon);
+  if (!m) return [];
+  return [canon, `${Number(m[1])}-${Number(m[2])}-${Number(m[3])}`];
 }
 
-function nextNyCalendarDay(y: number, mo: number, d: number) {
-  const t = utcMsForNyWallClock(y, mo, d, 12, 0) + 25 * 3600000;
-  return nyCalendarPartsFromUtc(t);
-}
-
-function prevNySundayWeekStartKey(currentWeekStartKey: string): string | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(currentWeekStartKey ?? '').trim());
-  if (!m) return null;
-  const noon = utcMsForNyWallClock(Number(m[1]), Number(m[2]), Number(m[3]), 12, 0);
-  return nyCalendarSundayWeekStartKey(noon - 7 * 86_400_000);
-}
-
-function nyCalendarSundayWeekStartKey(ms: number): string {
-  let { y, mo, d } = nyCalendarPartsFromUtc(ms);
-  let noon = utcMsForNyWallClock(y, mo, d, 12, 0);
-  for (let i = 0; i < 8; i++) {
-    if (nyWeekdaySun0(noon) === 0) {
-      const p = nyCalendarPartsFromUtc(noon);
-      return `${p.y}-${String(p.mo).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`;
-    }
-    noon -= 86_400_000;
+/** Firestore `in` list with canonical + compact `challengeDate` forms (max 30). */
+export function challengeDateKeysForFirestoreIn(dateKeys: readonly string[]): string[] {
+  const set = new Set<string>();
+  for (const raw of dateKeys) {
+    const canon = normalizeNyDateKey(String(raw));
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(canon);
+    if (!m) continue;
+    set.add(canon);
+    set.add(`${Number(m[1])}-${Number(m[2])}-${Number(m[3])}`);
   }
-  return nyDateKeyFromMs(ms);
-}
-
-/**
- * Leap week key: Sunday noon ET → next Sunday noon ET. Must match app `nySundayWeekStartKey`.
- */
-export function nySundayWeekStartKey(ms: number): string {
-  const calendarSunday = nyCalendarSundayWeekStartKey(ms);
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(calendarSunday);
-  if (!m) return calendarSunday;
-  const sundayNoon = utcMsForNyWallClock(Number(m[1]), Number(m[2]), Number(m[3]), 12, 0);
-  if (ms < sundayNoon) {
-    const prev = prevNySundayWeekStartKey(calendarSunday);
-    return prev ?? calendarSunday;
-  }
-  return calendarSunday;
-}
-
-/** Week key for a leap `challengeDate` label. */
-export function nyLeapWeekStartKeyFromChallengeDate(challengeDateKey: string): string {
-  const raw = String(challengeDateKey ?? '').trim();
-  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw);
-  if (!m) return nySundayWeekStartKey(Date.now());
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  const noon = utcMsForNyWallClock(y, mo, d, 12, 0);
-  return nySundayWeekStartKey(noon);
+  return Array.from(set).slice(0, 30);
 }

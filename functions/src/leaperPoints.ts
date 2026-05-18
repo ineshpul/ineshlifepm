@@ -1,13 +1,46 @@
 import * as admin from 'firebase-admin';
-import {
-  leapChallengeDateKeyFromMs,
-  nyLeapWeekStartKeyFromChallengeDate,
-  nySundayWeekStartKey,
-} from './timeKeys';
+import { leapChallengeDateKeyFromMs } from './timeKeys';
+import { getCurrentWeekKey, weekStartKeyFromChallengeDate } from './getCurrentWeekKey';
+import { computeWeeklyLeaperFields } from './weeklyLeaperWeek';
+
+/** Build user-doc leaper fields for an inch delta (lifetime, daily, weekly). */
+export function buildLeaperPointsPatch(
+  stored: Record<string, unknown> | undefined,
+  inchDelta: number,
+  challengeDayKey: string,
+  nowMs: number
+): Record<string, unknown> {
+  const d = stored ?? {};
+  const inch = Math.round(Number(inchDelta ?? 0) * 10) / 10;
+  const dayKey = String(challengeDayKey ?? '').trim() || leapChallengeDateKeyFromMs(nowMs);
+  const weekKeyNow = getCurrentWeekKey(new Date(nowMs));
+  const weekKeyAward = dayKey ? weekStartKeyFromChallengeDate(dayKey) : weekKeyNow;
+
+  const curLife = Math.max(0, Number(d.leaperLifetimePoints ?? 0));
+  const nextLife = Math.max(0, Math.round((curLife + inch) * 10) / 10);
+
+  const patch: Record<string, unknown> = {
+    leaperLifetimePoints: nextLife,
+  };
+
+  if (dayKey) {
+    const baseDay = String(d.leaperDayKey ?? '') === dayKey ? Math.max(0, Number(d.leaperDayPoints ?? 0)) : 0;
+    patch.leaperDayKey = dayKey;
+    patch.leaperDayPoints = Math.max(0, Math.round((baseDay + inch) * 10) / 10);
+  }
+
+  const weekly = computeWeeklyLeaperFields(d, weekKeyNow, weekKeyAward, inch);
+  patch.leaperWeekKey = weekly.leaperWeekKey;
+  patch.leaperWeekPoints = weekly.leaperWeekPoints;
+  patch.leaperPriorWeekKey = weekly.leaperPriorWeekKey;
+  patch.leaperPriorWeekPoints = weekly.leaperPriorWeekPoints;
+
+  return patch;
+}
 
 /**
  * Apply inch deltas to user leaperboard aggregates (all-time, daily, weekly).
- * On NY week boundary, rolls current week into `leaperPriorWeekPoints`.
+ * Weekly reset rolls at Sunday 12:00 PM ET (not calendar midnight).
  */
 export async function incrementUserLeapInches(
   db: admin.firestore.Firestore,
@@ -22,42 +55,11 @@ export async function incrementUserLeapInches(
   if (inch === 0) return;
 
   const dayKey = String(challengeDayKey ?? '').trim() || leapChallengeDateKeyFromMs(awardMs);
-  const weekKeyAward = nyLeapWeekStartKeyFromChallengeDate(dayKey);
-  const weekKeyNow = nySundayWeekStartKey(nowMs);
-
   const ref = db.doc(`users/${ownerId}`);
 
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
-    const d = snap.data() ?? {};
-
-    const curLife = Math.max(0, Number(d.leaperLifetimePoints ?? 0));
-    const nextLife = Math.max(0, Math.round((curLife + inch) * 10) / 10);
-
-    const patch: Record<string, unknown> = {
-      leaperLifetimePoints: nextLife,
-    };
-
-    if (dayKey) {
-      const baseDay = String(d.leaperDayKey ?? '') === dayKey ? Math.max(0, Number(d.leaperDayPoints ?? 0)) : 0;
-      patch.leaperDayKey = dayKey;
-      patch.leaperDayPoints = Math.max(0, Math.round((baseDay + inch) * 10) / 10);
-    }
-
-    const storedWeekKey = String(d.leaperWeekKey ?? '');
-    let weekBase = 0;
-    if (storedWeekKey === weekKeyNow) {
-      weekBase = Math.max(0, Number(d.leaperWeekPoints ?? 0));
-    } else if (storedWeekKey && storedWeekKey !== weekKeyNow) {
-      patch.leaperPriorWeekPoints = Math.max(0, Number(d.leaperWeekPoints ?? 0));
-      patch.leaperPriorWeekKey = storedWeekKey;
-      weekBase = 0;
-    }
-    if (weekKeyAward === weekKeyNow) {
-      patch.leaperWeekKey = weekKeyNow;
-      patch.leaperWeekPoints = Math.max(0, Math.round((weekBase + inch) * 10) / 10);
-    }
-
+    const patch = buildLeaperPointsPatch(snap.data(), inch, dayKey, nowMs);
     tx.set(ref, patch, { merge: true });
   });
 }
