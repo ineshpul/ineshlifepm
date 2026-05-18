@@ -101,6 +101,13 @@ export function nyLeapWeekStartKeyFromChallengeDate(challengeDateKey: string): s
   return nySundayWeekStartKey(ms);
 }
 
+/** True when this post’s leap day belongs to the leap week that started on `weekStartKey` (a Sunday). */
+export function challengeDateBelongsToLeapWeek(challengeDateKey: string, weekStartKey: string): boolean {
+  const wk = normalizeNyDateKey(weekStartKey, '');
+  if (!wk) return false;
+  return nyLeapWeekStartKeyFromChallengeDate(challengeDateKey) === wk;
+}
+
 /** All seven NY calendar `YYYY-MM-DD` keys for Sun–Sat week starting on `weekStartKey` (a Sunday). */
 export function nySundayWeekDateKeys(weekStartKey: string): string[] {
   const start = normalizeNyDateKey(weekStartKey, '');

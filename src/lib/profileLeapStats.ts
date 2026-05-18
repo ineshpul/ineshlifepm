@@ -1,4 +1,4 @@
-import { normalizeNyDateKey, nySundayWeekDateKeys } from '../utils/nyTime';
+import { challengeDateBelongsToLeapWeek, normalizeNyDateKey } from '../utils/nyTime';
 
 export type ProfileLeapVideo = {
   challengeDate: string;
@@ -27,19 +27,16 @@ export function dailyLeapInchesFromProfileVideos(
   return Math.round(sum * 10) / 10;
 }
 
-/**
- * Same rules as the Weekly leaperboard: sum of daily leap inches for each day in the leap week.
- */
+/** Running week total: all approved leap days in the current leap week, summed together. */
 export function weeklyLeapInchesFromProfileVideos(
   videos: readonly ProfileLeapVideo[],
   weekKey: string
 ): number {
-  const daySet = new Set(nySundayWeekDateKeys(weekKey).map((k) => normalizeNyDateKey(k, k)));
+  const wk = normalizeNyDateKey(weekKey, '');
   let sum = 0;
   for (const v of videos) {
     if (String(v.moderationStatus ?? '') !== 'approved') continue;
-    const cd = normalizeNyDateKey(v.challengeDate, '');
-    if (!daySet.has(cd)) continue;
+    if (!challengeDateBelongsToLeapWeek(v.challengeDate, wk)) continue;
     sum += inchFromVideo(v);
   }
   return Math.round(sum * 10) / 10;

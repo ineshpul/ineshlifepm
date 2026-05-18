@@ -1,7 +1,17 @@
-import { collection, getDocs, limit, query, where } from 'firebase/firestore';
+import {
+  collection,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  startAfter,
+  where,
+  type QueryDocumentSnapshot,
+} from 'firebase/firestore';
 
 import { firestore } from '../firebase/firebase';
 import {
+  challengeDateBelongsToLeapWeek,
   challengeDateKeysForFirestoreIn,
   normalizeNyDateKey,
   nySundayWeekDateKeys,
@@ -13,10 +23,14 @@ export type WeeklyVideoScore = {
   username: string;
 };
 
+const PAGE_SIZE = 500;
+const MAX_PAGES = 40;
+
 function accumulateLeapInchesByUid(
   docs: { data: () => Record<string, unknown> }[],
-  includeChallengeDate: (challengeDate: string) => boolean
+  weekKey: string
 ): WeeklyVideoScore[] {
+  const wk = normalizeNyDateKey(weekKey, '');
   const byUid = new Map<string, WeeklyVideoScore>();
   docs.forEach((d) => {
     const data = d.data();
@@ -24,7 +38,7 @@ function accumulateLeapInchesByUid(
     const uid = String(data.uid ?? '').trim();
     if (!uid) return;
     const cd = String(data.challengeDate ?? '').trim();
-    if (!includeChallengeDate(cd)) return;
+    if (!challengeDateBelongsToLeapWeek(cd, wk)) return;
     const raw = Number(data.leapInches ?? data.leapInchesAwarded ?? 0);
     const inch = Number.isFinite(raw) && raw > 0 ? raw : 0;
     if (inch <= 0) return;
@@ -40,48 +54,78 @@ function accumulateLeapInchesByUid(
   return Array.from(byUid.values()).filter((r) => r.score > 0);
 }
 
+async function fetchApprovedVideosForChallengeIn(
+  inKeys: string[]
+): Promise<QueryDocumentSnapshot[]> {
+  if (inKeys.length === 0) return [];
+  const out: QueryDocumentSnapshot[] = [];
+  let cursor: QueryDocumentSnapshot | undefined;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const snap = await getDocs(
+      cursor
+        ? query(
+            collection(firestore(), 'videos'),
+            where('challengeDate', 'in', inKeys.slice(0, 30)),
+            where('moderationStatus', '==', 'approved'),
+            orderBy('createdAt', 'desc'),
+            startAfter(cursor),
+            limit(PAGE_SIZE)
+          )
+        : query(
+            collection(firestore(), 'videos'),
+            where('challengeDate', 'in', inKeys.slice(0, 30)),
+            where('moderationStatus', '==', 'approved'),
+            orderBy('createdAt', 'desc'),
+            limit(PAGE_SIZE)
+          )
+    );
+    out.push(...snap.docs);
+    if (snap.size < PAGE_SIZE) break;
+    cursor = snap.docs[snap.docs.length - 1];
+  }
+  return out;
+}
+
 /** Sum approved leap inches for one leap day (`challengeDate` / noon→noon). */
 export async function leapDayLeaderboardFromVideos(leapDayKey: string): Promise<WeeklyVideoScore[]> {
   const dayKey = normalizeNyDateKey(leapDayKey, '');
   const inKeys = challengeDateKeysForFirestoreIn([dayKey]);
   if (inKeys.length === 0) return [];
 
-  const snap = await getDocs(
-    query(
-      collection(firestore(), 'videos'),
-      where('challengeDate', 'in', inKeys.slice(0, 30)),
-      where('moderationStatus', '==', 'approved'),
-      limit(500)
-    )
-  );
-  return accumulateLeapInchesByUid(snap.docs, (cd) => normalizeNyDateKey(cd, dayKey) === dayKey);
+  const docs = await fetchApprovedVideosForChallengeIn(inKeys);
+  const byUid = new Map<string, WeeklyVideoScore>();
+  docs.forEach((d) => {
+    const data = d.data();
+    if (String(data.moderationStatus ?? '') === 'nulled') return;
+    const uid = String(data.uid ?? '').trim();
+    if (!uid) return;
+    const cd = String(data.challengeDate ?? '').trim();
+    if (normalizeNyDateKey(cd, dayKey) !== dayKey) return;
+    const raw = Number(data.leapInches ?? data.leapInchesAwarded ?? 0);
+    const inch = Number.isFinite(raw) && raw > 0 ? raw : 0;
+    if (inch <= 0) return;
+    const username = String(data.username ?? 'user').trim() || 'user';
+    const prev = byUid.get(uid);
+    if (prev) {
+      prev.score = Math.round((prev.score + inch) * 10) / 10;
+    } else {
+      byUid.set(uid, { uid, score: inch, username });
+    }
+  });
+  return Array.from(byUid.values()).filter((r) => r.score > 0);
 }
 
 /**
- * Sum approved leap inches per user for the NY leap week (Sun noon → next Sun noon).
- * Built as the sum of each leap day in the week (same queries as the Daily tab).
- *
- * A single Firestore query capped at N videos drops most users when the week is busy;
- * one query per day avoids that and matches “weekly = add up each day.”
+ * Weekly leaperboard: one running total per user for the current leap week (Sun noon → next Sun noon).
+ * Every approved post whose leap day falls in that week adds to the same aggregate (not a daily reset).
  */
 export async function weeklyLeaderboardFromVideos(weekKey: string): Promise<WeeklyVideoScore[]> {
-  const dateKeys = nySundayWeekDateKeys(weekKey);
-  if (dateKeys.length === 0) return [];
+  const wk = normalizeNyDateKey(weekKey, '');
+  const dateKeys = nySundayWeekDateKeys(wk);
+  const inKeys = challengeDateKeysForFirestoreIn(dateKeys);
+  if (inKeys.length === 0) return [];
 
-  const byUid = new Map<string, WeeklyVideoScore>();
-  const dayRowsList = await Promise.all(dateKeys.map((dayKey) => leapDayLeaderboardFromVideos(dayKey)));
-
-  for (const dayRows of dayRowsList) {
-    for (const row of dayRows) {
-      const prev = byUid.get(row.uid);
-      if (prev) {
-        prev.score = Math.round((prev.score + row.score) * 10) / 10;
-        if (!prev.username && row.username) prev.username = row.username;
-      } else {
-        byUid.set(row.uid, { ...row });
-      }
-    }
-  }
-
-  return Array.from(byUid.values()).filter((r) => r.score > 0);
+  const docs = await fetchApprovedVideosForChallengeIn(inKeys);
+  return accumulateLeapInchesByUid(docs, wk);
 }
