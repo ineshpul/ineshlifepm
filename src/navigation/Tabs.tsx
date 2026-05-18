@@ -23,6 +23,9 @@ export type TabsParamList = {
 
 const Tab = createMaterialTopTabNavigator<TabsParamList>();
 
+const TAB_ICON_SIZE = 21;
+const TAB_ICON_WRAP = 32;
+
 function TabIcon({
   name,
   focused,
@@ -32,7 +35,7 @@ function TabIcon({
 }) {
   return (
     <View style={[styles.iconWrap, focused && styles.iconWrapFocused]}>
-      <Ionicons name={name} size={20} color={focused ? colors.coral : colors.muted} />
+      <Ionicons name={name} size={TAB_ICON_SIZE} color={focused ? colors.coral : colors.muted} />
     </View>
   );
 }
@@ -136,8 +139,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   iconWrap: {
-    width: 30,
-    height: 30,
+    width: TAB_ICON_WRAP,
+    height: TAB_ICON_WRAP,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',

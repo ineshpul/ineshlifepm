@@ -1,7 +1,6 @@
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
-import { BONUS_ATTEMPT_BASE_REDUCTION_INCHES } from './verticalScoreEngine';
 import { leapChallengeDateKeyFromMs } from './timeKeys';
 
 const REGION = 'us-central1';
@@ -22,18 +21,21 @@ function maxAttemptsFromChallenge(data: admin.firestore.DocumentData | undefined
   return Math.min(50, Math.max(1, n));
 }
 
-async function isAdminUid(uid: string): Promise<boolean> {
+async function assertAdmin(uid: string): Promise<void> {
   const snap = await admin.firestore().doc(`users/${uid}`).get();
-  return snap.exists === true && snap.data()?.isAdmin === true;
+  if (!snap.exists || snap.data()?.isAdmin !== true) {
+    throw new HttpsError('permission-denied', 'Admin only.');
+  }
 }
 
 /**
- * Restore one recording attempt when the daily ledger is exhausted.
- * Marks the leap so {@link BONUS_ATTEMPT_BASE_REDUCTION_INCHES} is deducted from post base at award time.
+ * Admin-only: grant one extra recording attempt (no base-inch cost). Repeatable without limit.
  */
-export const purchaseRecordingAttemptCallable = onCall({ region: REGION }, async (request) => {
+export const adminGrantRecordingAttemptCallable = onCall({ region: REGION }, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in required.');
+
+  await assertAdmin(uid);
 
   const challengeDate = normalizeDateKey(String(request.data?.challengeDate ?? ''));
   if (!challengeDate) throw new HttpsError('invalid-argument', 'challengeDate required');
@@ -48,7 +50,6 @@ export const purchaseRecordingAttemptCallable = onCall({ region: REGION }, async
   const attemptRef = db.doc(`postAttempts/${attemptId}`);
   const videoRef = db.doc(`videos/${attemptId}`);
   const challengeRef = db.doc(`challenges/${challengeDate}`);
-  const adminUser = await isAdminUid(uid);
 
   await db.runTransaction(async (tx) => {
     const videoSnap = await tx.get(videoRef);
@@ -58,41 +59,18 @@ export const purchaseRecordingAttemptCallable = onCall({ region: REGION }, async
 
     const chSnap = await tx.get(challengeRef);
     const max = maxAttemptsFromChallenge(chSnap.data());
-
     const attSnap = await tx.get(attemptRef);
     const used = Number(attSnap.data()?.used ?? 0);
     const bonus = Number(attSnap.data()?.bonusRecordingAttempts ?? 0);
-
-    if (!adminUser && used < max) {
-      throw new HttpsError('failed-precondition', 'You still have recording attempts.');
-    }
-
-    if (adminUser) {
-      tx.set(
-        attemptRef,
-        {
-          uid,
-          challengeDate,
-          used,
-          max,
-          bonusRecordingAttempts: bonus + 1,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-      return;
-    }
-
-    const nextUsed = Math.max(0, used - 1);
 
     tx.set(
       attemptRef,
       {
         uid,
         challengeDate,
-        used: nextUsed,
+        used,
         max,
-        leapBaseReductionInches: BONUS_ATTEMPT_BASE_REDUCTION_INCHES,
+        bonusRecordingAttempts: bonus + 1,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
@@ -100,7 +78,6 @@ export const purchaseRecordingAttemptCallable = onCall({ region: REGION }, async
   });
 
   const [attAfter, chAfter] = await Promise.all([attemptRef.get(), challengeRef.get()]);
-
   const max = maxAttemptsFromChallenge(chAfter.data());
   const used = Number(attAfter.data()?.used ?? 0);
   const bonus = Number(attAfter.data()?.bonusRecordingAttempts ?? 0);
@@ -108,6 +85,6 @@ export const purchaseRecordingAttemptCallable = onCall({ region: REGION }, async
   return {
     ok: true,
     remaining: Math.max(0, max - used + bonus),
-    baseReductionInches: adminUser ? 0 : BONUS_ATTEMPT_BASE_REDUCTION_INCHES,
+    bonusRecordingAttempts: bonus,
   };
 });

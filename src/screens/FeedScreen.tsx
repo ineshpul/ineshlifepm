@@ -14,7 +14,7 @@ import {
   type ViewToken,
 } from 'react-native';
 import { FlatList } from 'react-native-gesture-handler';
-import { useIsFocused, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
@@ -28,6 +28,7 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 
+import { FeedCameraRollSaveBanner } from '../components/FeedCameraRollSaveBanner';
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
 import { UsernameLink } from '../components/UsernameLink';
 import { Brandmark } from '../components/Brandmark';
@@ -41,6 +42,7 @@ import { deleteOwnedVideo } from '../services/deleteVideo';
 import { staffNullVideo } from '../services/nullVideo';
 import { navigateToRecord } from '../navigation/navigationHelpers';
 import { useAppState } from '../state/appState';
+import { takeCameraRollSaveOffer } from '../state/pendingCameraRollSave';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
@@ -162,6 +164,14 @@ export function FeedScreen() {
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [nullingId, setNullingId] = React.useState<string | null>(null);
   const [unreadNotifications, setUnreadNotifications] = React.useState(0);
+  const [cameraRollSaveUri, setCameraRollSaveUri] = React.useState<string | null>(null);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const uri = takeCameraRollSaveOffer();
+      if (uri) setCameraRollSaveUri(uri);
+    }, [])
+  );
   const [showScrollTop, setShowScrollTop] = React.useState(false);
   /** Lifts the reel bottom sheet above the keyboard (fixed-height KAV was ineffective here). */
   const [keyboardSheetBottom, setKeyboardSheetBottom] = React.useState(0);
@@ -629,6 +639,13 @@ export function FeedScreen() {
           ) : null}
         </View>
       </View>
+
+      {cameraRollSaveUri ? (
+        <FeedCameraRollSaveBanner
+          clipUri={cameraRollSaveUri}
+          onDismiss={() => setCameraRollSaveUri(null)}
+        />
+      ) : null}
 
       <View ref={feedSlotRef} style={styles.feedSlot} onLayout={onSlotLayout} collapsable={false}>
         <FlatList

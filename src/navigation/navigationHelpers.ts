@@ -1,7 +1,35 @@
-import type { NavigationProp, ParamListBase } from '@react-navigation/native';
+import { CommonActions, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 
 import { rootNavigationRef } from './RootNavigator';
 import type { MainStackParamList } from './types';
+
+/** Closes Record (and any stack above Tabs) and lands on the Feed tab like tapping the play icon. */
+export function navigateToFeedTab(navigation: NavigationProp<ParamListBase>) {
+  const resetAction = CommonActions.reset({
+    index: 0,
+    routes: [
+      {
+        name: 'Tabs',
+        state: {
+          index: 1,
+          routes: [
+            { name: 'Today' },
+            { name: 'Feed' },
+            { name: 'Top' },
+            { name: 'Chat' },
+            { name: 'Me' },
+          ],
+        },
+      },
+    ],
+  });
+
+  if (rootNavigationRef.isReady()) {
+    rootNavigationRef.dispatch(resetAction);
+    return;
+  }
+  navigation.dispatch(resetAction);
+}
 
 /** Record lives on the root stack (modal), not inside tabs — resolve the stack that owns `Record`. */
 /** Opens `UserProfile` on the root stack (works from nested tab routes like Top). */

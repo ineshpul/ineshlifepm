@@ -73,8 +73,25 @@ export async function consumeRecordingAttempt(args: { uid: string; challengeDate
     const max = await maxAttemptsForChallengeDate(tx, challengeDate);
     const attemptSnap = await tx.get(attemptRef);
     const used = Number(attemptSnap.data()?.used ?? 0);
+    const bonus = Number(attemptSnap.data()?.bonusRecordingAttempts ?? 0);
+
     if (used >= max) {
-      throw new Error('No attempts remaining today.');
+      if (bonus <= 0) {
+        throw new Error('No attempts remaining today.');
+      }
+      tx.set(
+        attemptRef,
+        {
+          uid,
+          challengeDate,
+          used,
+          max,
+          bonusRecordingAttempts: bonus - 1,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+      return { usedAfter: used, bonusAfter: bonus - 1 };
     }
 
     tx.set(
@@ -84,12 +101,13 @@ export async function consumeRecordingAttempt(args: { uid: string; challengeDate
         challengeDate,
         used: used + 1,
         max,
+        bonusRecordingAttempts: bonus,
         updatedAt: serverTimestamp(),
       },
       { merge: true }
     );
 
-    return { usedAfter: used + 1 };
+    return { usedAfter: used + 1, bonusAfter: bonus };
   });
 }
 
@@ -164,9 +182,10 @@ export function useAttemptsRemaining(
     const ref = doc(firestore(), 'postAttempts', `${uid}_${challengeDate}`);
     return onSnapshot(ref, (snap) => {
       const used = Number(snap.data()?.used ?? 0);
+      const bonus = Number(snap.data()?.bonusRecordingAttempts ?? 0);
       /** Always cap against the live challenge setting (`fallbackMax`), not a stale ledger `max`. */
       const max = fallbackMax;
-      setRemaining(Math.max(0, max - used));
+      setRemaining(Math.max(0, max - used + bonus));
     });
   }, [uid, challengeDate, fallbackMax]);
 

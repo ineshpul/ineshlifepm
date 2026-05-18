@@ -17,6 +17,7 @@ import { backfillVerticalXpBonusesCallable } from './backfillVerticalXpBonusesCa
 import { recordVideoViewCallable } from './recordVideoView';
 import { backfillLeapLeaperPointsCallable } from './backfillLeapLeaperPointsCallable';
 import { purchaseRecordingAttemptCallable } from './purchaseRecordingAttempt';
+import { adminGrantRecordingAttemptCallable } from './adminGrantRecordingAttempt';
 import { submitChallengeSuggestionCallable } from './challengeSuggestion';
 import { scheduledLeapViewingMeta } from './leapViewingMeta';
 import { getWeeklyLeaperboardCallable } from './getWeeklyLeaperboardCallable';
@@ -38,6 +39,7 @@ export {
   recordVideoViewCallable,
   backfillLeapLeaperPointsCallable,
   purchaseRecordingAttemptCallable,
+  adminGrantRecordingAttemptCallable,
   submitChallengeSuggestionCallable,
   scheduledLeapViewingMeta,
   getWeeklyLeaperboardCallable,
