@@ -54,6 +54,16 @@
     },
     "plugins": [
       [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static",
+            "forceStaticLinking": ["RNFBApp", "RNFBAnalytics"]
+          }
+        }
+      ],
+      "@react-native-firebase/app",
+      [
         "expo-notifications",
         {
           "sounds": [],
@@ -62,16 +72,7 @@
       ],
       "expo-web-browser",
       "expo-media-library",
-      "expo-video",
-      "@react-native-firebase/app",
-      [
-        "expo-build-properties",
-        {
-          "ios": {
-            "useFrameworks": "static"
-          }
-        }
-      ]
+      "expo-video"
     ],
     "extra": {
       "eas": {
