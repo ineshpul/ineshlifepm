@@ -11,7 +11,6 @@ import { Image } from 'expo-image';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
   collection,
-  getDocs,
   limit,
   onSnapshot,
   orderBy,
@@ -35,21 +34,21 @@ import {
   type LeaderboardWireRow,
 } from '../lib/leaderboardRows';
 import {
-  challengeDateKeysForFirestoreIn,
-  computeChallengeWindowFromNow,
   computeFeedViewingFromNow,
   msUntilNextNySundayWeekStart,
   nySundayWeekStartKey,
   prevNySundayWeekStartKey,
 } from '../utils/nyTime';
 import { fetchUserProfilesByIds } from '../lib/fetchUserProfiles';
-import { weeklyLeaderboardFromVideos } from '../lib/weeklyLeaderboard';
+import {
+  leapDayLeaderboardFromVideos,
+  weeklyLeaderboardFromVideos,
+} from '../lib/weeklyLeaderboard';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { UsernameLink } from '../components/UsernameLink';
 import { navigateToUserProfile } from '../navigation/navigationHelpers';
 import {
   cumulativeLeapInchesFromUser,
-  dailyLeapInchesFromUser,
   formatLeapGainDisplay,
   formatLeapInchesDisplay,
   weekOverWeekGrowthPct,
@@ -174,6 +173,40 @@ export function TopScreen() {
       .then(() => {
         if (cancelled || subscriptionIdRef.current !== subId) return;
 
+        if (timeframe === 'daily') {
+          void (async () => {
+            try {
+              const fromVideos = await leapDayLeaderboardFromVideos(leapDayKey);
+              if (cancelled || subscriptionIdRef.current !== subId) return;
+              const profiles = await fetchUserProfilesByIds(fromVideos.map((r) => r.uid));
+              if (cancelled || subscriptionIdRef.current !== subId) return;
+              const acc: AccRow[] = fromVideos.map((v) => {
+                const ud = profiles.get(v.uid);
+                return {
+                  id: v.uid,
+                  score: v.score,
+                  name: ud ? leaderboardDisplayName(ud) : v.username,
+                  username: String(ud?.username ?? v.username).trim() || v.username,
+                  avatarUrl: ud ? leaderboardAvatarUrl(ud) : undefined,
+                  lifetimeInches: ud ? cumulativeLeapInchesFromUser(ud) : undefined,
+                };
+              });
+              setMostImproved(null);
+              const sorted = sortLeaderboardDocs(acc);
+              setRows(wireRowsFromSorted(sorted, user?.uid));
+              setLeaderboardError(null);
+              setLeaderboardHydrated(true);
+            } catch {
+              if (cancelled || subscriptionIdRef.current !== subId) return;
+              setRows([]);
+              setMostImproved(null);
+              setLeaderboardError('Could not load the leaperboard. Pull to refresh or try again.');
+              setLeaderboardHydrated(true);
+            }
+          })();
+          return;
+        }
+
         if (timeframe === 'weekly') {
           void (async () => {
             try {
@@ -215,22 +248,11 @@ export function TopScreen() {
           return;
         }
 
-        let q;
-        if (timeframe === 'all_time') {
-          q = query(
-            collection(firestore(), 'users'),
-            orderBy('leaperLifetimePoints', 'desc'),
-            limit(LIST_LIMIT)
-          );
-        } else {
-          const dayIn = challengeDateKeysForFirestoreIn([leapDayKey]);
-          q = query(
-            collection(firestore(), 'users'),
-            where('leaperDayKey', 'in', dayIn),
-            orderBy('leaperDayPoints', 'desc'),
-            limit(LIST_LIMIT)
-          );
-        }
+        const q = query(
+          collection(firestore(), 'users'),
+          orderBy('leaperLifetimePoints', 'desc'),
+          limit(LIST_LIMIT)
+        );
 
         unsub = onSnapshot(
           q,
@@ -238,74 +260,22 @@ export function TopScreen() {
             if (subscriptionIdRef.current !== subId) return;
 
             const acc: AccRow[] = [];
-            const tf = timeframe;
 
             snap.docs.forEach((d) => {
               const data = d.data() as Record<string, unknown>;
-              let score = 0;
-              if (tf === 'all_time') {
-                score = cumulativeLeapInchesFromUser(data);
-              } else {
-                score = dailyLeapInchesFromUser(data);
-              }
-              if (!Number.isFinite(score)) score = 0;
+              const score = cumulativeLeapInchesFromUser(data);
               acc.push({
                 id: d.id,
                 score,
                 name: leaderboardDisplayName(data),
                 username: String(data.username ?? '').trim(),
                 avatarUrl: leaderboardAvatarUrl(data),
-                lifetimeInches: cumulativeLeapInchesFromUser(data),
+                lifetimeInches: score,
               });
             });
 
             setMostImproved(null);
-
-            if (tf === 'daily') {
-              void (async () => {
-                const sid = subId;
-                try {
-                  const calendarChallengeKey = computeChallengeWindowFromNow(clock).dateKey;
-                  const inKeys = challengeDateKeysForFirestoreIn([leapDayKey, calendarChallengeKey]);
-                  if (inKeys.length === 0) {
-                    if (subscriptionIdRef.current !== sid) return;
-                    setRows([]);
-                    setLeaderboardError(null);
-                    setLeaderboardHydrated(true);
-                    return;
-                  }
-                  const vq = query(
-                    collection(firestore(), 'videos'),
-                    where('challengeDate', 'in', inKeys.slice(0, 30)),
-                    where('moderationStatus', '==', 'approved'),
-                    limit(500)
-                  );
-                  const vs = await getDocs(vq);
-                  if (subscriptionIdRef.current !== sid) return;
-                  const postedUid = new Set<string>();
-                  vs.forEach((doc) => {
-                    const data = doc.data() as Record<string, unknown>;
-                    if (String(data.moderationStatus ?? '') === 'nulled') return;
-                    const u = String(data.uid ?? '').trim();
-                    if (u) postedUid.add(u);
-                  });
-                  const filtered = acc.filter((row) => postedUid.has(row.id));
-                  const sorted = sortLeaderboardDocs(filtered);
-                  setRows(wireRowsFromSorted(sorted, user?.uid));
-                  setLeaderboardError(null);
-                  setLeaderboardHydrated(true);
-                } catch {
-                  if (subscriptionIdRef.current !== sid) return;
-                  const sorted = sortLeaderboardDocs(acc);
-                  setRows(wireRowsFromSorted(sorted, user?.uid));
-                  setLeaderboardHydrated(true);
-                }
-              })();
-              return;
-            }
-
-            const sorted =
-              tf === 'all_time' ? sortAllTimeLeaderboardDocs(acc) : sortLeaderboardDocs(acc);
+            const sorted = sortAllTimeLeaderboardDocs(acc);
             setRows(wireRowsFromSorted(sorted, user?.uid));
             setLeaderboardError(null);
             setLeaderboardHydrated(true);
