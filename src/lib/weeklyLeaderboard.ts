@@ -4,7 +4,6 @@ import { firestore } from '../firebase/firebase';
 import {
   challengeDateKeysForFirestoreIn,
   normalizeNyDateKey,
-  nyLeapWeekStartKeyFromChallengeDate,
   nySundayWeekDateKeys,
 } from '../utils/nyTime';
 
@@ -60,23 +59,29 @@ export async function leapDayLeaderboardFromVideos(leapDayKey: string): Promise<
 
 /**
  * Sum approved leap inches per user for the NY leap week (Sun noon → next Sun noon).
- * Equals the sum of each leap day in that week (same source as {@link leapDayLeaderboardFromVideos}).
+ * Built as the sum of each leap day in the week (same queries as the Daily tab).
+ *
+ * A single Firestore query capped at N videos drops most users when the week is busy;
+ * one query per day avoids that and matches “weekly = add up each day.”
  */
 export async function weeklyLeaderboardFromVideos(weekKey: string): Promise<WeeklyVideoScore[]> {
   const dateKeys = nySundayWeekDateKeys(weekKey);
-  const inKeys = challengeDateKeysForFirestoreIn(dateKeys);
-  if (inKeys.length === 0) return [];
+  if (dateKeys.length === 0) return [];
 
-  const snap = await getDocs(
-    query(
-      collection(firestore(), 'videos'),
-      where('challengeDate', 'in', inKeys.slice(0, 30)),
-      where('moderationStatus', '==', 'approved'),
-      limit(800)
-    )
-  );
-  return accumulateLeapInchesByUid(
-    snap.docs,
-    (cd) => nyLeapWeekStartKeyFromChallengeDate(cd) === weekKey
-  );
+  const byUid = new Map<string, WeeklyVideoScore>();
+  const dayRowsList = await Promise.all(dateKeys.map((dayKey) => leapDayLeaderboardFromVideos(dayKey)));
+
+  for (const dayRows of dayRowsList) {
+    for (const row of dayRows) {
+      const prev = byUid.get(row.uid);
+      if (prev) {
+        prev.score = Math.round((prev.score + row.score) * 10) / 10;
+        if (!prev.username && row.username) prev.username = row.username;
+      } else {
+        byUid.set(row.uid, { ...row });
+      }
+    }
+  }
+
+  return Array.from(byUid.values()).filter((r) => r.score > 0);
 }
