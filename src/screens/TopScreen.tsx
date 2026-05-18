@@ -40,7 +40,9 @@ import {
   computeFeedViewingFromNow,
   msUntilNextNySundayWeekStart,
   nySundayWeekStartKey,
+  prevNySundayWeekStartKey,
 } from '../utils/nyTime';
+import { fetchUserProfilesByIds } from '../lib/fetchUserProfiles';
 import { weeklyLeaderboardFromVideos } from '../lib/weeklyLeaderboard';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { UsernameLink } from '../components/UsernameLink';
@@ -50,9 +52,7 @@ import {
   dailyLeapInchesFromUser,
   formatLeapGainDisplay,
   formatLeapInchesDisplay,
-  priorWeekLeapInchesFromUser,
   weekOverWeekGrowthPct,
-  weeklyLeapInchesFromUser,
 } from '../lib/verticalScore';
 
 const LIST_LIMIT = 100;
@@ -66,6 +66,35 @@ type AccRow = {
   lifetimeInches?: number;
   priorWeek?: number;
 };
+
+function pickMostImproved(acc: AccRow[]): {
+  userId: string;
+  name: string;
+  username: string;
+  growthPct: number;
+  weekInches: number;
+} | null {
+  let best: AccRow | null = null;
+  let bestPct = -Infinity;
+  for (const row of acc) {
+    const prior = row.priorWeek ?? 0;
+    if (prior <= 0) continue;
+    const pct = weekOverWeekGrowthPct(row.score, prior);
+    if (pct <= 0) continue;
+    if (pct > bestPct || (pct === bestPct && row.score > (best?.score ?? 0))) {
+      bestPct = pct;
+      best = row;
+    }
+  }
+  if (!best) return null;
+  return {
+    userId: best.id,
+    name: best.name,
+    username: best.username,
+    growthPct: Math.round(bestPct),
+    weekInches: best.score,
+  };
+}
 
 export function TopScreen() {
   const nav = useNavigation<any>();
@@ -145,19 +174,52 @@ export function TopScreen() {
       .then(() => {
         if (cancelled || subscriptionIdRef.current !== subId) return;
 
+        if (timeframe === 'weekly') {
+          void (async () => {
+            try {
+              const fromVideos = await weeklyLeaderboardFromVideos(weekKey);
+              if (cancelled || subscriptionIdRef.current !== subId) return;
+              const prevWeekKey = prevNySundayWeekStartKey(weekKey);
+              const prevVideos = prevWeekKey ? await weeklyLeaderboardFromVideos(prevWeekKey) : [];
+              if (cancelled || subscriptionIdRef.current !== subId) return;
+              const priorByUid = new Map(prevVideos.map((r) => [r.uid, r.score]));
+              const profiles = await fetchUserProfilesByIds(fromVideos.map((r) => r.uid));
+              if (cancelled || subscriptionIdRef.current !== subId) return;
+
+              const acc: AccRow[] = fromVideos.map((v) => {
+                const ud = profiles.get(v.uid);
+                return {
+                  id: v.uid,
+                  score: v.score,
+                  name: ud ? leaderboardDisplayName(ud) : v.username,
+                  username: String(ud?.username ?? v.username).trim() || v.username,
+                  avatarUrl: ud ? leaderboardAvatarUrl(ud) : undefined,
+                  lifetimeInches: ud ? cumulativeLeapInchesFromUser(ud) : undefined,
+                  priorWeek: priorByUid.get(v.uid) ?? 0,
+                };
+              });
+
+              setMostImproved(pickMostImproved(acc));
+              const sorted = sortLeaderboardDocs(acc);
+              setRows(wireRowsFromSorted(sorted, user?.uid));
+              setLeaderboardError(null);
+              setLeaderboardHydrated(true);
+            } catch {
+              if (cancelled || subscriptionIdRef.current !== subId) return;
+              setRows([]);
+              setMostImproved(null);
+              setLeaderboardError('Could not load the leaperboard. Pull to refresh or try again.');
+              setLeaderboardHydrated(true);
+            }
+          })();
+          return;
+        }
+
         let q;
         if (timeframe === 'all_time') {
           q = query(
             collection(firestore(), 'users'),
             orderBy('leaperLifetimePoints', 'desc'),
-            limit(LIST_LIMIT)
-          );
-        } else if (timeframe === 'weekly') {
-          q = query(
-            collection(firestore(), 'users'),
-            where('leaperWeekKey', '==', weekKey),
-            where('leaperWeekPoints', '>', 0),
-            orderBy('leaperWeekPoints', 'desc'),
             limit(LIST_LIMIT)
           );
         } else {
@@ -183,13 +245,10 @@ export function TopScreen() {
               let score = 0;
               if (tf === 'all_time') {
                 score = cumulativeLeapInchesFromUser(data);
-              } else if (tf === 'weekly') {
-                score = weeklyLeapInchesFromUser(data, weekKey);
               } else {
                 score = dailyLeapInchesFromUser(data);
               }
               if (!Number.isFinite(score)) score = 0;
-              if (tf === 'weekly' && score <= 0) return;
               acc.push({
                 id: d.id,
                 score,
@@ -197,93 +256,10 @@ export function TopScreen() {
                 username: String(data.username ?? '').trim(),
                 avatarUrl: leaderboardAvatarUrl(data),
                 lifetimeInches: cumulativeLeapInchesFromUser(data),
-                priorWeek: priorWeekLeapInchesFromUser(data),
               });
             });
 
-            if (tf === 'weekly') {
-              let best: AccRow | null = null;
-              let bestPct = -Infinity;
-              for (const row of acc) {
-                const pct = weekOverWeekGrowthPct(row.score, row.priorWeek ?? 0);
-                if (pct > bestPct || (pct === bestPct && row.score > (best?.score ?? 0))) {
-                  bestPct = pct;
-                  best = row;
-                }
-              }
-              if (best && bestPct > 0) {
-                setMostImproved({
-                  userId: best.id,
-                  name: best.name,
-                  username: best.username,
-                  growthPct: Math.round(bestPct),
-                  weekInches: best.score,
-                });
-              } else {
-                setMostImproved(null);
-              }
-            } else {
-              setMostImproved(null);
-            }
-
-            if (tf === 'weekly') {
-              void (async () => {
-                const sid = subId;
-                const userById = new Map(snap.docs.map((d) => [d.id, d.data() as Record<string, unknown>]));
-                try {
-                  const fromVideos = await weeklyLeaderboardFromVideos(weekKey);
-                  if (subscriptionIdRef.current !== sid) return;
-                  const merged = new Map<string, AccRow>();
-                  for (const row of acc) merged.set(row.id, row);
-                  for (const v of fromVideos) {
-                    const ud = userById.get(v.uid);
-                    const prior = merged.get(v.uid);
-                    const score = Math.max(prior?.score ?? 0, v.score);
-                    if (score <= 0) continue;
-                    merged.set(v.uid, {
-                      id: v.uid,
-                      score,
-                      name: ud ? leaderboardDisplayName(ud) : v.username,
-                      username: String(ud?.username ?? v.username).trim() || v.username,
-                      avatarUrl: ud ? leaderboardAvatarUrl(ud) : undefined,
-                      lifetimeInches: ud ? cumulativeLeapInchesFromUser(ud) : undefined,
-                      priorWeek: ud ? priorWeekLeapInchesFromUser(ud) : 0,
-                    });
-                  }
-                  const mergedAcc = Array.from(merged.values()).filter((r) => r.score > 0);
-                  let best: AccRow | null = null;
-                  let bestPct = -Infinity;
-                  for (const row of mergedAcc) {
-                    const pct = weekOverWeekGrowthPct(row.score, row.priorWeek ?? 0);
-                    if (pct > bestPct || (pct === bestPct && row.score > (best?.score ?? 0))) {
-                      bestPct = pct;
-                      best = row;
-                    }
-                  }
-                  if (best && bestPct > 0) {
-                    setMostImproved({
-                      userId: best.id,
-                      name: best.name,
-                      username: best.username,
-                      growthPct: Math.round(bestPct),
-                      weekInches: best.score,
-                    });
-                  } else {
-                    setMostImproved(null);
-                  }
-                  const sorted = sortLeaderboardDocs(mergedAcc);
-                  setRows(wireRowsFromSorted(sorted, user?.uid));
-                  setLeaderboardError(null);
-                  setLeaderboardHydrated(true);
-                } catch {
-                  if (subscriptionIdRef.current !== sid) return;
-                  const sorted = sortLeaderboardDocs(acc);
-                  setRows(wireRowsFromSorted(sorted, user?.uid));
-                  setLeaderboardHydrated(true);
-                }
-              })();
-              return;
-            }
+            setMostImproved(null);
 
             if (tf === 'daily') {
               void (async () => {
@@ -435,7 +411,7 @@ export function TopScreen() {
               {timeframe === 'daily'
                 ? 'No daily standings yet — post an approved leap for this leap window to show up on the board.'
                 : timeframe === 'weekly'
-                  ? 'No weekly standings yet — earn inches this Sun–Sat week to rank.'
+                  ? 'No weekly standings yet — earn inches this leap week (Sun noon–Sun noon ET) to rank.'
                   : 'No leaderboard data yet.'}
             </Text>
           )

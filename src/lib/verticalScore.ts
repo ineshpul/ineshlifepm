@@ -137,8 +137,15 @@ export function weeklyLeapInchesFromUser(
   return Number.isFinite(wp) && wp > 0 ? wp : 0;
 }
 
-export function priorWeekLeapInchesFromUser(data: Record<string, unknown> | undefined): number {
+export function priorWeekLeapInchesFromUser(
+  data: Record<string, unknown> | undefined,
+  expectedPriorWeekKey?: string
+): number {
   if (!data) return 0;
+  if (expectedPriorWeekKey) {
+    const stored = String(data.leaperPriorWeekKey ?? '').trim();
+    if (stored && stored !== expectedPriorWeekKey) return 0;
+  }
   const pp = Number(data.leaperPriorWeekPoints ?? 0);
   return Number.isFinite(pp) && pp > 0 ? pp : 0;
 }
@@ -146,7 +153,7 @@ export function priorWeekLeapInchesFromUser(data: Record<string, unknown> | unde
 export function weekOverWeekGrowthPct(current: number, prior: number): number {
   const c = Math.max(0, Number(current ?? 0));
   const p = Math.max(0, Number(prior ?? 0));
-  if (p <= 0) return c > 0 ? 100 : 0;
+  if (p <= 0) return 0;
   return ((c - p) / p) * 100;
 }
 
