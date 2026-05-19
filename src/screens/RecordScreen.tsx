@@ -49,7 +49,6 @@ import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { getExpoExtra } from '../config/expoExtra';
 import { purchaseRecordingAttemptWithScore } from '../services/recordingAttemptsPurchase';
 import { computeFeedViewingFromNow } from '../utils/nyTime';
-import { useCameraPreviewFreezeRecovery } from '../hooks/useCameraPreviewFreezeRecovery';
 import { navigateToFeedTab } from '../navigation/navigationHelpers';
 import { offerCameraRollSaveAfterPost } from '../state/pendingCameraRollSave';
 import { saveVideoToCameraRoll } from '../services/saveVideoToCameraRoll';
@@ -79,48 +78,12 @@ async function setAudioSessionForPlayback() {
 }
 
 /**
- * Quick mic pipeline check before camera video recording. Skipped on simulators (no reliable capture).
- * Returns true if a short capture succeeds; false if prepare/start/status indicates audio capture is not working.
+ * Mic permission only before record. A separate Audio.Recording probe steals the iOS session
+ * from CameraView and freezes the preview on TestFlight/production builds.
  */
-async function verifyMicrophoneCapturesAudioOk(): Promise<boolean> {
-  if (!Device.isDevice) return true;
-
-  let recording: InstanceType<typeof Audio.Recording> | undefined;
-  try {
-    await setAudioSessionForRecording();
-    const audioPerm = await Audio.requestPermissionsAsync();
-    if (!audioPerm.granted) return false;
-
-    const created = await Audio.Recording.createAsync();
-    recording = created.recording;
-
-    await new Promise<void>((r) => setTimeout(r, 480));
-
-    const mid = await recording.getStatusAsync();
-    const capturing =
-      mid.isRecording === true &&
-      typeof mid.durationMillis === 'number' &&
-      mid.durationMillis > 0;
-
-    await recording.stopAndUnloadAsync();
-    recording = undefined;
-
-    await setAudioSessionForRecording().catch(() => {});
-    /** Brief pause so iOS/Android release the audio session before `CameraView.recordAsync`. */
-    await new Promise<void>((r) => setTimeout(r, 200));
-    return capturing;
-  } catch {
-    if (recording) {
-      try {
-        await recording.stopAndUnloadAsync();
-      } catch {
-        /* noop */
-      }
-    }
-    await setAudioSessionForRecording().catch(() => {});
-    await new Promise<void>((r) => setTimeout(r, 200));
-    return false;
-  }
+async function ensureMicrophonePermissionForRecording(): Promise<boolean> {
+  const audioPerm = await Audio.requestPermissionsAsync();
+  return audioPerm.granted;
 }
 
 async function clipUriToBlob(uri: string): Promise<Blob> {
@@ -232,24 +195,13 @@ export function RecordScreen() {
     cameraReadyRef.current = false;
   }, [dual]);
 
-  const resumePrimaryCameraPreview = React.useCallback(async (timeoutMs = 6000) => {
-    cameraReadyRef.current = false;
-    let waited = 0;
-    while (waited < timeoutMs) {
-      if (cameraRef.current) {
-        try {
-          await cameraRef.current.resumePreview?.();
-        } catch {
-          /* noop */
-        }
-        cameraReadyRef.current = true;
-        return true;
-      }
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((r) => setTimeout(r, 120));
-      waited += 120;
+  const resumePrimaryCameraPreview = React.useCallback(async () => {
+    if (!cameraRef.current) return;
+    try {
+      await cameraRef.current.resumePreview?.();
+    } catch {
+      /* noop */
     }
-    return false;
   }, []);
 
   const restorePreviewAfterRecording = React.useCallback(() => {
@@ -285,26 +237,21 @@ export function RecordScreen() {
     cameraReadyRef.current = false;
   }, [postedToday]);
 
-  /**
-   * Only depend on `permission?.status`, not `requestPermission` — the hook’s request function identity
-   * can change across renders; re-running this cleanup while still on Record would call `stopRecording()`
-   * mid-take and strand `recordAsync` (especially painful on the last attempt).
-   */
+  React.useEffect(() => {
+    if (permission?.status === 'undetermined') {
+      void requestPermission();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- requestPermission identity churn
+  }, [permission?.status]);
+
+  /** Screen focus only — do not tie to permission changes (that paused camera right after grant). */
   useFocusEffect(
     React.useCallback(() => {
       void setAudioSessionForRecording().catch(() => {});
 
-      if (permission?.status === 'undetermined') {
-        void requestPermission();
-      }
-
-      const markReadyAfterResume = () => {
-        void resumePrimaryCameraPreview(4000);
-      };
-
       const task = InteractionManager.runAfterInteractions(() => {
         requestAnimationFrame(() => {
-          markReadyAfterResume();
+          void resumePrimaryCameraPreview();
         });
       });
 
@@ -323,8 +270,6 @@ export function RecordScreen() {
           } catch {
             /* noop */
           }
-          // Do not pause preview while a recording is stopping — expo-camera ends `recordAsync` when
-          // preview is paused, which truncates the file. Pause after native stop settles.
           setTimeout(() => {
             cameraReadyRef.current = false;
             void cameraRef.current?.pausePreview?.().catch(() => {});
@@ -335,8 +280,7 @@ export function RecordScreen() {
         }
         void setAudioSessionForPlayback().catch(() => {});
       };
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- avoid deps on `requestPermission` identity churn (would stop mid-record)
-    }, [permission?.status])
+    }, [resumePrimaryCameraPreview])
   );
 
   React.useEffect(() => {
@@ -344,7 +288,7 @@ export function RecordScreen() {
       if (next !== 'active') return;
       if (!isFocused || postedToday || clipUri || !canUseCamera) return;
       requestAnimationFrame(() => {
-        void resumePrimaryCameraPreview(2500);
+        void resumePrimaryCameraPreview();
       });
     });
     return () => sub.remove();
@@ -536,14 +480,16 @@ export function RecordScreen() {
       }
       if (enabling && !dual.isExpoGo) {
         setCameraFacing('back');
+        cameraReadyRef.current = false;
+        setCameraSessionKey((k) => k + 1);
         return;
       }
       if (!enabling) {
+        cameraReadyRef.current = false;
         setCameraSessionKey((k) => k + 1);
       }
       setCameraFacing(enabling ? 'back' : 'front');
       await resumePrimaryCameraPreview();
-      cameraReadyRef.current = true;
     })();
   }, [
     dual,
@@ -553,12 +499,6 @@ export function RecordScreen() {
     canUseCamera,
     resumePrimaryCameraPreview,
   ]);
-
-  const recoverFromCameraFreeze = React.useCallback(() => {
-    cameraReadyRef.current = false;
-    setCameraSessionKey((k) => k + 1);
-    void resumePrimaryCameraPreview();
-  }, [resumePrimaryCameraPreview]);
 
   const onTapRecord = async () => {
     // Stop must run even while `recordTapBusyRef` is true — it stays true for the whole
@@ -626,27 +566,17 @@ export function RecordScreen() {
         }
       }
 
-      const audioOk = await verifyMicrophoneCapturesAudioOk();
-      if (!audioOk) {
-        const proceed = await new Promise<boolean>((resolve) => {
-          Alert.alert(
-            'Microphone check',
-            'We could not verify that your microphone is capturing audio. Your leap might be silent in the feed. Do you want to continue recording anyway?',
-            [
-              { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
-              { text: 'Continue anyway', onPress: () => resolve(true) },
-            ],
-            { cancelable: true, onDismiss: () => resolve(false) }
-          );
-        });
-        if (!proceed) {
-          restorePreviewAfterRecording();
-          return;
-        }
+      const micOk = await ensureMicrophonePermissionForRecording();
+      if (!micOk) {
+        showError(
+          'Microphone needed',
+          new Error('Allow the microphone to record video with sound, or change this in Settings.')
+        );
+        restorePreviewAfterRecording();
+        return;
       }
 
       await setAudioSessionForRecording().catch(() => {});
-      await new Promise<void>((r) => setTimeout(r, 200));
       await startRecordingSession();
     } finally {
       recordTapBusyRef.current = false;
@@ -826,19 +756,7 @@ export function RecordScreen() {
   };
 
   const cameraFacingForPreview = dual.useBackCamera ? 'back' : cameraFacing;
-
-  const { markPreviewPulse } = useCameraPreviewFreezeRecovery({
-    enabled:
-      isFocused &&
-      canUseCamera &&
-      !clipUri &&
-      !postedToday &&
-      playerFacing.canRecord,
-    isRecording,
-    recordingSecondsLeft,
-    dualPipVisible: dual.useMultiCamPreview || dual.showExpoGoPip,
-    onRecover: recoverFromCameraFreeze,
-  });
+  const cameraActive = isFocused && canUseCamera && !clipUri && !postedToday;
 
   const onPurchaseAttemptPress = React.useCallback(() => {
     if (!user?.uid || !isFirebaseConfigured()) return;
@@ -919,22 +837,19 @@ export function RecordScreen() {
           <>
             {dual.useCameraViewPreview ? (
               <CameraView
-                key={`camera-${cameraSessionKey}-${challenge.dateKey}-${challenge.maxDurationSeconds}-${cameraFacingForPreview}`}
+                key={`camera-${cameraSessionKey}-${cameraFacingForPreview}`}
                 ref={cameraRef}
                 style={StyleSheet.absoluteFill}
                 facing={cameraFacingForPreview}
                 mirror={!dual.useBackCamera && cameraFacing === 'front'}
                 mode="video"
+                active={cameraActive}
                 responsiveOrientationWhenOrientationLocked
                 onCameraReady={() => {
                   cameraReadyRef.current = true;
-                  markPreviewPulse();
                   requestAnimationFrame(() => {
                     void cameraRef.current?.resumePreview?.().catch(() => {});
                   });
-                }}
-                onResponsiveOrientationChanged={() => {
-                  markPreviewPulse();
                 }}
                 onMountError={({ message }) => {
                   cameraReadyRef.current = false;
@@ -953,7 +868,6 @@ export function RecordScreen() {
                 panGesture={dual.panGesture}
                 onReady={() => {
                   cameraReadyRef.current = true;
-                  markPreviewPulse();
                 }}
               />
             ) : null}

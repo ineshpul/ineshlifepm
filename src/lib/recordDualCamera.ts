@@ -23,17 +23,13 @@ export function hasDualCameraNativeModule(): boolean {
   }
 }
 
-/** Show infinity toggle: Expo Go (placeholder PiP), or a build that includes expo-dual-camera. */
+/** Show infinity toggle on real devices (native module checked when user taps). */
 export function canShowDualCameraToggle(): boolean {
-  if (isExpoGoClient()) return true;
-  if (!Device.isDevice) {
-    return __DEV__;
-  }
-  return hasDualCameraNativeModule();
+  if (!Device.isDevice) return __DEV__;
+  return true;
 }
 
 export function logDualCameraToggleAvailability(): void {
-  if (!__DEV__) return;
   console.log('[Record] dual camera toggle', {
     visible: canShowDualCameraToggle(),
     isDevice: Device.isDevice,
