@@ -11,11 +11,8 @@ import {
   leapInchesFromVideo,
   updateStreakState,
 } from './verticalScoreEngine';
-import {
-  canonicalChallengeDayKey,
-  claimGlobalFirstPostOfDayInTransaction,
-  resolveGlobalFirstApprovedVideoIdForDay,
-} from './leapDayFirstPost';
+import { claimGlobalFirstPostOfDayInTransaction, resolveGlobalFirstApprovedVideoIdForDay } from './leapDayFirstPost';
+import { getDayKey, leapDayKeyFromStoredChallengeDate } from './leapDayKey';
 import { DAILY_CHALLENGE_STATS_COLLECTION } from './verticalXpBonuses';
 import { leapChallengeDateKeyFromMs } from './timeKeys';
 
@@ -121,11 +118,13 @@ async function awardLeapInchesFirstApproval(
   const owner = String(data.uid ?? '').trim();
   if (!owner) return;
   const nowMs = Date.now();
-  const challengeDate = String(data.challengeDate ?? leapChallengeDateKeyFromMs(nowMs)).trim();
+  const videoChallengeDate = String(data.challengeDate ?? '').trim();
+  const challengeDate = videoChallengeDate || leapChallengeDateKeyFromMs(nowMs);
   const eng = await loadEngagementForLeap(videoRef, owner, data);
   const userRef = db.doc(`users/${owner}`);
   const attemptRef = db.doc(`postAttempts/${owner}_${challengeDate}`);
-  const dayStatsKey = canonicalChallengeDayKey(challengeDate);
+  const dayStatsKey = leapDayKeyFromStoredChallengeDate(videoChallengeDate, nowMs);
+  const leapDayKeyNow = getDayKey('America/New_York', nowMs);
   const dayStatsRef = db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayStatsKey}`);
 
   const br = await db.runTransaction(async (tx) => {
@@ -230,10 +229,14 @@ async function awardLeapInchesFirstApproval(
 
   if (!br) return;
 
-  logger.info('dailyChallengeStats approvedPostCount incremented on leap approval', {
+  logger.info('dailyChallengeStats approvedPostCount write on leap approval', {
+    dayStatsDocPath: `${DAILY_CHALLENGE_STATS_COLLECTION}/${dayStatsKey}`,
     dayStatsKey,
-    videoId,
+    videoChallengeDate,
     challengeDate,
+    leapDayKeyNow,
+    dayKeysMatch: dayStatsKey === leapDayKeyNow,
+    videoId,
     owner,
   });
 
@@ -265,7 +268,7 @@ async function revokeLeapInchesForVideo(
   const nowMs = Date.now();
   const challengeDate = String(beforeData.challengeDate ?? '').trim();
   const dayKey = challengeDate || leapChallengeDateKeyFromMs(awardMs > 0 ? awardMs : nowMs);
-  const dayStatsKey = canonicalChallengeDayKey(dayKey);
+  const dayStatsKey = leapDayKeyFromStoredChallengeDate(dayKey, awardMs > 0 ? awardMs : nowMs);
 
   await incrementUserLeapInches(db, owner, -inches, dayKey, awardMs > 0 ? awardMs : nowMs, nowMs);
 

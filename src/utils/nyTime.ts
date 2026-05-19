@@ -151,7 +151,6 @@ export function computeFeedViewingFromNow(nowMs: number): FeedViewingWindow {
     vm = mo;
     vd = d;
   } else {
-    /** Before noon ET: still in “yesterday’s” noon→noon leap — label is the **previous NY calendar date**. */
     const prev = prevNyCalendarDay(y, mo, d);
     vy = prev.y;
     vm = prev.mo;
@@ -170,7 +169,7 @@ export function computeFeedViewingFromNow(nowMs: number): FeedViewingWindow {
   };
 }
 
-/** Same challenge / "leap" `YYYY-MM-DD` as server `leapChallengeDateKeyFromMs` (noon ET boundaries). */
+/** Same as `getDayKey('America/New_York', ms)` in `src/lib/leapDayKey.ts`. */
 export function leapChallengeDateKeyFromNow(ms: number): string {
   return computeFeedViewingFromNow(ms).viewingChallengeDateKey;
 }

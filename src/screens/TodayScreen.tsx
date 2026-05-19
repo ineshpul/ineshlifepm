@@ -23,6 +23,7 @@ import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
 import { getPlayerFacingChallenge, useTodayChallenge } from '../state/challenge';
+import { getDayKey } from '../lib/leapDayKey';
 import { useLiveCount } from '../state/live';
 import { LEAP_BOTTOM_TAGLINE } from '../content/challengeCopy';
 import { useAuth } from '../state/auth';
@@ -51,8 +52,9 @@ export function TodayScreen() {
   const { challenge, window } = useTodayChallenge();
   const facing = getPlayerFacingChallenge(challenge, window);
   const headerCountdown = window.isLive ? window.msUntilExpire : window.msUntilDrop;
-  /** Must match `videos.challengeDate` / leap cycle — not `window.dateKey` (calendar midnight day). */
-  const liveCount = useLiveCount(challenge.dateKey, { enabled: window.isLive });
+  /** Leap noon→noon NY day key — must match `dailyChallengeStats/{dayKey}` writes on approval. */
+  const leapDayKey = getDayKey('America/New_York');
+  const liveCount = useLiveCount(leapDayKey, { enabled: window.isLive });
 
   const [suggestOpen, setSuggestOpen] = React.useState(false);
   const [suggestText, setSuggestText] = React.useState('');
