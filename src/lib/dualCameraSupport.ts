@@ -1,36 +1,53 @@
 import * as Device from 'expo-device';
 
-import { getExpoDualCameraModule } from './expoDualCamera';
+import {
+  confirmNativeDualCameraSupported,
+  isExpoGoClient,
+  peekExpoDualCameraNativeModule,
+} from './expoDualCamera';
 
 export type DualCameraSupport = {
-  /** Show dual-camera toggle (physical device). */
+  /** Show dual-camera toggle (physical device + native binary, not Expo Go). */
   deviceOk: boolean;
-  /** True simultaneous preview via expo-dual-camera native module. */
+  /** True simultaneous preview via expo-dual-camera (set only after lazy init succeeds). */
   nativeDual: boolean;
 };
 
 /**
- * Physical devices can toggle dual mode. Native multi-cam works in custom builds;
- * Expo Go uses a single-camera + front PiP fallback (see RecordScreen).
+ * Whether the dual-camera toggle may appear. Does not load or start expo-dual-camera.
  */
-export async function probeDualCameraSupport(): Promise<DualCameraSupport> {
+export function canOfferDualCameraToggle(): boolean {
   if (!Device.isDevice) {
     if (__DEV__) console.log('[Record] dual camera: simulator — toggle hidden');
-    return { deviceOk: false, nativeDual: false };
+    return false;
   }
+  if (isExpoGoClient()) {
+    return true;
+  }
+  if (!peekExpoDualCameraNativeModule()) {
+    if (__DEV__) {
+      console.log(
+        '[Record] dual camera: no native module in binary — toggle hidden (rebuild with expo-dual-camera plugin)'
+      );
+    }
+    return false;
+  }
+  return true;
+}
 
-  const mod = getExpoDualCameraModule();
-  if (!mod) {
-    if (__DEV__) console.log('[Record] dual camera: Expo Go / build without native module — fallback preview');
-    return { deviceOk: true, nativeDual: false };
-  }
+/**
+ * Lazy init after the user taps the toggle. Times out and returns false without throwing.
+ */
+export async function initializeNativeDualCamera(timeoutMs = 3000): Promise<boolean> {
+  if (isExpoGoClient()) return false;
+  if (!peekExpoDualCameraNativeModule()) return false;
+  const nativeDual = await confirmNativeDualCameraSupported(timeoutMs);
+  if (__DEV__) console.log('[Record] dual camera lazy init nativeDual:', nativeDual);
+  return nativeDual;
+}
 
-  try {
-    const nativeDual = await mod.isSupported();
-    if (__DEV__) console.log('[Record] dual camera native isSupported:', nativeDual);
-    return { deviceOk: true, nativeDual };
-  } catch (e) {
-    if (__DEV__) console.log('[Record] dual camera isSupported error:', e);
-    return { deviceOk: true, nativeDual: false };
-  }
+/** @deprecated Use canOfferDualCameraToggle — kept for callers that expected async probe. */
+export async function probeDualCameraSupport(): Promise<DualCameraSupport> {
+  const deviceOk = canOfferDualCameraToggle();
+  return { deviceOk, nativeDual: false };
 }

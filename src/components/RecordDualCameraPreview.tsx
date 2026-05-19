@@ -1,10 +1,11 @@
 import * as React from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { getExpoDualCameraModule } from '../lib/expoDualCamera';
+import type { ExpoDualCameraModule } from '../lib/expoDualCamera';
 import type { DualPipFrame } from '../lib/dualCameraPip';
 
 type Props = {
+  dualModule: ExpoDualCameraModule;
   width: number;
   height: number;
   pipFrame: DualPipFrame;
@@ -13,10 +14,10 @@ type Props = {
 
 /**
  * Simultaneous front + back preview via AVCaptureMultiCamSession (iOS) / CameraX concurrent (Android).
+ * Parent must lazy-load the module; this component never imports expo-dual-camera itself.
  */
-export function RecordDualCameraPreview({ width, height, pipFrame, onReady }: Props) {
-  const dualMod = getExpoDualCameraModule();
-  const DualCamera = dualMod?.DualCamera;
+export function RecordDualCameraPreview({ dualModule, width, height, pipFrame, onReady }: Props) {
+  const DualCamera = dualModule.DualCamera;
   const readySentRef = React.useRef(false);
 
   const backFrame = React.useMemo(
@@ -35,16 +36,16 @@ export function RecordDualCameraPreview({ width, height, pipFrame, onReady }: Pr
 
   React.useEffect(() => {
     readySentRef.current = false;
-    if (!DualCamera || width < 1 || height < 1) return;
+    if (width < 1 || height < 1) return;
     const t = setTimeout(() => {
       if (readySentRef.current) return;
       readySentRef.current = true;
       onReady?.();
     }, 450);
     return () => clearTimeout(t);
-  }, [DualCamera, width, height, onReady]);
+  }, [width, height, onReady]);
 
-  if (!DualCamera || width < 1 || height < 1) return null;
+  if (width < 1 || height < 1) return null;
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
