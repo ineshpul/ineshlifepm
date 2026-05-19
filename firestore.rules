@@ -570,6 +570,13 @@ service cloud.firestore {
             request.resource.data.used == request.resource.data.max
             && resource.data.used == request.resource.data.used
           )
+          || (
+            isAdmin()
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.used == 0
+            && request.resource.data.max is int
+            && request.resource.data.max == ledgerMaxCap()
+          )
         );
 
       // Only after the daily video doc is gone (delete flow), so users cannot wipe the ledger while a post exists.

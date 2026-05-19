@@ -51,7 +51,10 @@ export function TodayScreen() {
   const { challenge, window } = useTodayChallenge();
   const facing = getPlayerFacingChallenge(challenge, window);
   const headerCountdown = window.isLive ? window.msUntilExpire : window.msUntilDrop;
-  const liveCount = useLiveCount({ enabled: window.isLive });
+  const liveCount = useLiveCount({
+    enabled: window.isLive,
+    challengeDateKey: challenge.dateKey,
+  });
 
   const [suggestOpen, setSuggestOpen] = React.useState(false);
   const [suggestText, setSuggestText] = React.useState('');

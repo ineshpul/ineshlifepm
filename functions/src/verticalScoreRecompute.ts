@@ -12,10 +12,14 @@ import {
   updateStreakState,
 } from './verticalScoreEngine';
 import { decrementApprovedPostCountForLeap, incrementApprovedPostCountForLeap } from './dailyChallengeStatsPosts';
-import { claimGlobalFirstPostOfDayInTransaction, resolveGlobalFirstApprovedVideoIdForDay } from './leapDayFirstPost';
+import {
+  claimGlobalFirstPostOfDayInTransaction,
+  handleGlobalFirstPostRemoved,
+  resolveGlobalFirstApprovedVideoIdForDay,
+} from './leapDayFirstPost';
 import { leapDayKeyFromStoredChallengeDate } from './leapDayKey';
 import { DAILY_CHALLENGE_STATS_COLLECTION } from './verticalXpBonuses';
-import { leapChallengeDateKeyFromMs } from './timeKeys';
+import { challengeDateKeysForFirestoreIn, leapChallengeDateKeyFromMs } from './timeKeys';
 
 const REGION = 'us-central1';
 const POST_COLLECTION = 'videos';
@@ -490,6 +494,47 @@ async function migrateLegacyAwardedVideosToLeapInches(
   }
 }
 
+/** Re-score every awarded video for a leap day (e.g. after global first post is reassigned). */
+export async function retotalAllAwardedVideosForLeapDay(
+  db: admin.firestore.Firestore,
+  challengeDate: string
+): Promise<string[]> {
+  const dayNorm = leapDayKeyFromStoredChallengeDate(challengeDate);
+  const inKeys = challengeDateKeysForFirestoreIn([challengeDate]).slice(0, 30);
+  if (!inKeys.length) return [];
+
+  const snap = await db
+    .collection(POST_COLLECTION)
+    .where('challengeDate', 'in', inKeys)
+    .where('moderationStatus', '==', 'approved')
+    .limit(120)
+    .get();
+
+  const retotaled: string[] = [];
+  const owners = new Set<string>();
+  for (const d of snap.docs) {
+    const data = d.data() as Record<string, unknown>;
+    if (data.deleted === true) continue;
+    if (!isAwardedLeapVideo(data)) continue;
+    const cd = leapDayKeyFromStoredChallengeDate(String(data.challengeDate ?? ''), Date.now());
+    if (cd !== dayNorm) continue;
+    await adminRetotalAwardedVideoLeapInches(db, d.id);
+    retotaled.push(d.id);
+    const owner = String(data.uid ?? '').trim();
+    if (owner) owners.add(owner);
+  }
+
+  for (const owner of owners) {
+    try {
+      await recomputeUserLeapStatsAdmin(owner);
+    } catch (e) {
+      logger.warn('recompute after leap-day retotal failed', { owner, challengeDate, e });
+    }
+  }
+
+  return retotaled;
+}
+
 /** Full user stats recompute from awarded videos (source of truth). */
 export async function recomputeUserLeapStatsAdmin(ownerId: string): Promise<void> {
   if (!ownerId) return;
@@ -559,12 +604,54 @@ export const onVerticalScoreVideoCreated = onDocumentCreated(
 export const onVerticalScoreVideoDeleted = onDocumentDeleted(
   { document: `${POST_COLLECTION}/{videoId}`, region: REGION },
   async (event) => {
-    const uid = String(event.data?.data()?.uid ?? '');
-    if (!uid) return;
+    const data = event.data?.data() as Record<string, unknown> | undefined;
+    const videoId = String(event.params.videoId ?? '');
+    const uid = String(data?.uid ?? '').trim();
+    if (!uid || !data) return;
+
+    const db = admin.firestore();
+    const challengeDate = String(data.challengeDate ?? '').trim();
+    const wasApproved = String(data.moderationStatus ?? '') === 'approved';
+
     try {
+      if (wasApproved) {
+        try {
+          await decrementApprovedPostCountForLeap(db, data, videoId);
+        } catch (e) {
+          logger.warn('approvedPostCount decrement on delete failed', { videoId, e });
+        }
+      }
+
+      const dayStatsKey = leapDayKeyFromStoredChallengeDate(
+        challengeDate,
+        toMillis(data.leapInchesAwardedAt ?? data.approvedAt ?? data.createdAt) || Date.now()
+      );
+      const statsSnap = await db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayStatsKey}`).get();
+      const statsFirstId = statsSnap.exists
+        ? String((statsSnap.data() as Record<string, unknown>)?.firstApprovedVideoId ?? '').trim()
+        : '';
+      const wasGlobalFirst =
+        statsFirstId === videoId ||
+        data.leapWasGlobalFirstPostOfDay === true ||
+        data.leapWasFirstPostOfDay === true;
+
+      if (wasGlobalFirst && challengeDate) {
+        const { newFirstVideoId } = await handleGlobalFirstPostRemoved(db, {
+          challengeDate,
+          removedVideoId: videoId,
+        });
+        const retotaled = await retotalAllAwardedVideosForLeapDay(db, challengeDate);
+        logger.info('global first post reassigned after video delete', {
+          removedVideoId: videoId,
+          challengeDate,
+          newFirstVideoId,
+          retotaledCount: retotaled.length,
+        });
+      }
+
       await recomputeUserLeapStatsAdmin(uid);
     } catch (e) {
-      logger.error('leap stats recompute failed (video delete)', { uid, e });
+      logger.error('leap stats recompute failed (video delete)', { uid, videoId, e });
     }
   }
 );

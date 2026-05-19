@@ -46,18 +46,17 @@ export function claimGlobalFirstPostOfDayInTransaction(args: {
   return existingId === videoId;
 }
 
-/** Earliest awarded approved video for the day (stats doc, then query fallback). */
-export async function resolveGlobalFirstApprovedVideoIdForDay(
+function videoQualifiesAsGlobalFirst(data: Record<string, unknown>): boolean {
+  if (data.deleted === true) return false;
+  if (String(data.moderationStatus ?? '') !== 'approved') return false;
+  return isAwardedLeapVideo(data);
+}
+
+/** Earliest awarded approved video for this leap day (live Firestore query). */
+export async function findEarliestAwardedApprovedVideoIdForDay(
   db: admin.firestore.Firestore,
   challengeDate: string
 ): Promise<string | null> {
-  const dayKey = leapDayKeyFromStoredChallengeDate(challengeDate);
-  const statsSnap = await db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayKey}`).get();
-  if (statsSnap.exists) {
-    const id = String((statsSnap.data() as Record<string, unknown>)?.firstApprovedVideoId ?? '').trim();
-    if (id) return id;
-  }
-
   const inKeys = challengeDateKeysForFirestoreIn([challengeDate]).slice(0, 30);
   if (!inKeys.length) return null;
 
@@ -72,8 +71,7 @@ export async function resolveGlobalFirstApprovedVideoIdForDay(
   let bestMs = Infinity;
   for (const d of snap.docs) {
     const data = d.data() as Record<string, unknown>;
-    if (data.deleted === true) continue;
-    if (!isAwardedLeapVideo(data)) continue;
+    if (!videoQualifiesAsGlobalFirst(data)) continue;
     const ms = toMillis(data.leapInchesAwardedAt ?? data.approvedAt ?? data.createdAt);
     if (ms > 0 && ms < bestMs) {
       bestMs = ms;
@@ -81,4 +79,134 @@ export async function resolveGlobalFirstApprovedVideoIdForDay(
     }
   }
   return bestId;
+}
+
+/** Earliest awarded approved video for the day (stats doc if still valid, else query). */
+export async function resolveGlobalFirstApprovedVideoIdForDay(
+  db: admin.firestore.Firestore,
+  challengeDate: string
+): Promise<string | null> {
+  const dayKey = leapDayKeyFromStoredChallengeDate(challengeDate);
+  const statsSnap = await db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayKey}`).get();
+  if (statsSnap.exists) {
+    const id = String((statsSnap.data() as Record<string, unknown>)?.firstApprovedVideoId ?? '').trim();
+    if (id) {
+      const vSnap = await db.doc(`${POST_COLLECTION}/${id}`).get();
+      if (vSnap.exists && videoQualifiesAsGlobalFirst(vSnap.data() as Record<string, unknown>)) {
+        return id;
+      }
+    }
+  }
+
+  return findEarliestAwardedApprovedVideoIdForDay(db, challengeDate);
+}
+
+/**
+ * When the global first post is deleted (hard delete), clear the slot and promote the
+ * next earliest awarded approved video, then callers should retotal leap inches for the day.
+ */
+export async function handleGlobalFirstPostRemoved(
+  db: admin.firestore.Firestore,
+  args: { challengeDate: string; removedVideoId: string }
+): Promise<{ newFirstVideoId: string | null }> {
+  const { challengeDate, removedVideoId } = args;
+  const dayKey = leapDayKeyFromStoredChallengeDate(challengeDate);
+  const statsRef = db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayKey}`);
+
+  await db.runTransaction(async (tx) => {
+    const statsSnap = await tx.get(statsRef);
+    if (!statsSnap.exists) return;
+    const firstId = String((statsSnap.data() as Record<string, unknown>)?.firstApprovedVideoId ?? '').trim();
+    if (firstId !== removedVideoId) return;
+    tx.set(
+      statsRef,
+      {
+        firstApprovedVideoId: admin.firestore.FieldValue.delete(),
+        firstApprovedUid: admin.firestore.FieldValue.delete(),
+        firstApprovedAt: admin.firestore.FieldValue.delete(),
+      },
+      { merge: true }
+    );
+  });
+
+  const newFirstId = await findEarliestAwardedApprovedVideoIdForDay(db, challengeDate);
+  if (!newFirstId) {
+    return { newFirstVideoId: null };
+  }
+
+  const vSnap = await db.doc(`${POST_COLLECTION}/${newFirstId}`).get();
+  if (!vSnap.exists) {
+    return { newFirstVideoId: null };
+  }
+  const vd = vSnap.data() as Record<string, unknown>;
+  const ownerUid = String(vd.uid ?? '').trim();
+  if (!ownerUid) {
+    return { newFirstVideoId: null };
+  }
+
+  await db.runTransaction(async (tx) => {
+    const statsSnap = await tx.get(statsRef);
+    claimGlobalFirstPostOfDayInTransaction({
+      tx,
+      statsRef,
+      statsSnap,
+      videoId: newFirstId,
+      ownerUid,
+      challengeDate,
+    });
+  });
+
+  return { newFirstVideoId: newFirstId };
+}
+
+/**
+ * Repair stale `firstApproved*` stats (e.g. holder deleted before delete trigger existed) and
+ * promote the earliest remaining awarded video when needed.
+ */
+export async function healGlobalFirstPostStatsForDay(
+  db: admin.firestore.Firestore,
+  challengeDate: string
+): Promise<{ newFirstVideoId: string | null }> {
+  const dayKey = leapDayKeyFromStoredChallengeDate(challengeDate);
+  const statsRef = db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayKey}`);
+  const statsSnap = await statsRef.get();
+  const statsFirstId = statsSnap.exists
+    ? String((statsSnap.data() as Record<string, unknown>)?.firstApprovedVideoId ?? '').trim()
+    : '';
+
+  if (statsFirstId) {
+    const vSnap = await db.doc(`${POST_COLLECTION}/${statsFirstId}`).get();
+    if (vSnap.exists && videoQualifiesAsGlobalFirst(vSnap.data() as Record<string, unknown>)) {
+      return { newFirstVideoId: statsFirstId };
+    }
+    await handleGlobalFirstPostRemoved(db, { challengeDate, removedVideoId: statsFirstId });
+    return {
+      newFirstVideoId: await findEarliestAwardedApprovedVideoIdForDay(db, challengeDate),
+    };
+  }
+
+  const newFirstId = await findEarliestAwardedApprovedVideoIdForDay(db, challengeDate);
+  if (!newFirstId) {
+    return { newFirstVideoId: null };
+  }
+
+  const vSnap = await db.doc(`${POST_COLLECTION}/${newFirstId}`).get();
+  const ownerUid = String((vSnap.data() as Record<string, unknown>)?.uid ?? '').trim();
+  if (!ownerUid) {
+    return { newFirstVideoId: null };
+  }
+
+  await db.runTransaction(async (tx) => {
+    const freshStats = await tx.get(statsRef);
+    claimGlobalFirstPostOfDayInTransaction({
+      tx,
+      statsRef,
+      statsSnap: freshStats,
+      videoId: newFirstId,
+      ownerUid,
+      challengeDate,
+    });
+  });
+
+  return { newFirstVideoId: newFirstId };
 }

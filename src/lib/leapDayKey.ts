@@ -35,21 +35,32 @@ export function leapDayKeyFromStoredChallengeDate(
 /**
  * `challengeDate` values to match for "posted today" — mirrors Feed (leap key + calendar day when they differ).
  */
-export function todayPostedCountChallengeDateInKeys(nowMs: number = Date.now()): string[] {
-  const leapKey = getDayKey('America/New_York', nowMs);
+export function challengeDateInKeysForLeapDay(
+  leapDayKey: string,
+  nowMs: number = Date.now()
+): string[] {
+  const leapNorm = normalizeNyDateKey(leapDayKey, leapDayKey);
   const calToday = nyDateKey(new Date(nowMs));
-  const leapNorm = normalizeNyDateKey(leapKey, leapKey);
   const calNorm = normalizeNyDateKey(calToday, calToday);
   const dayChain = calNorm !== leapNorm ? [calNorm, leapNorm] : [leapNorm];
   return challengeDateKeysForFirestoreIn(dayChain);
 }
 
+/** @deprecated Prefer `challengeDateInKeysForLeapDay(getDayKey(...), nowMs)`. */
+export function todayPostedCountChallengeDateInKeys(nowMs: number = Date.now()): string[] {
+  return challengeDateInKeysForLeapDay(getDayKey('America/New_York', nowMs), nowMs);
+}
+
 /** `dailyChallengeStats` document ids to listen to for the active posting window. */
-export function todayPostedCountStatsDocKeys(nowMs: number = Date.now()): string[] {
-  const leapKey = getDayKey('America/New_York', nowMs);
+export function statsDocKeysForLeapDay(leapDayKey: string, nowMs: number = Date.now()): string[] {
+  const leapNorm = normalizeNyDateKey(leapDayKey, leapDayKey);
   const calToday = nyDateKey(new Date(nowMs));
-  const leapNorm = normalizeNyDateKey(leapKey, leapKey);
   const calNorm = normalizeNyDateKey(calToday, calToday);
   if (calNorm !== leapNorm) return [leapNorm, calNorm];
   return [leapNorm];
+}
+
+/** @deprecated Prefer `statsDocKeysForLeapDay(getDayKey(...), nowMs)`. */
+export function todayPostedCountStatsDocKeys(nowMs: number = Date.now()): string[] {
+  return statsDocKeysForLeapDay(getDayKey('America/New_York', nowMs), nowMs);
 }

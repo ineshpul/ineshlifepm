@@ -1,19 +1,19 @@
-export const DUAL_PIP_WIDTH = 108;
-export const DUAL_PIP_HEIGHT = 144;
+/** BeReal-style selfie PiP (points). */
+export const DUAL_PIP_WIDTH = 120;
+export const DUAL_PIP_HEIGHT = 160;
+export const DUAL_PIP_MARGIN = 16;
 
-export const DUAL_PIP_DEFAULT = { x: 14, y: 14 } as const;
-
-export type DualPipFrame = {
+export type DualPipRect = {
   x: number;
   y: number;
   width: number;
   height: number;
 };
 
-export function defaultDualPipFrame(): DualPipFrame {
+export function defaultDualPipRect(): DualPipRect {
   return {
-    x: DUAL_PIP_DEFAULT.x,
-    y: DUAL_PIP_DEFAULT.y,
+    x: DUAL_PIP_MARGIN,
+    y: DUAL_PIP_MARGIN,
     width: DUAL_PIP_WIDTH,
     height: DUAL_PIP_HEIGHT,
   };
@@ -25,7 +25,7 @@ export function clampDualPipPosition(
   bounds: { width: number; height: number }
 ): { x: number; y: number } {
   if (bounds.width < 1 || bounds.height < 1) {
-    return { x: DUAL_PIP_DEFAULT.x, y: DUAL_PIP_DEFAULT.y };
+    return { x: DUAL_PIP_MARGIN, y: DUAL_PIP_MARGIN };
   }
   const maxX = Math.max(0, bounds.width - DUAL_PIP_WIDTH);
   const maxY = Math.max(0, bounds.height - DUAL_PIP_HEIGHT);
@@ -35,10 +35,10 @@ export function clampDualPipPosition(
   };
 }
 
-export function clampDualPipFrame(
-  frame: Pick<DualPipFrame, 'x' | 'y'>,
+export function clampDualPipRect(
+  frame: Pick<DualPipRect, 'x' | 'y'>,
   bounds: { width: number; height: number }
-): DualPipFrame {
+): DualPipRect {
   const { x, y } = clampDualPipPosition(frame.x, frame.y, bounds);
   return { x, y, width: DUAL_PIP_WIDTH, height: DUAL_PIP_HEIGHT };
 }

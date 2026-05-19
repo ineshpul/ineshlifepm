@@ -22,6 +22,8 @@ import { submitChallengeSuggestionCallable } from './challengeSuggestion';
 import { scheduledLeapViewingMeta } from './leapViewingMeta';
 import { getWeeklyLeaperboardCallable } from './getWeeklyLeaperboardCallable';
 import { backfillWeeklyLeaperWeekCallable } from './backfillWeeklyLeaperWeekCallable';
+import { backfillApprovedPostCountCallable } from './backfillApprovedPostCountCallable';
+import { healGlobalFirstPostForDayCallable } from './healGlobalFirstPostForDayCallable';
 
 admin.initializeApp();
 
@@ -44,6 +46,8 @@ export {
   scheduledLeapViewingMeta,
   getWeeklyLeaperboardCallable,
   backfillWeeklyLeaperWeekCallable,
+  backfillApprovedPostCountCallable,
+  healGlobalFirstPostForDayCallable,
 };
 
 type ChatMessagePayload = {

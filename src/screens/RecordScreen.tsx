@@ -20,9 +20,9 @@ import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebas
 
 import { LeapLoadingFrog } from '../components/LeapLoadingFrog';
 import { RecordClipPreview } from '../components/RecordClipPreview';
-import { RecordDualCameraPreview } from '../components/RecordDualCameraPreview';
-import { RecordDraggableDualPip } from '../components/RecordDraggableDualPip';
-import { useDraggableDualPip } from '../hooks/useDraggableDualPip';
+import { RecordDualExpoGoPip } from '../components/RecordDualExpoGoPip';
+import { RecordDualMultiCamView } from '../components/RecordDualMultiCamView';
+import { useRecordDualMode } from '../hooks/useRecordDualMode';
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
@@ -50,12 +50,6 @@ import { getExpoExtra } from '../config/expoExtra';
 import { purchaseRecordingAttemptWithScore } from '../services/recordingAttemptsPurchase';
 import { computeFeedViewingFromNow } from '../utils/nyTime';
 import { useCameraPreviewFreezeRecovery } from '../hooks/useCameraPreviewFreezeRecovery';
-import {
-  canOfferDualCameraToggle,
-  initializeNativeDualCamera,
-  logDualCameraAvailability,
-} from '../lib/dualCameraSupport';
-import { isExpoGoClient, type ExpoDualCameraModule } from '../lib/expoDualCamera';
 import { navigateToFeedTab } from '../navigation/navigationHelpers';
 import { offerCameraRollSaveAfterPost } from '../state/pendingCameraRollSave';
 import { saveVideoToCameraRoll } from '../services/saveVideoToCameraRoll';
@@ -174,23 +168,9 @@ export function RecordScreen() {
   const [clipUri, setClipUri] = React.useState<string | null>(null);
   const [clipSource, setClipSource] = React.useState<'recorded' | 'demo' | null>(null);
   const [cameraFacing, setCameraFacing] = React.useState<'front' | 'back'>('front');
-  const [dualCameraEnabled, setDualCameraEnabled] = React.useState(false);
-  const [dualCameraAvailable, setDualCameraAvailable] = React.useState(() =>
-    canOfferDualCameraToggle()
-  );
-  const [nativeDualCamera, setNativeDualCamera] = React.useState(false);
-  const [dualCameraModule, setDualCameraModule] = React.useState<ExpoDualCameraModule | null>(
-    null
-  );
-  /** True while countdown/record uses expo-camera back (DualCamera session is unmounted). */
-  const [dualUseSingleCamera, setDualUseSingleCamera] = React.useState(false);
   const [cameraLayout, setCameraLayout] = React.useState({ width: 0, height: 0 });
-  const { pipFrame, panGesture, resetPip } = useDraggableDualPip(cameraLayout);
+  const dual = useRecordDualMode(cameraLayout);
   const [cameraSessionKey, setCameraSessionKey] = React.useState(0);
-  const [dualTransitioning, setDualTransitioning] = React.useState(false);
-  const dualCameraEnabledRef = React.useRef(false);
-  const nativeDualCameraRef = React.useRef(false);
-  const dualUseSingleCameraRef = React.useRef(false);
   const adminAttemptsResetRef = React.useRef(false);
   const [uploading, setUploading] = React.useState(false);
   const [uploadPct, setUploadPct] = React.useState(0);
@@ -208,45 +188,6 @@ export function RecordScreen() {
   React.useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
-
-  React.useEffect(() => {
-    dualCameraEnabledRef.current = dualCameraEnabled;
-  }, [dualCameraEnabled]);
-
-  React.useEffect(() => {
-    nativeDualCameraRef.current = nativeDualCamera;
-  }, [nativeDualCamera]);
-
-  React.useEffect(() => {
-    dualUseSingleCameraRef.current = dualUseSingleCamera;
-  }, [dualUseSingleCamera]);
-
-  React.useEffect(() => {
-    logDualCameraAvailability();
-    const offer = canOfferDualCameraToggle();
-    setDualCameraAvailable(offer);
-    if (!offer) {
-      setDualCameraEnabled(false);
-      setDualUseSingleCamera(false);
-      setNativeDualCamera(false);
-      setDualCameraModule(null);
-    }
-  }, []);
-
-  React.useEffect(() => {
-    if (!dualTransitioning) return undefined;
-    const t = setTimeout(() => {
-      if (__DEV__) console.log('[Record] dual camera transition timeout — forcing single camera');
-      setDualTransitioning(false);
-      setDualCameraEnabled(false);
-      setDualUseSingleCamera(false);
-      setNativeDualCamera(false);
-      setDualCameraModule(null);
-      cameraReadyRef.current = false;
-      setCameraSessionKey((k) => k + 1);
-    }, 3500);
-    return () => clearTimeout(t);
-  }, [dualTransitioning]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -287,11 +228,9 @@ export function RecordScreen() {
     setRecordingSecondsLeft(null);
     setIsRecording(false);
     setCameraFacing('front');
-    setDualUseSingleCamera(false);
-    setDualTransitioning(false);
-    resetPip();
+    dual.resetDualMode();
     cameraReadyRef.current = false;
-  }, [resetPip]);
+  }, [dual]);
 
   const resumePrimaryCameraPreview = React.useCallback(async (timeoutMs = 6000) => {
     cameraReadyRef.current = false;
@@ -313,17 +252,11 @@ export function RecordScreen() {
     return false;
   }, []);
 
-  const restoreDualPreviewAfterRecording = React.useCallback(() => {
-    setDualUseSingleCamera(false);
-    if (dualCameraEnabledRef.current && nativeDualCameraRef.current) {
-      cameraReadyRef.current = false;
-      setCameraSessionKey((k) => k + 1);
-      return;
-    }
+  const restorePreviewAfterRecording = React.useCallback(() => {
+    dual.resumePipAfterRecording();
     cameraReadyRef.current = false;
-    setCameraSessionKey((k) => k + 1);
     void resumePrimaryCameraPreview();
-  }, [resumePrimaryCameraPreview]);
+  }, [dual, resumePrimaryCameraPreview]);
 
   const onCameraWrapLayout = React.useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
@@ -366,13 +299,6 @@ export function RecordScreen() {
       }
 
       const markReadyAfterResume = () => {
-        if (
-          dualCameraEnabledRef.current &&
-          nativeDualCameraRef.current &&
-          !dualUseSingleCameraRef.current
-        ) {
-          return;
-        }
         void resumePrimaryCameraPreview(4000);
       };
 
@@ -417,13 +343,6 @@ export function RecordScreen() {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       if (next !== 'active') return;
       if (!isFocused || postedToday || clipUri || !canUseCamera) return;
-      if (
-        dualCameraEnabledRef.current &&
-        nativeDualCameraRef.current &&
-        !dualUseSingleCameraRef.current
-      ) {
-        return;
-      }
       requestAnimationFrame(() => {
         void resumePrimaryCameraPreview(2500);
       });
@@ -494,7 +413,7 @@ export function RecordScreen() {
       }
       if (!cameraReadyRef.current) {
         showError('Camera not ready', new Error('Wait for the preview, then try again.'));
-        restoreDualPreviewAfterRecording();
+        restorePreviewAfterRecording();
         return;
       }
 
@@ -559,25 +478,14 @@ export function RecordScreen() {
       setIsRecording(false);
       setPreRecordCountdown(null);
       setRecordingSecondsLeft(null);
-      restoreDualPreviewAfterRecording();
+      restorePreviewAfterRecording();
       void setAudioSessionForPlayback().catch(() => {});
     }
   };
 
-  const waitForSingleCameraReady = async (timeoutMs = 8000) => {
-    cameraReadyRef.current = false;
-    let waited = 0;
-    while (!cameraReadyRef.current && waited < timeoutMs) {
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((r) => setTimeout(r, 120));
-      waited += 120;
-    }
-    return cameraReadyRef.current;
-  };
-
   const onFlipCamera = React.useCallback(() => {
     if (
-      dualCameraEnabled ||
+      dual.active ||
       postedToday ||
       !playerFacing.canRecord ||
       isRecording ||
@@ -593,135 +501,64 @@ export function RecordScreen() {
         void cameraRef.current?.resumePreview?.().catch(() => {});
       });
     });
-  }, [
-    dualCameraEnabled,
-    postedToday,
-    playerFacing.canRecord,
-    isRecording,
-    preRecordCountdown,
-    canUseCamera,
-  ]);
-
-  const disableDualCameraCompletely = React.useCallback(() => {
-    setDualCameraEnabled(false);
-    setDualUseSingleCamera(false);
-    setNativeDualCamera(false);
-    setDualCameraModule(null);
-    setDualCameraAvailable(false);
-    resetPip();
-    cameraReadyRef.current = false;
-    setCameraSessionKey((k) => k + 1);
-  }, [resetPip]);
-
-  const recoverFromCameraFreeze = React.useCallback(() => {
-    setDualCameraEnabled(false);
-    setDualUseSingleCamera(false);
-    setNativeDualCamera(false);
-    setDualCameraModule(null);
-    resetPip();
-    cameraReadyRef.current = false;
-    setCameraFacing('front');
-    setCameraSessionKey((k) => k + 1);
-    void resumePrimaryCameraPreview();
-  }, [resetPip, resumePrimaryCameraPreview]);
+  }, [dual.active, postedToday, playerFacing.canRecord, isRecording, preRecordCountdown, canUseCamera]);
 
   const onToggleDualCamera = React.useCallback(() => {
     if (
-      !dualCameraAvailable ||
+      !dual.showToggle ||
       postedToday ||
-      !playerFacing.canRecord ||
       isRecording ||
       preRecordCountdown != null ||
       !canUseCamera ||
-      dualTransitioning
+      dual.toggleBusy
     ) {
       return;
     }
-
-    const enabling = !dualCameraEnabled;
-    setDualTransitioning(true);
     cameraReadyRef.current = false;
-    setDualUseSingleCamera(false);
-
     void (async () => {
-      try {
-        if (enabling) {
-          setCameraFacing('back');
-          if (isExpoGoClient()) {
-            setNativeDualCamera(false);
-            setDualCameraModule(null);
-            setDualCameraEnabled(true);
-            await resumePrimaryCameraPreview();
-          } else {
-            const nativeOk =
-              nativeDualCameraRef.current && dualCameraModule != null
-                ? true
-                : await initializeNativeDualCamera(3000);
-            if (!nativeOk) {
-              console.log(
-                '[Record] dual camera init failed or timed out — staying in single camera (toggle remains)'
-              );
-              setDualCameraEnabled(false);
-              setNativeDualCamera(false);
-              setDualCameraModule(null);
-              resetPip();
-              await resumePrimaryCameraPreview();
-              return;
-            }
-
-            const { loadExpoDualCameraModule } = await import('../lib/expoDualCamera');
-            const loadedModule = dualCameraModule ?? (await loadExpoDualCameraModule(3000));
-            if (!loadedModule) {
-              disableDualCameraCompletely();
-              await resumePrimaryCameraPreview();
-              return;
-            }
-
-            setDualCameraModule(loadedModule);
-            setNativeDualCamera(true);
-
-            try {
-              await cameraRef.current?.pausePreview?.();
-            } catch {
-              /* noop */
-            }
-            setDualCameraEnabled(true);
-            await new Promise((r) => setTimeout(r, 480));
-            cameraReadyRef.current = true;
-          }
-        } else {
-          setDualCameraEnabled(false);
-          setNativeDualCamera(false);
-          setDualCameraModule(null);
-          setCameraFacing('front');
-          resetPip();
-          setCameraSessionKey((k) => k + 1);
-          await new Promise((r) => setTimeout(r, 160));
-          await resumePrimaryCameraPreview();
+      const enabling = !dual.active;
+      const result = await dual.toggle();
+      if (!result.ok) {
+        if (result.reason === 'no_module') {
+          showError(
+            'Dual camera unavailable',
+            new Error(
+              'This build does not include dual camera. Install the latest TestFlight build or rebuild with expo-dual-camera.'
+            )
+          );
+        } else if (result.reason === 'unsupported') {
+          showError(
+            'Dual camera unsupported',
+            new Error('This device does not support simultaneous front and back camera.')
+          );
         }
-        if (__DEV__) console.log('[Record] dual camera toggled:', enabling);
-      } catch (e) {
-        if (__DEV__) console.log('[Record] dual camera toggle error:', e);
-        disableDualCameraCompletely();
-        await resumePrimaryCameraPreview();
-      } finally {
-        setDualTransitioning(false);
+        return;
       }
+      if (enabling && !dual.isExpoGo) {
+        setCameraFacing('back');
+        return;
+      }
+      if (!enabling) {
+        setCameraSessionKey((k) => k + 1);
+      }
+      setCameraFacing(enabling ? 'back' : 'front');
+      await resumePrimaryCameraPreview();
+      cameraReadyRef.current = true;
     })();
   }, [
-    dualCameraAvailable,
-    dualCameraEnabled,
-    dualCameraModule,
-    dualTransitioning,
+    dual,
     postedToday,
-    playerFacing.canRecord,
     isRecording,
     preRecordCountdown,
     canUseCamera,
     resumePrimaryCameraPreview,
-    resetPip,
-    disableDualCameraCompletely,
   ]);
+
+  const recoverFromCameraFreeze = React.useCallback(() => {
+    cameraReadyRef.current = false;
+    setCameraSessionKey((k) => k + 1);
+    void resumePrimaryCameraPreview();
+  }, [resumePrimaryCameraPreview]);
 
   const onTapRecord = async () => {
     // Stop must run even while `recordTapBusyRef` is true — it stays true for the whole
@@ -771,17 +608,20 @@ export function RecordScreen() {
 
     recordTapBusyRef.current = true;
     try {
-      if (dualCameraEnabled && nativeDualCameraRef.current) {
-        if (__DEV__) console.log('[Record] switching to single back CameraView for recording');
-        setDualTransitioning(true);
-        setDualUseSingleCamera(true);
+      if (dual.active) {
+        dual.suspendPipForRecording();
+        cameraReadyRef.current = false;
         setCameraSessionKey((k) => k + 1);
         await new Promise<void>((r) => requestAnimationFrame(() => r()));
-        const ready = await waitForSingleCameraReady();
-        setDualTransitioning(false);
-        if (!ready) {
+        let waited = 0;
+        while (!cameraReadyRef.current && waited < 8000) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((r) => setTimeout(r, 120));
+          waited += 120;
+        }
+        if (!cameraReadyRef.current) {
           showError('Camera not ready', new Error('Wait for the back camera, then try again.'));
-          restoreDualPreviewAfterRecording();
+          restorePreviewAfterRecording();
           return;
         }
       }
@@ -800,7 +640,7 @@ export function RecordScreen() {
           );
         });
         if (!proceed) {
-          restoreDualPreviewAfterRecording();
+          restorePreviewAfterRecording();
           return;
         }
       }
@@ -985,18 +825,7 @@ export function RecordScreen() {
     await runUpload();
   };
 
-  const usesNativeDualPreview =
-    dualCameraEnabled &&
-    !dualUseSingleCamera &&
-    nativeDualCamera &&
-    dualCameraModule != null &&
-    cameraLayout.width > 0;
-  /** Expo Go only — back camera + static PiP; native builds use expo-dual-camera instead. */
-  const showExpoGoDualPlaceholder =
-    dualCameraEnabled && !dualUseSingleCamera && isExpoGoClient() && !usesNativeDualPreview;
-  const showPrimaryCameraView = !usesNativeDualPreview;
-  const showDraggableDualPip =
-    (usesNativeDualPreview || showExpoGoDualPlaceholder) && cameraLayout.width > 0;
+  const cameraFacingForPreview = dual.useBackCamera ? 'back' : cameraFacing;
 
   const { markPreviewPulse } = useCameraPreviewFreezeRecovery({
     enabled:
@@ -1004,13 +833,10 @@ export function RecordScreen() {
       canUseCamera &&
       !clipUri &&
       !postedToday &&
-      showPrimaryCameraView &&
       playerFacing.canRecord,
     isRecording,
     recordingSecondsLeft,
-    usesNativeDualPreview,
-    dualTransitioning,
-    cameraRef,
+    dualPipVisible: dual.useMultiCamPreview || dual.showExpoGoPip,
     onRecover: recoverFromCameraFreeze,
   });
 
@@ -1091,26 +917,18 @@ export function RecordScreen() {
           </View>
         ) : canUseCamera ? (
           <>
-            {showPrimaryCameraView ? (
+            {dual.useCameraViewPreview ? (
               <CameraView
-                key={`camera-${cameraSessionKey}-${challenge.dateKey}-${challenge.maxDurationSeconds}-${dualCameraEnabled || dualUseSingleCamera ? 'back' : cameraFacing}`}
+                key={`camera-${cameraSessionKey}-${challenge.dateKey}-${challenge.maxDurationSeconds}-${cameraFacingForPreview}`}
                 ref={cameraRef}
                 style={StyleSheet.absoluteFill}
-                facing={dualCameraEnabled || dualUseSingleCamera ? 'back' : cameraFacing}
-                mirror={!dualCameraEnabled && !dualUseSingleCamera && cameraFacing === 'front'}
+                facing={cameraFacingForPreview}
+                mirror={!dual.useBackCamera && cameraFacing === 'front'}
                 mode="video"
                 responsiveOrientationWhenOrientationLocked
                 onCameraReady={() => {
                   cameraReadyRef.current = true;
                   markPreviewPulse();
-                  if (__DEV__) {
-                    console.log('[Record] CameraView ready', {
-                      dualCameraEnabled: dualCameraEnabledRef.current,
-                      dualUseSingleCamera,
-                      nativeDual: nativeDualCameraRef.current,
-                      facing: dualCameraEnabled || dualUseSingleCamera ? 'back' : cameraFacing,
-                    });
-                  }
                   requestAnimationFrame(() => {
                     void cameraRef.current?.resumePreview?.().catch(() => {});
                   });
@@ -1125,60 +943,52 @@ export function RecordScreen() {
                 }}
               />
             ) : null}
-            {usesNativeDualPreview && dualCameraModule ? (
-              <RecordDualCameraPreview
-                key={`dual-native-${cameraSessionKey}`}
-                dualModule={dualCameraModule}
+            {dual.useMultiCamPreview && dual.dualModule ? (
+              <RecordDualMultiCamView
+                key={`dual-mc-${cameraSessionKey}`}
+                dualModule={dual.dualModule}
                 width={cameraLayout.width}
                 height={cameraLayout.height}
-                pipFrame={pipFrame}
+                pipRect={dual.pipRect}
+                panGesture={dual.panGesture}
                 onReady={() => {
                   cameraReadyRef.current = true;
+                  markPreviewPulse();
                 }}
               />
             ) : null}
-            {showDraggableDualPip ? (
-              <RecordDraggableDualPip
-                pipFrame={pipFrame}
-                panGesture={panGesture}
-                showPlaceholder={showExpoGoDualPlaceholder}
-                showExpoGoHint={showExpoGoDualPlaceholder}
-              />
-            ) : null}
-            {dualTransitioning ? (
-              <View style={styles.cameraLoading}>
-                <ActivityIndicator size="large" color={colors.white} />
-              </View>
+            {dual.showExpoGoPip ? (
+              <RecordDualExpoGoPip pipRect={dual.pipRect} panGesture={dual.panGesture} />
             ) : null}
             <View style={styles.overlayFade} pointerEvents="none" />
-            {!isRecording &&
-            preRecordCountdown == null &&
-            playerFacing.canRecord &&
-            !postedToday ? (
+            {canUseCamera && !postedToday && !clipUri ? (
               <>
-                {dualCameraAvailable ? (
+                {dual.showToggle ? (
                   <TouchableOpacity
                     accessibilityRole="button"
                     accessibilityLabel={
-                      dualCameraEnabled ? 'Turn off dual camera' : 'Turn on dual camera'
+                      dual.active ? 'Turn off dual camera' : 'Turn on dual camera'
                     }
-                    accessibilityState={{ selected: dualCameraEnabled }}
+                    accessibilityState={{ selected: dual.active }}
                     onPress={onToggleDualCamera}
-                    disabled={dualTransitioning}
+                    disabled={isRecording || preRecordCountdown != null || dual.toggleBusy}
                     style={[
                       styles.dualFab,
-                      dualCameraEnabled && styles.dualFabActive,
-                      dualTransitioning && styles.dualFabDisabled,
+                      dual.active && styles.dualFabActive,
+                      (isRecording || preRecordCountdown != null || dual.toggleBusy) &&
+                        styles.dualFabDisabled,
                     ]}
                     activeOpacity={0.85}
                   >
-                    <View style={styles.dualIcon}>
-                      <View style={[styles.dualIconCircle, styles.dualIconCircleBack]} />
-                      <View style={[styles.dualIconCircle, styles.dualIconCircleFront]} />
-                    </View>
+                    <Ionicons
+                      name="infinite"
+                      size={26}
+                      color={colors.white}
+                      style={dual.active ? styles.dualIconActive : undefined}
+                    />
                   </TouchableOpacity>
                 ) : null}
-                {!dualCameraEnabled ? (
+                {!dual.active && !isRecording && preRecordCountdown == null ? (
                   <TouchableOpacity
                     accessibilityRole="button"
                     accessibilityLabel={
@@ -1459,27 +1269,8 @@ const styles = StyleSheet.create({
   dualFabDisabled: {
     opacity: 0.45,
   },
-  dualIcon: {
-    width: 28,
-    height: 22,
-    position: 'relative',
-  },
-  dualIconCircle: {
-    position: 'absolute',
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: colors.white,
-    backgroundColor: 'transparent',
-  },
-  dualIconCircleBack: {
-    left: 0,
-    top: 4,
-  },
-  dualIconCircleFront: {
-    right: 0,
-    top: 0,
+  dualIconActive: {
+    opacity: 1,
   },
   flipFab: {
     position: 'absolute',
