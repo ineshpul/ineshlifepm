@@ -11,8 +11,9 @@ import {
   leapInchesFromVideo,
   updateStreakState,
 } from './verticalScoreEngine';
+import { decrementApprovedPostCountForLeap, incrementApprovedPostCountForLeap } from './dailyChallengeStatsPosts';
 import { claimGlobalFirstPostOfDayInTransaction, resolveGlobalFirstApprovedVideoIdForDay } from './leapDayFirstPost';
-import { getDayKey, leapDayKeyFromStoredChallengeDate } from './leapDayKey';
+import { leapDayKeyFromStoredChallengeDate } from './leapDayKey';
 import { DAILY_CHALLENGE_STATS_COLLECTION } from './verticalXpBonuses';
 import { leapChallengeDateKeyFromMs } from './timeKeys';
 
@@ -124,7 +125,6 @@ async function awardLeapInchesFirstApproval(
   const userRef = db.doc(`users/${owner}`);
   const attemptRef = db.doc(`postAttempts/${owner}_${challengeDate}`);
   const dayStatsKey = leapDayKeyFromStoredChallengeDate(videoChallengeDate, nowMs);
-  const leapDayKeyNow = getDayKey('America/New_York', nowMs);
   const dayStatsRef = db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayStatsKey}`);
 
   const br = await db.runTransaction(async (tx) => {
@@ -153,16 +153,6 @@ async function awardLeapInchesFirstApproval(
       ownerUid: owner,
       challengeDate,
     });
-
-    tx.set(
-      dayStatsRef,
-      {
-        challengeDate: dayStatsKey,
-        approvedPostCount: admin.firestore.FieldValue.increment(1),
-        lastApprovedPostAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
 
     const priorStreak = Math.max(0, Math.floor(Number(ud.activeLeapStreakDays ?? 0)));
     const priorLongest = Math.max(0, Math.floor(Number(ud.longestLeapStreakDays ?? 0)));
@@ -229,17 +219,6 @@ async function awardLeapInchesFirstApproval(
 
   if (!br) return;
 
-  logger.info('dailyChallengeStats approvedPostCount write on leap approval', {
-    dayStatsDocPath: `${DAILY_CHALLENGE_STATS_COLLECTION}/${dayStatsKey}`,
-    dayStatsKey,
-    videoChallengeDate,
-    challengeDate,
-    leapDayKeyNow,
-    dayKeysMatch: dayStatsKey === leapDayKeyNow,
-    videoId,
-    owner,
-  });
-
   try {
     await writeUserWeeklyLeaperFields(db, owner, nowMs);
   } catch (e) {
@@ -273,17 +252,9 @@ async function revokeLeapInchesForVideo(
   await incrementUserLeapInches(db, owner, -inches, dayKey, awardMs > 0 ? awardMs : nowMs, nowMs);
 
   try {
-    await db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayStatsKey}`).set(
-      { approvedPostCount: admin.firestore.FieldValue.increment(-1) },
-      { merge: true }
-    );
-    logger.info('dailyChallengeStats approvedPostCount decremented on leap revoke', {
-      dayStatsKey,
-      videoId,
-      owner,
-    });
+    await decrementApprovedPostCountForLeap(db, beforeData, videoId);
   } catch (e) {
-    logger.warn('dailyChallengeStats approvedPostCount decrement failed', { dayStatsKey, videoId, e });
+    logger.warn('dailyChallengeStats approvedPostCount decrement failed', { videoId, e });
   }
 
   await videoRef.set(
@@ -638,15 +609,20 @@ export const onVerticalScoreVideoApprovedLeaper = onDocumentWritten(
       return;
     }
 
-    if (afterStatus === 'approved') {
-      if (beforeStatus !== 'approved' && !isAwardedLeapVideo(after)) {
+    if (afterStatus === 'approved' && beforeStatus !== 'approved') {
+      try {
+        await incrementApprovedPostCountForLeap(admin.firestore(), after, videoId);
+      } catch (e) {
+        logger.warn('approvedPostCount increment failed', { videoId, owner, e });
+      }
+      if (!isAwardedLeapVideo(after)) {
         try {
           await awardLeapInchesFirstApproval(admin.firestore(), videoRef, videoId, after);
         } catch (e) {
           logger.warn('award leap inches failed', { videoId, owner, e });
         }
-        return;
       }
+      return;
     }
 
     try {

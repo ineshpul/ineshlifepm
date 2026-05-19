@@ -1,134 +1,154 @@
 import * as React from 'react';
-import { collection, doc, getCountFromServer, onSnapshot, query, where } from 'firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { collection, doc, limit, onSnapshot, query, where } from 'firebase/firestore';
 
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
-import { getDayKey } from '../lib/leapDayKey';
-import { challengeDateKeysForFirestoreIn } from '../utils/nyTime';
+import { useAuth } from './auth';
+import {
+  getDayKey,
+  todayPostedCountChallengeDateInKeys,
+  todayPostedCountStatsDocKeys,
+} from '../lib/leapDayKey';
 
 const STATS_COLLECTION = 'dailyChallengeStats';
+const VIDEO_QUERY_LIMIT = 400;
 
-function cacheKey(dayKey: string) {
-  return `liveCount:${dayKey}`;
-}
-
-function mergeCounts(...values: Array<number | null | undefined>): number | null {
-  const nums = values.filter((n): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0);
-  if (!nums.length) return null;
-  return Math.max(...nums);
+function countApprovedFromSnapshot(
+  docs: Array<{ data: () => Record<string, unknown> }>
+): number {
+  let n = 0;
+  for (const d of docs) {
+    const data = d.data();
+    if (data.deleted === true) continue;
+    if (String(data.moderationStatus ?? '') !== 'approved') continue;
+    n += 1;
+  }
+  return n;
 }
 
 /**
- * Approved posts for today's leap — `dailyChallengeStats/{dayKey}.approvedPostCount`
- * plus Firestore count on approved `videos` (same `dayKey`, padded + compact `challengeDate`).
+ * Live approved-post count for today's leap (noon→noon NY).
+ * Uses the same `challengeDate` keys as Feed + realtime listeners (not getCountFromServer).
  */
-export function useLiveCount(dayKey: string, opts?: { enabled?: boolean }) {
+export function useLiveCount(opts?: { enabled?: boolean }) {
   const enabled = opts?.enabled !== false;
+  const { user } = useAuth();
   const [count, setCount] = React.useState<number | null>(null);
 
   React.useEffect(() => {
-    if (!enabled) {
+    if (!enabled || !user?.uid) {
       setCount(null);
       return;
     }
-    let alive = true;
-
-    const leapDayKeyNow = getDayKey('America/New_York');
-    console.log('[live] posted today read', {
-      queryDayKey: dayKey,
-      leapDayKeyNow,
-      dayKeysMatch: dayKey === leapDayKeyNow,
-      statsDocPath: `${STATS_COLLECTION}/${dayKey}`,
-    });
-
-    const applyCount = (next: number | null) => {
-      if (!alive || next == null) return;
-      setCount(next);
-      void AsyncStorage.setItem(cacheKey(dayKey), String(next)).catch(() => {});
-    };
-
-    const countApprovedVideos = async (): Promise<number | null> => {
-      const keys = challengeDateKeysForFirestoreIn([dayKey]);
-      if (!keys.length) return null;
-      const q = query(
-        collection(firestore(), 'videos'),
-        where('challengeDate', 'in', keys),
-        where('moderationStatus', '==', 'approved')
-      );
-      const snap = await getCountFromServer(q);
-      const videoCount = snap.data().count;
-      console.log('[live] posted today video count', { dayKey, keys, videoCount });
-      return videoCount;
-    };
-
-    const run = async () => {
-      if (!isFirebaseConfigured()) {
-        setCount(null);
-        return;
-      }
-      try {
-        const videoCount = await countApprovedVideos();
-        if (!alive) return;
-        setCount((prev) => {
-          const next = mergeCounts(prev, videoCount);
-          if (next != null) {
-            void AsyncStorage.setItem(cacheKey(dayKey), String(next)).catch(() => {});
-          }
-          return next;
-        });
-      } catch (e) {
-        console.warn('[live] posted today video count failed', { dayKey, leapDayKeyNow, e });
-        if (!alive) return;
-        setCount((prev) => prev);
-      }
-    };
-
-    let unsubStats: (() => void) | undefined;
-    if (isFirebaseConfigured()) {
-      unsubStats = onSnapshot(
-        doc(firestore(), STATS_COLLECTION, dayKey),
-        (snap) => {
-          const statsCount = Number(snap.data()?.approvedPostCount);
-          console.log('[live] posted today stats snapshot', {
-            dayKey,
-            exists: snap.exists(),
-            approvedPostCount: snap.data()?.approvedPostCount,
-          });
-          if (!Number.isFinite(statsCount) || statsCount < 0) return;
-          setCount((prev) => {
-            const next = mergeCounts(prev, statsCount);
-            if (next != null) {
-              void AsyncStorage.setItem(cacheKey(dayKey), String(next)).catch(() => {});
-            }
-            return next;
-          });
-        },
-        (err) => {
-          console.warn('[live] posted today stats listener failed', { dayKey, err });
-        }
-      );
+    if (!isFirebaseConfigured()) {
+      setCount(null);
+      return;
     }
 
-    void (async () => {
-      try {
-        const cached = await AsyncStorage.getItem(cacheKey(dayKey));
-        if (!alive) return;
-        const n = cached != null ? Number(cached) : NaN;
-        if (Number.isFinite(n) && n > 0) setCount(n);
-      } catch {
-        // ignore cache errors
-      } finally {
-        await run();
-      }
-    })();
+    let alive = true;
+    let videoCount = 0;
+    const statsTotals = new Map<string, number>();
 
-    const id = setInterval(run, 20_000);
+    const publish = () => {
+      if (!alive) return;
+      let statsSum = 0;
+      let hasStats = false;
+      for (const v of statsTotals.values()) {
+        if (Number.isFinite(v) && v >= 0) {
+          statsSum += v;
+          hasStats = true;
+        }
+      }
+      const next = hasStats ? Math.max(statsSum, videoCount) : videoCount;
+      setCount(next);
+    };
+
+    const setup = () => {
+      const nowMs = Date.now();
+      const leapDayKeyNow = getDayKey('America/New_York', nowMs);
+      const inKeys = todayPostedCountChallengeDateInKeys(nowMs);
+      const statsDocKeys = todayPostedCountStatsDocKeys(nowMs);
+
+      console.log('[live] posted today read', {
+        leapDayKeyNow,
+        challengeDateInKeys: inKeys,
+        statsDocKeys,
+        statsDocPaths: statsDocKeys.map((k) => `${STATS_COLLECTION}/${k}`),
+      });
+
+      if (inKeys.length === 0) {
+        videoCount = 0;
+        publish();
+        return () => {};
+      }
+
+      const videosQ = query(
+        collection(firestore(), 'videos'),
+        where('challengeDate', 'in', inKeys),
+        where('moderationStatus', '==', 'approved'),
+        limit(VIDEO_QUERY_LIMIT)
+      );
+
+      const unsubVideos = onSnapshot(
+        videosQ,
+        (snap) => {
+          videoCount = countApprovedFromSnapshot(snap.docs);
+          console.log('[live] posted today videos snapshot', {
+            leapDayKeyNow,
+            inKeys,
+            size: snap.size,
+            counted: videoCount,
+          });
+          publish();
+        },
+        (err) => {
+          console.warn('[live] posted today videos listener failed', { leapDayKeyNow, inKeys, err });
+        }
+      );
+
+      const unsubStatsList = statsDocKeys.map((statsKey) =>
+        onSnapshot(
+          doc(firestore(), STATS_COLLECTION, statsKey),
+          (snap) => {
+            const raw = snap.data()?.approvedPostCount;
+            const n = Number(raw);
+            if (snap.exists() && Number.isFinite(n) && n >= 0) {
+              statsTotals.set(statsKey, n);
+            } else {
+              statsTotals.delete(statsKey);
+            }
+            console.log('[live] posted today stats snapshot', {
+              statsKey,
+              exists: snap.exists(),
+              approvedPostCount: raw,
+            });
+            publish();
+          },
+          (err) => {
+            console.warn('[live] posted today stats listener failed', { statsKey, err });
+          }
+        )
+      );
+
+      return () => {
+        unsubVideos();
+        for (const u of unsubStatsList) u();
+      };
+    };
+
+    let teardown = setup();
+    const keyRefresh = setInterval(() => {
+      teardown();
+      statsTotals.clear();
+      videoCount = 0;
+      teardown = setup();
+    }, 60_000);
+
     return () => {
       alive = false;
-      clearInterval(id);
-      unsubStats?.();
+      clearInterval(keyRefresh);
+      teardown();
     };
-  }, [dayKey, enabled]);
+  }, [enabled, user?.uid]);
 
   return count;
 }
