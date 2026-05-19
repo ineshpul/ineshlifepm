@@ -1,11 +1,7 @@
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
-import { requireNativeModule } from 'expo-modules-core';
-
-export type RecordDualCameraModule = typeof import('expo-dual-camera');
-
-let cachedModule: RecordDualCameraModule | null = null;
+import { requireNativeModule } from 'expo';
 
 /** True only in the Expo Go host app — not dev client, TestFlight, or App Store. */
 export function isExpoGoClient(): boolean {
@@ -23,7 +19,7 @@ export function hasDualCameraNativeModule(): boolean {
   }
 }
 
-/** Show infinity toggle on real devices (native module checked when user taps). */
+/** Show infinity toggle on real devices (capability checked when user taps). */
 export function canShowDualCameraToggle(): boolean {
   if (!Device.isDevice) return __DEV__;
   return true;
@@ -40,23 +36,12 @@ export function logDualCameraToggleAvailability(): void {
   });
 }
 
-export async function loadRecordDualCameraModule(): Promise<RecordDualCameraModule | null> {
-  if (isExpoGoClient() || !hasDualCameraNativeModule()) return null;
-  if (cachedModule) return cachedModule;
+export async function isDualCameraDeviceSupported(): Promise<boolean> {
+  if (isExpoGoClient()) return false;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    cachedModule = require('expo-dual-camera') as RecordDualCameraModule;
-    return cachedModule;
-  } catch {
-    return null;
-  }
-}
-
-export async function isDualCameraDeviceSupported(): Promise<boolean> {
-  const mod = await loadRecordDualCameraModule();
-  if (!mod) return false;
-  try {
-    return (await mod.isSupported()) === true;
+    const { isSupported } = require('expo-dual-camera') as typeof import('expo-dual-camera');
+    return (await isSupported()) === true;
   } catch {
     return false;
   }

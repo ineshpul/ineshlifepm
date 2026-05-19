@@ -2,12 +2,9 @@ import * as React from 'react';
 
 import {
   canShowDualCameraToggle,
-  hasDualCameraNativeModule,
   isDualCameraDeviceSupported,
   isExpoGoClient,
-  loadRecordDualCameraModule,
   logDualCameraToggleAvailability,
-  type RecordDualCameraModule,
 } from '../lib/recordDualCamera';
 import { useRecordDualPip } from './useRecordDualPip';
 
@@ -18,7 +15,8 @@ export type DualToggleResult =
   | { ok: false; reason: 'busy' | 'no_module' | 'unsupported' };
 
 /**
- * Native dual: one MultiCam preview (back + front). Expo Go: CameraView back + placeholder PiP.
+ * Native dual: DualCameraBackView + DualCameraFrontView (expo-dual-camera 55).
+ * Expo Go: CameraView back + placeholder PiP.
  */
 export function useRecordDualMode(cameraLayout: Layout) {
   const [showToggle, setShowToggle] = React.useState(() => canShowDualCameraToggle());
@@ -29,28 +27,22 @@ export function useRecordDualMode(cameraLayout: Layout) {
   }, []);
 
   const [active, setActive] = React.useState(false);
-  const [dualModule, setDualModule] = React.useState<RecordDualCameraModule | null>(null);
   const [toggleBusy, setToggleBusy] = React.useState(false);
   const [pipSuspended, setPipSuspended] = React.useState(false);
 
   const { pipRect, panGesture, resetPip } = useRecordDualPip(cameraLayout);
 
   const isExpoGo = isExpoGoClient();
-  const hasNative = hasDualCameraNativeModule();
 
-  /** Full-screen MultiCam preview — only path for live front + back on device builds. */
   const useMultiCamPreview =
     active &&
     !pipSuspended &&
     !isExpoGo &&
-    dualModule != null &&
     cameraLayout.width > 0 &&
     cameraLayout.height > 0;
 
-  const showExpoGoPip =
-    active && !pipSuspended && isExpoGo && cameraLayout.width > 0;
+  const showExpoGoPip = active && !pipSuspended && isExpoGo && cameraLayout.width > 0;
 
-  /** expo-camera drives preview whenever MultiCam is not active (single mode, recording, Expo Go). */
   const useCameraViewPreview = !useMultiCamPreview;
   const useBackCamera = active && !isExpoGo;
 
@@ -59,7 +51,6 @@ export function useRecordDualMode(cameraLayout: Layout) {
 
     if (active) {
       setActive(false);
-      setDualModule(null);
       resetPip();
       return { ok: true };
     }
@@ -71,27 +62,19 @@ export function useRecordDualMode(cameraLayout: Layout) {
         return { ok: true };
       }
 
-      if (!hasNative) {
-        return { ok: false, reason: 'no_module' };
-      }
-
-      const mod = await loadRecordDualCameraModule();
-      if (!mod) {
-        return { ok: false, reason: 'no_module' };
-      }
-
       const supported = await isDualCameraDeviceSupported();
       if (!supported) {
         return { ok: false, reason: 'unsupported' };
       }
 
-      setDualModule(mod);
       setActive(true);
       return { ok: true };
+    } catch {
+      return { ok: false, reason: 'no_module' };
     } finally {
       setToggleBusy(false);
     }
-  }, [active, hasNative, isExpoGo, resetPip, toggleBusy]);
+  }, [active, isExpoGo, resetPip, toggleBusy]);
 
   const suspendPipForRecording = React.useCallback(() => {
     setPipSuspended(true);
@@ -103,7 +86,6 @@ export function useRecordDualMode(cameraLayout: Layout) {
 
   const resetDualMode = React.useCallback(() => {
     setActive(false);
-    setDualModule(null);
     setPipSuspended(false);
     resetPip();
   }, [resetPip]);
@@ -113,7 +95,6 @@ export function useRecordDualMode(cameraLayout: Layout) {
     active,
     toggleBusy,
     toggle,
-    dualModule,
     pipRect,
     panGesture,
     useMultiCamPreview,
@@ -125,6 +106,5 @@ export function useRecordDualMode(cameraLayout: Layout) {
     resumePipAfterRecording,
     resetDualMode,
     isExpoGo,
-    hasNative,
   };
 }

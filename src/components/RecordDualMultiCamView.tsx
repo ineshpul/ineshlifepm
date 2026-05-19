@@ -1,75 +1,48 @@
 import * as React from 'react';
 import { StyleSheet, View } from 'react-native';
+import {
+  DualCameraBackView,
+  DualCameraFrontView,
+  useIsDualCameraReady,
+} from 'expo-dual-camera';
 import { GestureDetector } from 'react-native-gesture-handler';
 
-import type { RecordDualCameraModule } from '../lib/recordDualCamera';
 import type { DualPipRect } from '../record/dualPipLayout';
+import { DUAL_PIP_HEIGHT, DUAL_PIP_WIDTH } from '../record/dualPipLayout';
 
 type Props = {
-  dualModule: RecordDualCameraModule;
-  width: number;
-  height: number;
   pipRect: DualPipRect;
   panGesture: ReturnType<typeof import('react-native-gesture-handler').Gesture.Pan>;
   onReady?: () => void;
 };
 
 /**
- * One AVCaptureMultiCamSession: back fills the preview, front lives in the PiP rect.
- * Do not mount expo-camera CameraView at the same time — two sessions fight and freeze.
+ * Simultaneous front + back via expo-dual-camera 55 (one MultiCam session, two views).
  */
-export function RecordDualMultiCamView({
-  dualModule,
-  width,
-  height,
-  pipRect,
-  panGesture,
-  onReady,
-}: Props) {
-  const DualCamera = dualModule.DualCamera;
-  const readyRef = React.useRef(false);
-
-  const backFrame = React.useMemo(
-    () => ({ x: 0, y: 0, width: Math.round(width), height: Math.round(height) }),
-    [width, height]
-  );
-
-  const frontFrame = React.useMemo(
-    () => ({
-      x: Math.round(pipRect.x),
-      y: Math.round(pipRect.y),
-      width: Math.round(pipRect.width),
-      height: Math.round(pipRect.height),
-    }),
-    [pipRect.x, pipRect.y, pipRect.width, pipRect.height]
-  );
+export function RecordDualMultiCamView({ pipRect, panGesture, onReady }: Props) {
+  const {
+    isReady,
+    onFrontCameraReady,
+    onBackCameraReady,
+    onFrontMountError,
+    onBackMountError,
+  } = useIsDualCameraReady();
 
   React.useEffect(() => {
-    readyRef.current = false;
-    if (width < 1 || height < 1) return undefined;
-    const t = setTimeout(() => {
-      if (readyRef.current) return;
-      readyRef.current = true;
-      onReady?.();
-    }, 400);
-    return () => clearTimeout(t);
-  }, [width, height, onReady]);
-
-  if (width < 1 || height < 1) return null;
+    if (isReady) onReady?.();
+  }, [isReady, onReady]);
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      <DualCamera
+      <DualCameraBackView
         style={StyleSheet.absoluteFill}
-        backFrame={backFrame}
-        frontFrame={frontFrame}
-        backGravity="resizeAspectFill"
-        frontGravity="resizeAspectFill"
+        onCameraReady={onBackCameraReady}
+        onMountError={onBackMountError}
       />
       <GestureDetector gesture={panGesture}>
         <View
           style={[
-            styles.pipDragTarget,
+            styles.pipWrap,
             {
               left: pipRect.x,
               top: pipRect.y,
@@ -79,32 +52,33 @@ export function RecordDualMultiCamView({
           ]}
           accessibilityRole="adjustable"
           accessibilityLabel="Move selfie preview"
-        />
+        >
+          <DualCameraFrontView
+            style={styles.pipView}
+            mirror
+            onCameraReady={onFrontCameraReady}
+            onMountError={onFrontMountError}
+          />
+          <View style={styles.pipBorder} pointerEvents="none" />
+        </View>
       </GestureDetector>
-      <View
-        pointerEvents="none"
-        style={[
-          styles.pipBorder,
-          {
-            left: pipRect.x,
-            top: pipRect.y,
-            width: pipRect.width,
-            height: pipRect.height,
-          },
-        ]}
-      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  pipDragTarget: {
+  pipWrap: {
     position: 'absolute',
-    zIndex: 13,
+    zIndex: 12,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  pipView: {
+    width: DUAL_PIP_WIDTH,
+    height: DUAL_PIP_HEIGHT,
   },
   pipBorder: {
-    position: 'absolute',
-    zIndex: 14,
+    ...StyleSheet.absoluteFillObject,
     borderRadius: 14,
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.85)',

@@ -207,7 +207,17 @@ export function RecordScreen() {
   const restorePreviewAfterRecording = React.useCallback(() => {
     dual.resumePipAfterRecording();
     cameraReadyRef.current = false;
-    void resumePrimaryCameraPreview();
+    if (dual.active && !dual.isExpoGo) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { resumePreview } = require('expo-dual-camera') as typeof import('expo-dual-camera');
+        resumePreview();
+      } catch {
+        /* noop */
+      }
+    } else {
+      void resumePrimaryCameraPreview();
+    }
   }, [dual, resumePrimaryCameraPreview]);
 
   const onCameraWrapLayout = React.useCallback((e: LayoutChangeEvent) => {
@@ -467,7 +477,7 @@ export function RecordScreen() {
           showError(
             'Dual camera unavailable',
             new Error(
-              'This build does not include dual camera. Install the latest TestFlight build or rebuild with expo-dual-camera.'
+              'Native dual camera is not in this app build. Install the latest TestFlight build (requires iOS 16+ and expo-dual-camera in the native binary).'
             )
           );
         } else if (result.reason === 'unsupported') {
@@ -549,6 +559,15 @@ export function RecordScreen() {
     recordTapBusyRef.current = true;
     try {
       if (dual.active) {
+        if (!dual.isExpoGo) {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { pausePreview } = require('expo-dual-camera') as typeof import('expo-dual-camera');
+            pausePreview();
+          } catch {
+            /* noop */
+          }
+        }
         dual.suspendPipForRecording();
         cameraReadyRef.current = false;
         setCameraSessionKey((k) => k + 1);
@@ -858,12 +877,9 @@ export function RecordScreen() {
                 }}
               />
             ) : null}
-            {dual.useMultiCamPreview && dual.dualModule ? (
+            {dual.useMultiCamPreview ? (
               <RecordDualMultiCamView
                 key={`dual-mc-${cameraSessionKey}`}
-                dualModule={dual.dualModule}
-                width={cameraLayout.width}
-                height={cameraLayout.height}
                 pipRect={dual.pipRect}
                 panGesture={dual.panGesture}
                 onReady={() => {
