@@ -155,6 +155,16 @@ async function awardLeapInchesFirstApproval(
       challengeDate,
     });
 
+    tx.set(
+      dayStatsRef,
+      {
+        challengeDate: dayStatsKey,
+        approvedPostCount: admin.firestore.FieldValue.increment(1),
+        lastApprovedPostAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
     const priorStreak = Math.max(0, Math.floor(Number(ud.activeLeapStreakDays ?? 0)));
     const priorLongest = Math.max(0, Math.floor(Number(ud.longestLeapStreakDays ?? 0)));
     const lastKey = String(ud.lastApprovedLeapDateKey ?? '').trim();
@@ -220,6 +230,13 @@ async function awardLeapInchesFirstApproval(
 
   if (!br) return;
 
+  logger.info('dailyChallengeStats approvedPostCount incremented on leap approval', {
+    dayStatsKey,
+    videoId,
+    challengeDate,
+    owner,
+  });
+
   try {
     await writeUserWeeklyLeaperFields(db, owner, nowMs);
   } catch (e) {
@@ -248,8 +265,23 @@ async function revokeLeapInchesForVideo(
   const nowMs = Date.now();
   const challengeDate = String(beforeData.challengeDate ?? '').trim();
   const dayKey = challengeDate || leapChallengeDateKeyFromMs(awardMs > 0 ? awardMs : nowMs);
+  const dayStatsKey = canonicalChallengeDayKey(dayKey);
 
   await incrementUserLeapInches(db, owner, -inches, dayKey, awardMs > 0 ? awardMs : nowMs, nowMs);
+
+  try {
+    await db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayStatsKey}`).set(
+      { approvedPostCount: admin.firestore.FieldValue.increment(-1) },
+      { merge: true }
+    );
+    logger.info('dailyChallengeStats approvedPostCount decremented on leap revoke', {
+      dayStatsKey,
+      videoId,
+      owner,
+    });
+  } catch (e) {
+    logger.warn('dailyChallengeStats approvedPostCount decrement failed', { dayStatsKey, videoId, e });
+  }
 
   await videoRef.set(
     {

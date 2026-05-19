@@ -53,6 +53,7 @@ import { useCameraPreviewFreezeRecovery } from '../hooks/useCameraPreviewFreezeR
 import {
   canOfferDualCameraToggle,
   initializeNativeDualCamera,
+  logDualCameraAvailability,
 } from '../lib/dualCameraSupport';
 import { isExpoGoClient, type ExpoDualCameraModule } from '../lib/expoDualCamera';
 import { navigateToFeedTab } from '../navigation/navigationHelpers';
@@ -221,6 +222,7 @@ export function RecordScreen() {
   }, [dualUseSingleCamera]);
 
   React.useEffect(() => {
+    logDualCameraAvailability();
     const offer = canOfferDualCameraToggle();
     setDualCameraAvailable(offer);
     if (!offer) {
@@ -656,10 +658,13 @@ export function RecordScreen() {
                 ? true
                 : await initializeNativeDualCamera(3000);
             if (!nativeOk) {
-              if (__DEV__) {
-                console.log('[Record] dual camera init failed or timed out — hiding toggle');
-              }
-              disableDualCameraCompletely();
+              console.log(
+                '[Record] dual camera init failed or timed out — staying in single camera (toggle remains)'
+              );
+              setDualCameraEnabled(false);
+              setNativeDualCamera(false);
+              setDualCameraModule(null);
+              resetPip();
               await resumePrimaryCameraPreview();
               return;
             }

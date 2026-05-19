@@ -1,3 +1,4 @@
+import * as Application from 'expo-application';
 import * as Device from 'expo-device';
 
 import {
@@ -13,24 +14,47 @@ export type DualCameraSupport = {
   nativeDual: boolean;
 };
 
+export type DualCameraAvailabilityLog = {
+  isDevice: boolean;
+  isExpoGo: boolean;
+  applicationId: string | null;
+  nativeModulePeek: boolean;
+  toggleVisible: boolean;
+};
+
+/** Structured log for TestFlight / device debugging (visible in Metro and native logs). */
+export function logDualCameraAvailability(): DualCameraAvailabilityLog {
+  const isDevice = Device.isDevice;
+  const isExpoGo = isExpoGoClient();
+  const applicationId = Application.applicationId ?? null;
+  const nativeModulePeek = peekExpoDualCameraNativeModule();
+  const toggleVisible = canOfferDualCameraToggle();
+  const payload: DualCameraAvailabilityLog = {
+    isDevice,
+    isExpoGo,
+    applicationId,
+    nativeModulePeek,
+    toggleVisible,
+  };
+  console.log('[Record] dual camera availability', payload);
+  if (isDevice && !isExpoGo && !nativeModulePeek) {
+    console.log(
+      '[Record] dual camera: ExpoDualCamera native module not in this binary — rebuild with expo-dual-camera in app.json plugins'
+    );
+  }
+  return payload;
+}
+
 /**
  * Whether the dual-camera toggle may appear. Does not load or start expo-dual-camera.
+ * Toggle is shown on physical devices except Expo Go; native module is validated on tap.
  */
 export function canOfferDualCameraToggle(): boolean {
   if (!Device.isDevice) {
-    if (__DEV__) console.log('[Record] dual camera: simulator — toggle hidden');
     return false;
   }
   if (isExpoGoClient()) {
     return true;
-  }
-  if (!peekExpoDualCameraNativeModule()) {
-    if (__DEV__) {
-      console.log(
-        '[Record] dual camera: no native module in binary — toggle hidden (rebuild with expo-dual-camera plugin)'
-      );
-    }
-    return false;
   }
   return true;
 }
@@ -42,7 +66,7 @@ export async function initializeNativeDualCamera(timeoutMs = 3000): Promise<bool
   if (isExpoGoClient()) return false;
   if (!peekExpoDualCameraNativeModule()) return false;
   const nativeDual = await confirmNativeDualCameraSupported(timeoutMs);
-  if (__DEV__) console.log('[Record] dual camera lazy init nativeDual:', nativeDual);
+  console.log('[Record] dual camera lazy init nativeDual:', nativeDual);
   return nativeDual;
 }
 
