@@ -23,6 +23,7 @@ import {
   doc,
   limit,
   onSnapshot,
+  orderBy,
   query,
   where,
   type QueryDocumentSnapshot,
@@ -59,6 +60,7 @@ import { useSettingsPreferences } from '../state/settingsPreferences';
 import {
   challengeDateKeysForFirestoreIn,
   computeFeedViewingFromNow,
+  groupDayKeysForFirestoreInQuery,
   normalizeNyDateKey,
   nyDateKey,
   nyDateKeyToSortUtcMs,
@@ -84,8 +86,9 @@ const REEL_BOTTOM_SHEET = 232;
 const TAB_BAR_HEIGHT = 58;
 /** Prior days use {@link nyLeapDayChainBackward} → {@link prevNyDateKey} — **same stepping as streaks** (one NY calendar day per step). */
 const FEED_DAY_WINDOW = 14;
-/** Per-day cap — avoids one busy day consuming a shared `limit()` and hiding whole dates. */
-const FEED_APPROVED_PER_DAY_LIMIT = 200;
+/** Per batched query (several days) — newest first via `orderBy('createdAt')`. */
+const FEED_APPROVED_PER_BATCH_LIMIT = 80;
+const FEED_HYDRATE_SAFETY_MS = 8_000;
 
 /** Must be a stable reference — `viewabilityConfigCallbackPairs` cannot change after mount (RN FlatList). */
 const FEED_VIEWABILITY_CONFIG = {
@@ -412,20 +415,24 @@ export function FeedScreen() {
     let cancelled = false;
     let approvedUnsubs: (() => void)[] = [];
     let mineUnsub: (() => void) | null = null;
-    /** One bucket per leap day in the window — each has its own listener + per-day `limit`. */
-    let approvedDocsByDay: FeedVideo[][] = [];
+    /** One bucket per batched Firestore query (few listeners instead of one per day). */
+    let approvedDocsByBatch: FeedVideo[][] = [];
     let mineDocs: FeedVideo[] = [];
     let approvedListenersDone = false;
     let mineListenerSeen = false;
 
     const bumpHydrated = () => {
       if (cancelled) return;
-      if (approvedListenersDone && mineListenerSeen) setFeedHydrated(true);
+      const hasPosts =
+        mineDocs.length > 0 || approvedDocsByBatch.some((batch) => batch.length > 0);
+      if (hasPosts || (approvedListenersDone && mineListenerSeen)) {
+        setFeedHydrated(true);
+      }
     };
 
     const merge = () => {
       const map = new Map<string, FeedVideo>();
-      const approvedFlat = approvedDocsByDay.flat();
+      const approvedFlat = approvedDocsByBatch.flat();
       for (const v of [...mineDocs, ...approvedFlat]) {
         if (!v.url) continue;
         map.set(v.id, v);
@@ -443,11 +450,12 @@ export function FeedScreen() {
         return b.createdAtMs - a.createdAtMs;
       });
       setVideos(merged);
+      if (merged.length > 0) bumpHydrated();
     };
 
     const safetyTimer = setTimeout(() => {
       if (!cancelled) setFeedHydrated(true);
-    }, 15_000);
+    }, FEED_HYDRATE_SAFETY_MS);
 
     void firebaseAuth()
       .authStateReady()
@@ -467,7 +475,8 @@ export function FeedScreen() {
         const calNorm = normalizeNyDateKey(calToday, calToday);
         const dayChain =
           calNorm && calNorm !== anchorKey ? [calNorm, ...leapChain] : leapChain;
-        approvedDocsByDay = dayChain.map(() => []);
+        const dayGroups = groupDayKeysForFirestoreInQuery(dayChain);
+        approvedDocsByBatch = dayGroups.map(() => []);
 
         const docToFeedVideo = (d: QueryDocumentSnapshot): FeedVideo => {
           const data: any = d.data();
@@ -492,21 +501,21 @@ export function FeedScreen() {
           };
         };
 
-        const segmentSeen = dayChain.map(() => false);
+        const segmentSeen = dayGroups.map(() => false);
         const markApprovedReady = () => {
           approvedListenersDone = segmentSeen.length === 0 || segmentSeen.every(Boolean);
           bumpHydrated();
         };
 
-        if (dayChain.length === 0) {
+        if (dayGroups.length === 0) {
           approvedListenersDone = true;
           markApprovedReady();
         } else {
-          approvedUnsubs = dayChain.map((dayKey, idx) => {
-            const inVals = challengeDateKeysForFirestoreIn([dayKey]);
+          approvedUnsubs = dayGroups.map((group, idx) => {
+            const inVals = challengeDateKeysForFirestoreIn(group);
             if (inVals.length === 0) {
               segmentSeen[idx] = true;
-              approvedDocsByDay[idx] = [];
+              approvedDocsByBatch[idx] = [];
               merge();
               markApprovedReady();
               return () => {};
@@ -515,18 +524,19 @@ export function FeedScreen() {
               collection(firestore(), 'videos'),
               where('challengeDate', 'in', inVals),
               where('moderationStatus', '==', 'approved'),
-              limit(FEED_APPROVED_PER_DAY_LIMIT)
+              orderBy('createdAt', 'desc'),
+              limit(FEED_APPROVED_PER_BATCH_LIMIT)
             );
             return onSnapshot(
               approvedQ,
               (snap) => {
-                approvedDocsByDay[idx] = snap.docs.map(docToFeedVideo);
+                approvedDocsByBatch[idx] = snap.docs.map(docToFeedVideo);
                 merge();
                 segmentSeen[idx] = true;
                 markApprovedReady();
               },
               () => {
-                approvedDocsByDay[idx] = [];
+                approvedDocsByBatch[idx] = [];
                 merge();
                 segmentSeen[idx] = true;
                 markApprovedReady();

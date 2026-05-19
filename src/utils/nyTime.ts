@@ -209,6 +209,31 @@ export function challengeDateKeysForFirestoreIn(dateKeys: readonly string[]): st
   return Array.from(set).slice(0, 30);
 }
 
+const FIRESTORE_IN_MAX = 10;
+
+/**
+ * Pack leap day keys into groups so each group's `challengeDate` `in` list stays ≤ 10
+ * (Firestore limit; each day uses up to two string variants).
+ */
+export function groupDayKeysForFirestoreInQuery(dayKeys: readonly string[]): string[][] {
+  const groups: string[][] = [];
+  let current: string[] = [];
+  let inCount = 0;
+  for (const dayKey of dayKeys) {
+    const vals = challengeDateKeysForFirestoreIn([dayKey]);
+    if (vals.length === 0) continue;
+    if (inCount + vals.length > FIRESTORE_IN_MAX && current.length > 0) {
+      groups.push(current);
+      current = [];
+      inCount = 0;
+    }
+    current.push(dayKey);
+    inCount += vals.length;
+  }
+  if (current.length > 0) groups.push(current);
+  return groups;
+}
+
 /**
  * Walk backward along consecutive NY **calendar** dates (newest first). Matches how streaks and
  * `videos.challengeDate` labels advance — **not** `noon−40h`, which skips a calendar day and broke streaks.
