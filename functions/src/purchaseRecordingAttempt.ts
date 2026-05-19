@@ -22,11 +22,6 @@ function maxAttemptsFromChallenge(data: admin.firestore.DocumentData | undefined
   return Math.min(50, Math.max(1, n));
 }
 
-async function isAdminUid(uid: string): Promise<boolean> {
-  const snap = await admin.firestore().doc(`users/${uid}`).get();
-  return snap.exists === true && snap.data()?.isAdmin === true;
-}
-
 /**
  * Restore one recording attempt when the daily ledger is exhausted.
  * Marks the leap so {@link BONUS_ATTEMPT_BASE_REDUCTION_INCHES} is deducted from post base at award time.
@@ -48,8 +43,6 @@ export const purchaseRecordingAttemptCallable = onCall({ region: REGION }, async
   const attemptRef = db.doc(`postAttempts/${attemptId}`);
   const videoRef = db.doc(`videos/${attemptId}`);
   const challengeRef = db.doc(`challenges/${challengeDate}`);
-  const adminUser = await isAdminUid(uid);
-
   await db.runTransaction(async (tx) => {
     const videoSnap = await tx.get(videoRef);
     if (videoSnap.exists) {
@@ -61,26 +54,9 @@ export const purchaseRecordingAttemptCallable = onCall({ region: REGION }, async
 
     const attSnap = await tx.get(attemptRef);
     const used = Number(attSnap.data()?.used ?? 0);
-    const bonus = Number(attSnap.data()?.bonusRecordingAttempts ?? 0);
 
-    if (!adminUser && used < max) {
+    if (used < max) {
       throw new HttpsError('failed-precondition', 'You still have recording attempts.');
-    }
-
-    if (adminUser) {
-      tx.set(
-        attemptRef,
-        {
-          uid,
-          challengeDate,
-          used,
-          max,
-          bonusRecordingAttempts: bonus + 1,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-      return;
     }
 
     const nextUsed = Math.max(0, used - 1);
@@ -103,11 +79,10 @@ export const purchaseRecordingAttemptCallable = onCall({ region: REGION }, async
 
   const max = maxAttemptsFromChallenge(chAfter.data());
   const used = Number(attAfter.data()?.used ?? 0);
-  const bonus = Number(attAfter.data()?.bonusRecordingAttempts ?? 0);
 
   return {
     ok: true,
-    remaining: Math.max(0, max - used + bonus),
-    baseReductionInches: adminUser ? 0 : BONUS_ATTEMPT_BASE_REDUCTION_INCHES,
+    remaining: Math.max(0, max - used),
+    baseReductionInches: BONUS_ATTEMPT_BASE_REDUCTION_INCHES,
   };
 });

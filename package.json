@@ -29,6 +29,7 @@
     "expo-camera": "~17.0.10",
     "expo-constants": "~18.0.13",
     "expo-crypto": "~15.0.8",
+    "expo-dev-client": "~6.0.21",
     "expo-device": "~8.0.10",
     "expo-dual-camera": "2.1.6",
     "expo-file-system": "~19.0.21",

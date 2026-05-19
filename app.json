@@ -1,4 +1,4 @@
-{
+﻿{
   "expo": {
     "name": "Leap_MVP",
     "slug": "Leap_MVP",
@@ -22,7 +22,7 @@
         "NSMicrophoneUsageDescription": "Leap needs microphone access to record audio with your video.",
         "NSPhotoLibraryUsageDescription": "Leap needs photo library access so you can attach a video to your challenge.",
         "NSPhotoLibraryAddUsageDescription": "Leap can save your completed takes to your photo library when you enable Save to camera roll.",
-        "NSUserNotificationsUsageDescription": "Leap uses notifications to remind you when todayâ€™s challenge is live and before time runs out.",
+        "NSUserNotificationsUsageDescription": "Leap uses notifications to remind you when today's challenge is live and before time runs out.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },

@@ -21,6 +21,8 @@ import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebas
 import { LeapLoadingFrog } from '../components/LeapLoadingFrog';
 import { RecordClipPreview } from '../components/RecordClipPreview';
 import { RecordDualCameraPreview } from '../components/RecordDualCameraPreview';
+import { RecordDraggableDualPip } from '../components/RecordDraggableDualPip';
+import { useDraggableDualPip } from '../hooks/useDraggableDualPip';
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
@@ -33,6 +35,7 @@ import {
   commitPostedVideo,
   consumeRecordingAttempt,
   refundRecordingAttemptIfNoPostedVideo,
+  resetAdminRecordingAttemptsForToday,
   syncAttemptLedgerAfterSuccessfulPost,
   useAttemptsRemaining,
 } from '../state/postAttempts';
@@ -44,10 +47,9 @@ import * as Device from 'expo-device';
 import { BONUS_ATTEMPT_BASE_REDUCTION_INCHES } from '../lib/verticalScore';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { getExpoExtra } from '../config/expoExtra';
-import { adminGrantRecordingAttempt } from '../services/adminGrantRecordingAttempt';
 import { purchaseRecordingAttemptWithScore } from '../services/recordingAttemptsPurchase';
 import { computeFeedViewingFromNow } from '../utils/nyTime';
-import { probeDualCameraSupported } from '../lib/dualCameraSupport';
+import { probeDualCameraSupport } from '../lib/dualCameraSupport';
 import { navigateToFeedTab } from '../navigation/navigationHelpers';
 import { offerCameraRollSaveAfterPost } from '../state/pendingCameraRollSave';
 import { saveVideoToCameraRoll } from '../services/saveVideoToCameraRoll';
@@ -158,25 +160,32 @@ export function RecordScreen() {
   const attemptsLeft = attemptsRemaining;
   const [bonusBasePending, setBonusBasePending] = React.useState(false);
   const [purchaseBusy, setPurchaseBusy] = React.useState(false);
-  const [adminGrantBusy, setAdminGrantBusy] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
-  const [countdown, setCountdown] = React.useState<number | null>(null);
+  /** Seconds left while recording (counts down from challenge max). */
+  const [recordSecondsLeft, setRecordSecondsLeft] = React.useState<number | null>(null);
   const [clipUri, setClipUri] = React.useState<string | null>(null);
   const [clipSource, setClipSource] = React.useState<'recorded' | 'demo' | null>(null);
   const [cameraFacing, setCameraFacing] = React.useState<'front' | 'back'>('front');
   const [dualCameraEnabled, setDualCameraEnabled] = React.useState(false);
   const [dualCameraAvailable, setDualCameraAvailable] = React.useState(false);
+  const [nativeDualCamera, setNativeDualCamera] = React.useState(false);
   /** True while countdown/record uses expo-camera back (DualCamera session is unmounted). */
   const [dualUseSingleCamera, setDualUseSingleCamera] = React.useState(false);
   const [cameraLayout, setCameraLayout] = React.useState({ width: 0, height: 0 });
+  const { pipFrame, panGesture, resetPip } = useDraggableDualPip(cameraLayout);
+  const [cameraSessionKey, setCameraSessionKey] = React.useState(0);
+  const [dualTransitioning, setDualTransitioning] = React.useState(false);
   const dualCameraEnabledRef = React.useRef(false);
+  const nativeDualCameraRef = React.useRef(false);
+  const dualUseSingleCameraRef = React.useRef(false);
+  const adminAttemptsResetRef = React.useRef(false);
   const [uploading, setUploading] = React.useState(false);
   const [uploadPct, setUploadPct] = React.useState(0);
   /** After bytes finish uploading, Firestore commit can take a while — show a distinct phase. */
   const [postSaving, setPostSaving] = React.useState(false);
   const cameraReadyRef = React.useRef(false);
   const cameraRef = React.useRef<CameraView>(null);
-  const countdownAbortRef = React.useRef(false);
+  const recordingAbortRef = React.useRef(false);
   const isRecordingRef = React.useRef(false);
   const recordingWatchdogRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const recordTapBusyRef = React.useRef(false);
@@ -192,11 +201,20 @@ export function RecordScreen() {
   }, [dualCameraEnabled]);
 
   React.useEffect(() => {
+    nativeDualCameraRef.current = nativeDualCamera;
+  }, [nativeDualCamera]);
+
+  React.useEffect(() => {
+    dualUseSingleCameraRef.current = dualUseSingleCamera;
+  }, [dualUseSingleCamera]);
+
+  React.useEffect(() => {
     let alive = true;
-    void probeDualCameraSupported().then((ok) => {
+    void probeDualCameraSupport().then(({ deviceOk, nativeDual }) => {
       if (!alive) return;
-      setDualCameraAvailable(ok);
-      if (!ok) {
+      setDualCameraAvailable(deviceOk);
+      setNativeDualCamera(nativeDual);
+      if (!deviceOk) {
         setDualCameraEnabled(false);
         setDualUseSingleCamera(false);
       }
@@ -205,6 +223,23 @@ export function RecordScreen() {
       alive = false;
     };
   }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!user?.isAdmin || !user?.uid || !isFirebaseConfigured() || adminAttemptsResetRef.current) {
+        return;
+      }
+      adminAttemptsResetRef.current = true;
+      void resetAdminRecordingAttemptsForToday({
+        uid: user.uid,
+        challengeDate: viewingChallengeDateKey,
+        dailyMaxAttempts: challenge.maxRecordingAttempts,
+      }).catch((e) => {
+        if (__DEV__) console.log('[Record] admin attempt reset failed:', e);
+        adminAttemptsResetRef.current = false;
+      });
+    }, [user?.isAdmin, user?.uid, viewingChallengeDateKey, challenge.maxRecordingAttempts])
+  );
 
   React.useEffect(() => {
     if (!user?.uid || !isFirebaseConfigured()) {
@@ -224,17 +259,46 @@ export function RecordScreen() {
   const clearPreview = React.useCallback(() => {
     setClipUri(null);
     setClipSource(null);
-    setCountdown(null);
+    setRecordSecondsLeft(null);
+    setIsRecording(false);
     setCameraFacing('front');
     setDualUseSingleCamera(false);
+    setDualTransitioning(false);
+    resetPip();
     cameraReadyRef.current = false;
+  }, [resetPip]);
+
+  const resumePrimaryCameraPreview = React.useCallback(async (timeoutMs = 6000) => {
+    cameraReadyRef.current = false;
+    let waited = 0;
+    while (waited < timeoutMs) {
+      if (cameraRef.current) {
+        try {
+          await cameraRef.current.resumePreview?.();
+        } catch {
+          /* noop */
+        }
+        cameraReadyRef.current = true;
+        return true;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, 120));
+      waited += 120;
+    }
+    return false;
   }, []);
 
   const restoreDualPreviewAfterRecording = React.useCallback(() => {
-    if (!dualCameraEnabledRef.current) return;
-    cameraReadyRef.current = false;
     setDualUseSingleCamera(false);
-  }, []);
+    if (dualCameraEnabledRef.current && nativeDualCameraRef.current) {
+      cameraReadyRef.current = false;
+      setCameraSessionKey((k) => k + 1);
+      return;
+    }
+    cameraReadyRef.current = false;
+    setCameraSessionKey((k) => k + 1);
+    void resumePrimaryCameraPreview();
+  }, [resumePrimaryCameraPreview]);
 
   const onCameraWrapLayout = React.useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
@@ -246,7 +310,7 @@ export function RecordScreen() {
   React.useEffect(() => {
     setClipUri(null);
     setClipSource(null);
-    setCountdown(null);
+    setRecordSecondsLeft(null);
     setIsRecording(false);
     setCameraFacing('front');
     cameraReadyRef.current = false;
@@ -256,7 +320,7 @@ export function RecordScreen() {
     if (!postedToday) return;
     setClipUri(null);
     setClipSource(null);
-    setCountdown(null);
+    setRecordSecondsLeft(null);
     setIsRecording(false);
     cameraReadyRef.current = false;
   }, [postedToday]);
@@ -275,9 +339,14 @@ export function RecordScreen() {
       }
 
       const markReadyAfterResume = () => {
-        void cameraRef.current?.resumePreview?.().then(() => {
-          cameraReadyRef.current = true;
-        }).catch(() => {});
+        if (
+          dualCameraEnabledRef.current &&
+          nativeDualCameraRef.current &&
+          !dualUseSingleCameraRef.current
+        ) {
+          return;
+        }
+        void resumePrimaryCameraPreview(4000);
       };
 
       const task = InteractionManager.runAfterInteractions(() => {
@@ -288,8 +357,8 @@ export function RecordScreen() {
 
       return () => {
         task.cancel?.();
-        countdownAbortRef.current = true;
-        setCountdown(null);
+        recordingAbortRef.current = true;
+        setRecordSecondsLeft(null);
         if (recordingWatchdogRef.current) {
           clearTimeout(recordingWatchdogRef.current);
           recordingWatchdogRef.current = null;
@@ -320,20 +389,22 @@ export function RecordScreen() {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       if (next !== 'active') return;
       if (!isFocused || postedToday || clipUri || !canUseCamera) return;
+      if (
+        dualCameraEnabledRef.current &&
+        nativeDualCameraRef.current &&
+        !dualUseSingleCameraRef.current
+      ) {
+        return;
+      }
       requestAnimationFrame(() => {
-        void cameraRef.current
-          ?.resumePreview?.()
-          .then(() => {
-            cameraReadyRef.current = true;
-          })
-          .catch(() => {});
+        void resumePrimaryCameraPreview(2500);
       });
     });
     return () => sub.remove();
-  }, [isFocused, postedToday, clipUri, canUseCamera]);
+  }, [isFocused, postedToday, clipUri, canUseCamera, resumePrimaryCameraPreview]);
 
   const navigateAfterPost = React.useCallback(
-    (opts: { recordedForSave: boolean; clipUriForOffer: string | null }) => {
+    async (opts: { recordedForSave: boolean; clipUriForOffer: string | null }) => {
       const { recordedForSave, clipUriForOffer } = opts;
       if (
         recordedForSave &&
@@ -341,34 +412,38 @@ export function RecordScreen() {
         clipUriForOffer &&
         !clipUriForOffer.startsWith('demo://')
       ) {
-        offerCameraRollSaveAfterPost(clipUriForOffer);
+        await offerCameraRollSaveAfterPost(clipUriForOffer);
       }
       navigateToFeedTab(nav);
     },
     [nav, preferences.autoSavePosts]
   );
 
-  const startCountdownThenRecord = async () => {
-    countdownAbortRef.current = false;
+  React.useEffect(() => {
+    if (!isRecording) return undefined;
+    const tick = setInterval(() => {
+      setRecordSecondsLeft((prev) => {
+        if (prev == null) return null;
+        const next = prev - 1;
+        if (next <= 0 && isRecordingRef.current) {
+          try {
+            (cameraRef.current as { stopRecording?: () => void })?.stopRecording?.();
+          } catch {
+            /* noop */
+          }
+          return 0;
+        }
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [isRecording]);
+
+  const startRecordingSession = async () => {
+    recordingAbortRef.current = false;
     setClipUri(null);
     setClipSource(null);
-    setCountdown(3);
-    for (let t = 3; t >= 1; t--) {
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((r) => setTimeout(r, 800));
-      if (countdownAbortRef.current) {
-        setCountdown(null);
-        restoreDualPreviewAfterRecording();
-        return;
-      }
-      setCountdown(t - 1);
-    }
-    if (countdownAbortRef.current) {
-      setCountdown(null);
-      restoreDualPreviewAfterRecording();
-      return;
-    }
-    setCountdown(null);
+    setRecordSecondsLeft(maxSec);
 
     try {
       await setAudioSessionForRecording().catch(() => {});
@@ -386,7 +461,7 @@ export function RecordScreen() {
         // eslint-disable-next-line no-await-in-loop
         await new Promise((r) => setTimeout(r, 120));
         waited += 120;
-        if (countdownAbortRef.current) return;
+        if (recordingAbortRef.current) return;
       }
       if (!cameraReadyRef.current) {
         showError('Camera not ready', new Error('Wait for the preview, then try again.'));
@@ -440,6 +515,7 @@ export function RecordScreen() {
       }
       isRecordingRef.current = false;
       setIsRecording(false);
+      setRecordSecondsLeft(null);
       restoreDualPreviewAfterRecording();
       void setAudioSessionForPlayback().catch(() => {});
     }
@@ -462,7 +538,7 @@ export function RecordScreen() {
       postedToday ||
       !playerFacing.canRecord ||
       isRecording ||
-      countdown != null ||
+      recordSecondsLeft != null ||
       !canUseCamera
     ) {
       return;
@@ -479,7 +555,7 @@ export function RecordScreen() {
     postedToday,
     playerFacing.canRecord,
     isRecording,
-    countdown,
+    recordSecondsLeft,
     canUseCamera,
   ]);
 
@@ -489,31 +565,64 @@ export function RecordScreen() {
       postedToday ||
       !playerFacing.canRecord ||
       isRecording ||
-      countdown != null ||
-      !canUseCamera
+      recordSecondsLeft != null ||
+      !canUseCamera ||
+      dualTransitioning
     ) {
       return;
     }
+
+    const enabling = !dualCameraEnabled;
+    setDualTransitioning(true);
     cameraReadyRef.current = false;
     setDualUseSingleCamera(false);
-    setDualCameraEnabled((prev) => {
-      const next = !prev;
-      if (next) setCameraFacing('back');
-      if (__DEV__) console.log('[Record] dual camera toggled:', next);
-      return next;
-    });
+
+    void (async () => {
+      try {
+        if (enabling) {
+          setCameraFacing('back');
+          if (nativeDualCameraRef.current) {
+            try {
+              await cameraRef.current?.pausePreview?.();
+            } catch {
+              /* noop */
+            }
+            setDualCameraEnabled(true);
+            await new Promise((r) => setTimeout(r, 480));
+            cameraReadyRef.current = true;
+          } else {
+            setDualCameraEnabled(true);
+            await resumePrimaryCameraPreview();
+          }
+        } else {
+          setDualCameraEnabled(false);
+          setCameraFacing('front');
+          resetPip();
+          setCameraSessionKey((k) => k + 1);
+          await new Promise((r) => setTimeout(r, 160));
+          await resumePrimaryCameraPreview();
+        }
+        if (__DEV__) console.log('[Record] dual camera toggled:', enabling);
+      } finally {
+        setDualTransitioning(false);
+      }
+    })();
   }, [
     dualCameraAvailable,
+    dualCameraEnabled,
+    dualTransitioning,
     postedToday,
     playerFacing.canRecord,
     isRecording,
-    countdown,
+    recordSecondsLeft,
     canUseCamera,
+    resumePrimaryCameraPreview,
+    resetPip,
   ]);
 
   const onTapRecord = async () => {
     // Stop must run even while `recordTapBusyRef` is true — it stays true for the whole
-    // `recordAsync()` await inside `startCountdownThenRecord`, otherwise taps never reach `stopRecording`.
+    // `recordAsync()` await inside `startRecordingSession`, otherwise taps never reach `stopRecording`.
     if (isRecordingRef.current) {
       (cameraRef.current as { stopRecording?: () => void })?.stopRecording?.();
       return;
@@ -559,11 +668,14 @@ export function RecordScreen() {
 
     recordTapBusyRef.current = true;
     try {
-      if (dualCameraEnabled) {
+      if (dualCameraEnabled && nativeDualCameraRef.current) {
         if (__DEV__) console.log('[Record] switching to single back CameraView for recording');
+        setDualTransitioning(true);
         setDualUseSingleCamera(true);
+        setCameraSessionKey((k) => k + 1);
         await new Promise<void>((r) => requestAnimationFrame(() => r()));
         const ready = await waitForSingleCameraReady();
+        setDualTransitioning(false);
         if (!ready) {
           showError('Camera not ready', new Error('Wait for the back camera, then try again.'));
           restoreDualPreviewAfterRecording();
@@ -592,7 +704,7 @@ export function RecordScreen() {
 
       await setAudioSessionForRecording().catch(() => {});
       await new Promise<void>((r) => setTimeout(r, 200));
-      await startCountdownThenRecord();
+      await startRecordingSession();
     } finally {
       recordTapBusyRef.current = false;
     }
@@ -619,7 +731,7 @@ export function RecordScreen() {
         markPostedToday();
         setClipUri(null);
         setClipSource(null);
-        navigateAfterPost({
+        await navigateAfterPost({
           recordedForSave: clipSource === 'recorded',
           clipUriForOffer,
         });
@@ -721,7 +833,7 @@ export function RecordScreen() {
       markPostedToday();
       setClipUri(null);
       setClipSource(null);
-      navigateAfterPost({ recordedForSave, clipUriForOffer });
+      await navigateAfterPost({ recordedForSave, clipUriForOffer });
 
       void syncAttemptLedgerAfterSuccessfulPost({
         uid: user.uid,
@@ -770,29 +882,29 @@ export function RecordScreen() {
     await runUpload();
   };
 
+  const usesNativeDualPreview =
+    dualCameraEnabled && !dualUseSingleCamera && nativeDualCamera && cameraLayout.width > 0;
+  const showExpoDualPip = dualCameraEnabled && !dualUseSingleCamera && !nativeDualCamera;
+  const showPrimaryCameraView = !usesNativeDualPreview;
+  const showDraggableDualPip =
+    dualCameraEnabled && !dualUseSingleCamera && cameraLayout.width > 0;
+
   const onPurchaseAttemptPress = React.useCallback(() => {
     if (!user?.uid || !isFirebaseConfigured()) return;
-    const isAdmin = Boolean(user.isAdmin);
     Alert.alert(
-      isAdmin ? 'Add another attempt?' : 'Get another attempt?',
-      isAdmin
-        ? 'Admin: grants a free bonus attempt (no base-inch cost). You can add as many as you need.'
-        : `Costs ${ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES} in from your leap base when you post (5→0 in base, or 10→5 in for a first post). Engagement still adds on top.`,
+      'Get another attempt?',
+      `Costs ${ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES} in from your leap base when you post (5→0 in base, or 10→5 in for a first post). Engagement still adds on top.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: isAdmin ? 'Add attempt' : 'Unlock attempt',
+          text: 'Unlock attempt',
           onPress: () => {
             setPurchaseBusy(true);
             void (async () => {
               try {
                 await purchaseRecordingAttemptWithScore(viewingChallengeDateKey);
-                if (!isAdmin) {
-                  setBonusBasePending(true);
-                  showInfo('Attempt added', 'Your next posted leap will use the reduced base.');
-                } else {
-                  showInfo('Attempt added', 'Admin bonus attempt granted.');
-                }
+                setBonusBasePending(true);
+                showInfo('Attempt added', 'Your next posted leap will use the reduced base.');
               } catch (e) {
                 showError('Could not unlock attempt', e);
               } finally {
@@ -803,22 +915,7 @@ export function RecordScreen() {
         },
       ]
     );
-  }, [user?.uid, user?.isAdmin, viewingChallengeDateKey]);
-
-  const onAdminGrantAttemptPress = React.useCallback(() => {
-    if (!user?.isAdmin || !user?.uid || !isFirebaseConfigured()) return;
-    setAdminGrantBusy(true);
-    void (async () => {
-      try {
-        await adminGrantRecordingAttempt(viewingChallengeDateKey);
-        showInfo('Attempt added', 'Admin bonus attempt granted.');
-      } catch (e) {
-        showError('Could not add attempt', e);
-      } finally {
-        setAdminGrantBusy(false);
-      }
-    })();
-  }, [user?.isAdmin, user?.uid, viewingChallengeDateKey]);
+  }, [user?.uid, viewingChallengeDateKey]);
 
   return (
     <Screen withSafeArea={false} style={styles.screen}>
@@ -869,19 +966,13 @@ export function RecordScreen() {
           </View>
         ) : canUseCamera ? (
           <>
-            {dualCameraEnabled && !dualUseSingleCamera && cameraLayout.width > 0 ? (
-              <RecordDualCameraPreview
-                width={cameraLayout.width}
-                height={cameraLayout.height}
-              />
-            ) : null}
-            {(!dualCameraEnabled || dualUseSingleCamera) ? (
+            {showPrimaryCameraView ? (
               <CameraView
-                key={`camera-${challenge.dateKey}-${challenge.maxDurationSeconds}-${dualUseSingleCamera ? 'record-back' : cameraFacing}`}
+                key={`camera-${cameraSessionKey}-${challenge.dateKey}-${challenge.maxDurationSeconds}-${dualCameraEnabled || dualUseSingleCamera ? 'back' : cameraFacing}`}
                 ref={cameraRef}
                 style={StyleSheet.absoluteFill}
-                facing={dualUseSingleCamera || dualCameraEnabled ? 'back' : cameraFacing}
-                mirror={!dualUseSingleCamera && !dualCameraEnabled && cameraFacing === 'front'}
+                facing={dualCameraEnabled || dualUseSingleCamera ? 'back' : cameraFacing}
+                mirror={!dualCameraEnabled && !dualUseSingleCamera && cameraFacing === 'front'}
                 mode="video"
                 onCameraReady={() => {
                   cameraReadyRef.current = true;
@@ -889,7 +980,8 @@ export function RecordScreen() {
                     console.log('[Record] CameraView ready', {
                       dualCameraEnabled: dualCameraEnabledRef.current,
                       dualUseSingleCamera,
-                      facing: dualUseSingleCamera || dualCameraEnabledRef.current ? 'back' : cameraFacing,
+                      nativeDual: nativeDualCameraRef.current,
+                      facing: dualCameraEnabled || dualUseSingleCamera ? 'back' : cameraFacing,
                     });
                   }
                   requestAnimationFrame(() => {
@@ -903,8 +995,33 @@ export function RecordScreen() {
                 }}
               />
             ) : null}
+            {usesNativeDualPreview ? (
+              <RecordDualCameraPreview
+                key={`dual-native-${cameraSessionKey}`}
+                width={cameraLayout.width}
+                height={cameraLayout.height}
+                pipFrame={pipFrame}
+                onReady={() => {
+                  cameraReadyRef.current = true;
+                }}
+              />
+            ) : null}
+            {showDraggableDualPip ? (
+              <RecordDraggableDualPip
+                pipFrame={pipFrame}
+                panGesture={panGesture}
+                showPlaceholder={showExpoDualPip}
+                showExpoGoHint={showExpoDualPip}
+                showLiveFrontPreview={showExpoDualPip}
+              />
+            ) : null}
+            {dualTransitioning ? (
+              <View style={styles.cameraLoading}>
+                <ActivityIndicator size="large" color={colors.white} />
+              </View>
+            ) : null}
             <View style={styles.overlayFade} pointerEvents="none" />
-            {!isRecording && countdown == null && playerFacing.canRecord && !postedToday ? (
+            {!isRecording && recordSecondsLeft == null && playerFacing.canRecord && !postedToday ? (
               <>
                 {dualCameraAvailable ? (
                   <TouchableOpacity
@@ -914,7 +1031,12 @@ export function RecordScreen() {
                     }
                     accessibilityState={{ selected: dualCameraEnabled }}
                     onPress={onToggleDualCamera}
-                    style={[styles.dualFab, dualCameraEnabled && styles.dualFabActive]}
+                    disabled={dualTransitioning}
+                    style={[
+                      styles.dualFab,
+                      dualCameraEnabled && styles.dualFabActive,
+                      dualTransitioning && styles.dualFabDisabled,
+                    ]}
                     activeOpacity={0.85}
                   >
                     <View style={styles.dualIcon}>
@@ -947,9 +1069,9 @@ export function RecordScreen() {
             </Text>
           </View>
         )}
-        {countdown != null && countdown > 0 && !clipUri ? (
-          <View style={styles.countdownOverlay}>
-            <Text style={styles.countdownText}>{countdown}</Text>
+        {isRecording && recordSecondsLeft != null && !clipUri ? (
+          <View style={styles.recordTimerBar} pointerEvents="none">
+            <Text style={styles.recordTimerText}>{recordSecondsLeft}</Text>
           </View>
         ) : null}
       </View>
@@ -969,29 +1091,14 @@ export function RecordScreen() {
             title={
               purchaseBusy
                 ? '…'
-                : user?.isAdmin
-                  ? '+1 attempt (admin)'
-                  : bonusBasePending
-                    ? '+1 attempt unlocked'
-                    : '+1 attempt (−5 in base)'
+                : bonusBasePending
+                  ? '+1 attempt unlocked'
+                  : '+1 attempt (−5 in base)'
             }
             variant="outline"
-            disabled={purchaseBusy || (!user?.isAdmin && bonusBasePending)}
+            disabled={purchaseBusy || bonusBasePending}
             onPress={onPurchaseAttemptPress}
             style={styles.outOfAttemptsBtn}
-          />
-        </View>
-      ) : null}
-
-      {user?.isAdmin && playerFacing.canRecord && !postedToday && !clipUri && attemptsLeft > 0 ? (
-        <View style={styles.adminAttemptCard}>
-          <Text style={styles.adminAttemptHint}>Admin: add extra recording attempts anytime.</Text>
-          <PrimaryButton
-            title={adminGrantBusy ? '…' : '+1 attempt (admin)'}
-            variant="outline"
-            disabled={adminGrantBusy || purchaseBusy}
-            onPress={onAdminGrantAttemptPress}
-            style={styles.adminAttemptBtn}
           />
         </View>
       ) : null}
@@ -1047,14 +1154,14 @@ export function RecordScreen() {
               onPress={onTapRecord}
               style={[
                 styles.recordBtn,
-                (attemptsLeft <= 0 || uploading || countdown != null || !playerFacing.canRecord) &&
+                (attemptsLeft <= 0 || uploading || !playerFacing.canRecord) &&
                   styles.recordBtnDisabled,
               ]}
             >
               <View
                 style={[
                   styles.recordOuter,
-                  (attemptsLeft <= 0 || uploading || countdown != null || !playerFacing.canRecord) &&
+                  (attemptsLeft <= 0 || uploading || !playerFacing.canRecord) &&
                     styles.recordOuterDisabled,
                 ]}
               >
@@ -1071,7 +1178,9 @@ export function RecordScreen() {
                   : !permission?.granted
                     ? 'TAP TO ENABLE CAMERA'
                     : isRecording
-                      ? 'TAP TO STOP'
+                      ? recordSecondsLeft != null
+                        ? `${recordSecondsLeft}S LEFT · TAP TO STOP`
+                        : 'TAP TO STOP'
                       : 'TAP TO RECORD'}
               </Text>
             </TouchableOpacity>
@@ -1158,23 +1267,6 @@ const styles = StyleSheet.create({
   outOfAttemptsScore: { marginTop: 10, color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '800' },
   outOfAttemptsHint: { marginTop: 8, color: 'rgba(251,191,36,0.95)', fontSize: 12, fontWeight: '700' },
   outOfAttemptsBtn: { marginTop: 12 },
-  adminAttemptCard: {
-    marginHorizontal: 16,
-    marginTop: 8,
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(251,191,36,0.45)',
-    backgroundColor: 'rgba(251,191,36,0.08)',
-    gap: 8,
-  },
-  adminAttemptHint: {
-    color: 'rgba(251,191,36,0.95)',
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 17,
-  },
-  adminAttemptBtn: { marginTop: 0 },
   cameraWrap: {
     flex: 1,
     marginTop: 18,
@@ -1217,6 +1309,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.22)',
     borderColor: 'rgba(255,255,255,0.55)',
   },
+  dualFabDisabled: {
+    opacity: 0.45,
+  },
   dualIcon: {
     width: 28,
     height: 22,
@@ -1253,16 +1348,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  countdownOverlay: {
-    ...StyleSheet.absoluteFillObject,
+  recordTimerBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 18,
+    zIndex: 25,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.35)',
   },
-  countdownText: {
-    fontSize: 72,
+  recordTimerText: {
+    fontSize: 44,
     fontWeight: '900',
     color: colors.white,
+    fontVariant: ['tabular-nums'],
+    textShadowColor: 'rgba(0,0,0,0.65)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
   demo: {
     flex: 1,

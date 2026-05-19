@@ -2,23 +2,35 @@ import * as Device from 'expo-device';
 
 import { getExpoDualCameraModule } from './expoDualCamera';
 
+export type DualCameraSupport = {
+  /** Show dual-camera toggle (physical device). */
+  deviceOk: boolean;
+  /** True simultaneous preview via expo-dual-camera native module. */
+  nativeDual: boolean;
+};
+
 /**
- * Device supports true simultaneous front + back preview (`AVCaptureMultiCamSession` / CameraX).
- * Requires a dev/production build that includes the expo-dual-camera native module.
+ * Physical devices can toggle dual mode. Native multi-cam works in custom builds;
+ * Expo Go uses a single-camera + front PiP fallback (see RecordScreen).
  */
-export async function probeDualCameraSupported(): Promise<boolean> {
+export async function probeDualCameraSupport(): Promise<DualCameraSupport> {
   if (!Device.isDevice) {
-    if (__DEV__) console.log('[Record] dual camera: unsupported (simulator)');
-    return false;
+    if (__DEV__) console.log('[Record] dual camera: simulator — toggle hidden');
+    return { deviceOk: false, nativeDual: false };
   }
+
   const mod = getExpoDualCameraModule();
-  if (!mod) return false;
+  if (!mod) {
+    if (__DEV__) console.log('[Record] dual camera: Expo Go / build without native module — fallback preview');
+    return { deviceOk: true, nativeDual: false };
+  }
+
   try {
-    const ok = await mod.isSupported();
-    if (__DEV__) console.log('[Record] dual camera isSupported:', ok);
-    return ok;
+    const nativeDual = await mod.isSupported();
+    if (__DEV__) console.log('[Record] dual camera native isSupported:', nativeDual);
+    return { deviceOk: true, nativeDual };
   } catch (e) {
     if (__DEV__) console.log('[Record] dual camera isSupported error:', e);
-    return false;
+    return { deviceOk: true, nativeDual: false };
   }
 }

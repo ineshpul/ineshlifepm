@@ -3,7 +3,7 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '../theme/colors';
-import { saveVideoToCameraRoll } from '../services/saveVideoToCameraRoll';
+import { cleanupStagedCameraRollFile, saveVideoToCameraRoll } from '../services/saveVideoToCameraRoll';
 import { showError, showInfo } from '../utils/ui';
 
 type Props = {
@@ -14,6 +14,11 @@ type Props = {
 export function FeedCameraRollSaveBanner({ clipUri, onDismiss }: Props) {
   const [busy, setBusy] = React.useState(false);
 
+  const dismissAndCleanup = () => {
+    void cleanupStagedCameraRollFile(clipUri);
+    onDismiss();
+  };
+
   const onSave = () => {
     if (busy) return;
     setBusy(true);
@@ -21,7 +26,7 @@ export function FeedCameraRollSaveBanner({ clipUri, onDismiss }: Props) {
       try {
         await saveVideoToCameraRoll(clipUri);
         showInfo('Saved', 'Saved to camera roll.');
-        onDismiss();
+        dismissAndCleanup();
       } catch (e) {
         showError('Could not save', e);
       } finally {
@@ -54,7 +59,7 @@ export function FeedCameraRollSaveBanner({ clipUri, onDismiss }: Props) {
           </TouchableOpacity>
           <TouchableOpacity
             accessibilityRole="button"
-            onPress={onDismiss}
+            onPress={dismissAndCleanup}
             disabled={busy}
             style={styles.notNowBtn}
             activeOpacity={0.85}
@@ -66,7 +71,7 @@ export function FeedCameraRollSaveBanner({ clipUri, onDismiss }: Props) {
       <TouchableOpacity
         accessibilityRole="button"
         accessibilityLabel="Dismiss"
-        onPress={onDismiss}
+        onPress={dismissAndCleanup}
         disabled={busy}
         style={styles.closeBtn}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}

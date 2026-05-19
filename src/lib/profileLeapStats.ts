@@ -1,3 +1,4 @@
+import { normalizeWeekKey } from './getCurrentWeekKey';
 import { normalizeNyDateKey, nyLeapWeekChallengeDateKeys } from '../utils/nyTime';
 
 export type ProfileLeapVideo = {
@@ -32,7 +33,8 @@ export function weeklyLeapInchesFromProfileVideos(
   videos: readonly ProfileLeapVideo[],
   weekKey: string
 ): number {
-  const wk = normalizeNyDateKey(weekKey, '');
+  const wk = normalizeWeekKey(weekKey);
+  if (!wk) return 0;
   const daySet = new Set(nyLeapWeekChallengeDateKeys(wk).map((k) => normalizeNyDateKey(k, k)));
   let sum = 0;
   for (const v of videos) {

@@ -14,7 +14,7 @@ const LIST_LIMIT = 100;
 
 /** Users with `leaperWeekKey` / `leaperWeekPoints` for the current leap week. */
 export async function weeklyLeaderboardFromUsers(weekKey: string): Promise<WeeklyVideoScore[]> {
-  const wk = normalizeNyDateKey(weekKey, '');
+  const wk = normalizeWeekKey(weekKey);
   if (!wk) return [];
 
   const rows: WeeklyVideoScore[] = [];

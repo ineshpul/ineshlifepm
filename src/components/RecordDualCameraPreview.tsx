@@ -2,22 +2,22 @@ import * as React from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { getExpoDualCameraModule } from '../lib/expoDualCamera';
-
-/** PiP matches RecordScreen dual overlay styling (top-left). */
-const PIP = { left: 14, top: 14, width: 108, height: 144 } as const;
+import type { DualPipFrame } from '../lib/dualCameraPip';
 
 type Props = {
   width: number;
   height: number;
+  pipFrame: DualPipFrame;
+  onReady?: () => void;
 };
 
 /**
  * Simultaneous front + back preview via AVCaptureMultiCamSession (iOS) / CameraX concurrent (Android).
- * Do not mount a second `CameraView` — that breaks the back feed on iOS.
  */
-export function RecordDualCameraPreview({ width, height }: Props) {
+export function RecordDualCameraPreview({ width, height, pipFrame, onReady }: Props) {
   const dualMod = getExpoDualCameraModule();
   const DualCamera = dualMod?.DualCamera;
+  const readySentRef = React.useRef(false);
 
   const backFrame = React.useMemo(
     () => ({ x: 0, y: 0, width: Math.round(width), height: Math.round(height) }),
@@ -25,26 +25,29 @@ export function RecordDualCameraPreview({ width, height }: Props) {
   );
   const frontFrame = React.useMemo(
     () => ({
-      x: PIP.left,
-      y: PIP.top,
-      width: PIP.width,
-      height: PIP.height,
+      x: Math.round(pipFrame.x),
+      y: Math.round(pipFrame.y),
+      width: Math.round(pipFrame.width),
+      height: Math.round(pipFrame.height),
     }),
-    []
+    [pipFrame.x, pipFrame.y, pipFrame.width, pipFrame.height]
   );
 
   React.useEffect(() => {
-    if (!__DEV__ || !DualCamera) return;
-    console.log('[Record] DualCamera mounted', { backFrame, frontFrame });
-    return () => {
-      console.log('[Record] DualCamera unmounted');
-    };
-  }, [DualCamera, backFrame, frontFrame]);
+    readySentRef.current = false;
+    if (!DualCamera || width < 1 || height < 1) return;
+    const t = setTimeout(() => {
+      if (readySentRef.current) return;
+      readySentRef.current = true;
+      onReady?.();
+    }, 450);
+    return () => clearTimeout(t);
+  }, [DualCamera, width, height, onReady]);
 
   if (!DualCamera || width < 1 || height < 1) return null;
 
   return (
-    <View style={StyleSheet.absoluteFill}>
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <DualCamera
         style={StyleSheet.absoluteFill}
         backFrame={backFrame}
@@ -52,17 +55,6 @@ export function RecordDualCameraPreview({ width, height }: Props) {
         backGravity="resizeAspectFill"
         frontGravity="resizeAspectFill"
       />
-      <View style={[styles.pipBorder, { left: PIP.left, top: PIP.top, width: PIP.width, height: PIP.height }]} />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  pipBorder: {
-    position: 'absolute',
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.85)',
-    backgroundColor: 'transparent',
-  },
-});

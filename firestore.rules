@@ -466,11 +466,42 @@ service cloud.firestore {
       }
 
       function postAttemptLedgerKeys() {
-        return request.resource.data.keys().hasOnly(['uid', 'challengeDate', 'used', 'max', 'updatedAt']);
+        return request.resource.data.keys().hasAll(['uid', 'challengeDate', 'used', 'max', 'updatedAt'])
+          && request.resource.data.keys().hasOnly([
+            'uid',
+            'challengeDate',
+            'used',
+            'max',
+            'updatedAt',
+            'bonusRecordingAttempts',
+            'leapBaseReductionInches',
+          ])
+          && (
+            !request.resource.data.keys().hasAny(['bonusRecordingAttempts'])
+            || (
+              request.resource.data.bonusRecordingAttempts is int
+              && request.resource.data.bonusRecordingAttempts >= 0
+            )
+          )
+          && (
+            !request.resource.data.keys().hasAny(['leapBaseReductionInches'])
+            || (
+              request.resource.data.leapBaseReductionInches is int
+              && request.resource.data.leapBaseReductionInches >= 0
+              && request.resource.data.leapBaseReductionInches <= 50
+            )
+          );
       }
 
       function prevUsedCount() {
         return resource.data.used is int ? resource.data.used : 0;
+      }
+
+      function prevBonusCount() {
+        return resource.data.keys().hasAll(['bonusRecordingAttempts'])
+          && resource.data.bonusRecordingAttempts is int
+          ? resource.data.bonusRecordingAttempts
+          : 0;
       }
 
       function maxRecordingAttemptsForChallengeDate(dateKey) {
@@ -519,6 +550,25 @@ service cloud.firestore {
           || (
             request.resource.data.used == request.resource.data.max
             && prevUsedCount() < request.resource.data.max
+          )
+          || (
+            request.resource.data.used == prevUsedCount()
+            && prevBonusCount() > 0
+            && (
+              (
+                request.resource.data.keys().hasAll(['bonusRecordingAttempts'])
+                && request.resource.data.bonusRecordingAttempts is int
+                && request.resource.data.bonusRecordingAttempts == prevBonusCount() - 1
+              )
+              || (
+                prevBonusCount() == 1
+                && !request.resource.data.keys().hasAny(['bonusRecordingAttempts'])
+              )
+            )
+          )
+          || (
+            request.resource.data.used == request.resource.data.max
+            && resource.data.used == request.resource.data.used
           )
         );
 

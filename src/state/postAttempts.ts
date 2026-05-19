@@ -1,9 +1,12 @@
 import * as React from 'react';
 import {
+  deleteField,
   doc,
+  getDoc,
   onSnapshot,
   runTransaction,
   serverTimestamp,
+  setDoc,
   type Transaction,
 } from 'firebase/firestore';
 
@@ -74,38 +77,46 @@ export async function consumeRecordingAttempt(args: { uid: string; challengeDate
     const attemptSnap = await tx.get(attemptRef);
     const used = Number(attemptSnap.data()?.used ?? 0);
     const bonus = Number(attemptSnap.data()?.bonusRecordingAttempts ?? 0);
+    const baseReduction = Number(attemptSnap.data()?.leapBaseReductionInches ?? 0);
 
     if (used >= max) {
       if (bonus <= 0) {
         throw new Error('No attempts remaining today.');
       }
-      tx.set(
-        attemptRef,
-        {
-          uid,
-          challengeDate,
-          used,
-          max,
-          bonusRecordingAttempts: bonus - 1,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-      return { usedAfter: used, bonusAfter: bonus - 1 };
-    }
-
-    tx.set(
-      attemptRef,
-      {
+      const nextBonus = bonus - 1;
+      const patch: Record<string, unknown> = {
         uid,
         challengeDate,
-        used: used + 1,
+        used,
         max,
-        bonusRecordingAttempts: bonus,
         updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
+      };
+      if (nextBonus > 0) {
+        patch.bonusRecordingAttempts = nextBonus;
+      } else {
+        patch.bonusRecordingAttempts = deleteField();
+      }
+      if (baseReduction > 0) {
+        patch.leapBaseReductionInches = baseReduction;
+      }
+      tx.set(attemptRef, patch, { merge: true });
+      return { usedAfter: used, bonusAfter: nextBonus };
+    }
+
+    const patch: Record<string, unknown> = {
+      uid,
+      challengeDate,
+      used: used + 1,
+      max,
+      updatedAt: serverTimestamp(),
+    };
+    if (bonus > 0) {
+      patch.bonusRecordingAttempts = bonus;
+    }
+    if (baseReduction > 0) {
+      patch.leapBaseReductionInches = baseReduction;
+    }
+    tx.set(attemptRef, patch, { merge: true });
 
     return { usedAfter: used + 1, bonusAfter: bonus };
   });
@@ -120,17 +131,26 @@ export async function syncAttemptLedgerAfterSuccessfulPost(args: { uid: string; 
   const attemptRef = doc(firestore(), 'postAttempts', `${uid}_${challengeDate}`);
   await runTransaction(firestore(), async (tx) => {
     const max = await maxAttemptsForChallengeDate(tx, challengeDate);
-    tx.set(
-      attemptRef,
-      {
-        uid,
-        challengeDate,
-        used: max,
-        max,
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
+    const attemptSnap = await tx.get(attemptRef);
+    const used = Number(attemptSnap.data()?.used ?? 0);
+    if (used >= max) return;
+
+    const baseReduction = Number(attemptSnap.data()?.leapBaseReductionInches ?? 0);
+    const bonus = Number(attemptSnap.data()?.bonusRecordingAttempts ?? 0);
+    const patch: Record<string, unknown> = {
+      uid,
+      challengeDate,
+      used: max,
+      max,
+      updatedAt: serverTimestamp(),
+    };
+    if (baseReduction > 0) {
+      patch.leapBaseReductionInches = baseReduction;
+    }
+    if (bonus > 0) {
+      patch.bonusRecordingAttempts = bonus;
+    }
+    tx.set(attemptRef, patch, { merge: true });
   });
 }
 
@@ -152,17 +172,22 @@ export async function refundRecordingAttemptIfNoPostedVideo(args: { uid: string;
     const used = Number(attemptSnap.data()?.used ?? 0);
     if (used <= 0) return;
 
-    tx.set(
-      attemptRef,
-      {
-        uid,
-        challengeDate,
-        used: Math.max(0, used - 1),
-        max,
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
+    const baseReduction = Number(attemptSnap.data()?.leapBaseReductionInches ?? 0);
+    const bonus = Number(attemptSnap.data()?.bonusRecordingAttempts ?? 0);
+    const patch: Record<string, unknown> = {
+      uid,
+      challengeDate,
+      used: Math.max(0, used - 1),
+      max,
+      updatedAt: serverTimestamp(),
+    };
+    if (baseReduction > 0) {
+      patch.leapBaseReductionInches = baseReduction;
+    }
+    if (bonus > 0) {
+      patch.bonusRecordingAttempts = bonus;
+    }
+    tx.set(attemptRef, patch, { merge: true });
   });
 }
 
@@ -190,4 +215,30 @@ export function useAttemptsRemaining(
   }, [uid, challengeDate, fallbackMax]);
 
   return remaining;
+}
+
+/** Clears today's attempt ledger for an admin tester (used once per app session). */
+export async function resetAdminRecordingAttemptsForToday(args: {
+  uid: string;
+  challengeDate: string;
+  dailyMaxAttempts: number;
+}) {
+  const { uid, challengeDate, dailyMaxAttempts } = args;
+  const max = normalizeMaxRecordingAttempts(dailyMaxAttempts);
+  const attemptRef = doc(firestore(), 'postAttempts', `${uid}_${challengeDate}`);
+  const existing = await getDoc(attemptRef);
+  const hadBonus = existing.data()?.bonusRecordingAttempts != null;
+
+  await setDoc(
+    attemptRef,
+    {
+      uid,
+      challengeDate,
+      used: 0,
+      max,
+      ...(hadBonus ? { bonusRecordingAttempts: deleteField() } : {}),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
 }
