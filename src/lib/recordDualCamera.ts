@@ -1,7 +1,10 @@
+import * as React from 'react';
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { requireNativeModule } from 'expo';
+
+import type { DualPipRect } from '../record/dualPipLayout';
 
 /** True only in the Expo Go host app — not dev client, TestFlight, or App Store. */
 export function isExpoGoClient(): boolean {
@@ -44,5 +47,25 @@ export async function isDualCameraDeviceSupported(): Promise<boolean> {
     return (await isSupported()) === true;
   } catch {
     return false;
+  }
+}
+
+export type RecordDualMultiCamViewProps = {
+  pipRect: DualPipRect;
+  panGesture: ReturnType<typeof import('react-native-gesture-handler').Gesture.Pan>;
+  onReady?: () => void;
+};
+
+/**
+ * Load native dual-camera views only when needed (dev client / TestFlight).
+ * Static imports crash Expo Go because the native module is not in that binary.
+ */
+export function loadRecordDualMultiCamView(): React.ComponentType<RecordDualMultiCamViewProps> | null {
+  if (isExpoGoClient()) return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('../components/RecordDualMultiCamView').RecordDualMultiCamView;
+  } catch {
+    return null;
   }
 }

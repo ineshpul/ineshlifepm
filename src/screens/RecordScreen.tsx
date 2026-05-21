@@ -15,13 +15,13 @@ import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/n
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
-import { doc, increment, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, increment, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 
 import { LeapLoadingFrog } from '../components/LeapLoadingFrog';
 import { RecordClipPreview } from '../components/RecordClipPreview';
 import { RecordDualExpoGoPip } from '../components/RecordDualExpoGoPip';
-import { RecordDualMultiCamView } from '../components/RecordDualMultiCamView';
+import { loadRecordDualMultiCamView } from '../lib/recordDualCamera';
 import { useRecordDualMode } from '../hooks/useRecordDualMode';
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -133,6 +133,11 @@ export function RecordScreen() {
   const [cameraFacing, setCameraFacing] = React.useState<'front' | 'back'>('front');
   const [cameraLayout, setCameraLayout] = React.useState({ width: 0, height: 0 });
   const dual = useRecordDualMode(cameraLayout);
+
+  const RecordDualMultiCamView = React.useMemo(
+    () => (dual.useMultiCamPreview ? loadRecordDualMultiCamView() : null),
+    [dual.useMultiCamPreview]
+  );
   const [cameraSessionKey, setCameraSessionKey] = React.useState(0);
   const adminAttemptsResetRef = React.useRef(false);
   const [uploading, setUploading] = React.useState(false);
@@ -694,10 +699,18 @@ export function RecordScreen() {
 
       try {
         const requireMod = Boolean(getExpoExtra().requirePostModeration);
+        let posterPhotoUrl = '';
+        try {
+          const userSnap = await getDoc(doc(firestore(), 'users', user.uid));
+          posterPhotoUrl = String(userSnap.data()?.photoUrl ?? '').trim();
+        } catch {
+          // optional denormalized avatar on the leap doc
+        }
         await commitPostedVideo({
           payload: {
             uid: user.uid,
             username: String(user.username ?? 'user').trim() || 'user',
+            ...(posterPhotoUrl ? { photoUrl: posterPhotoUrl } : {}),
             challengeDate: viewingChallengeDateKey,
             challengeTitle: challenge.title,
             challengeSubtitle: CHALLENGE_INSTRUCTIONS,
@@ -877,7 +890,7 @@ export function RecordScreen() {
                 }}
               />
             ) : null}
-            {dual.useMultiCamPreview ? (
+            {RecordDualMultiCamView ? (
               <RecordDualMultiCamView
                 key={`dual-mc-${cameraSessionKey}`}
                 pipRect={dual.pipRect}

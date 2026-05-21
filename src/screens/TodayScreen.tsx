@@ -12,7 +12,9 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  type TextStyle,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { FunctionsError } from 'firebase/functions';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,6 +44,20 @@ function formatHMS(ms: number) {
     2,
     '0'
   )}`;
+}
+
+/** Scale prompt type so long leaps stay readable without dominating the screen. */
+function promptTitleTypography(title: string): Pick<TextStyle, 'fontSize' | 'lineHeight'> {
+  const len = title.trim().length;
+  if (len <= 42) return { fontSize: 32, lineHeight: 38 };
+  if (len <= 68) return { fontSize: 27, lineHeight: 33 };
+  if (len <= 92) return { fontSize: 23, lineHeight: 29 };
+  return { fontSize: 20, lineHeight: 26 };
+}
+
+function liveBarFillWidth(count: number | null | undefined): `${number}%` {
+  if (typeof count !== 'number' || count <= 0) return '6%';
+  return `${Math.min(100, Math.max(14, 8 + count * 5))}%` as `${number}%`;
 }
 
 export function TodayScreen() {
@@ -116,6 +132,20 @@ export function TodayScreen() {
   }, [debouncedProfileQ, user?.uid]);
 
   const showProfileSpinner = Boolean(qNorm) && (profileSearchPending || profileSearchLoading);
+
+  const titleType = React.useMemo(
+    () => promptTitleTypography(facing.title),
+    [facing.title]
+  );
+  const countdownLabel = window.isLive
+    ? formatHMS(window.msUntilExpire)
+    : formatHMS(window.msUntilDrop);
+  const postedLabel = window.isLive
+    ? typeof liveCount === 'number'
+      ? `${liveCount} posted today`
+      : '— posted today'
+    : 'Opens at noon ET';
+  const showBeFirst = window.isLive && liveCount === 0;
 
   return (
     <Screen style={styles.screen} dismissKeyboardOnTap>
@@ -206,34 +236,35 @@ export function TodayScreen() {
 
       <View style={styles.card}>
         <View style={styles.badge}>
-          <View style={styles.redDot} />
+          <View style={styles.badgeDot} />
           <Text style={styles.badgeText}>TODAY&apos;S LEAP</Text>
         </View>
 
-        <Text style={styles.title}>{facing.title}</Text>
-        <Text style={styles.instructions}>{facing.instructionsLine}</Text>
+        <Text style={[styles.title, titleType]}>{facing.title}</Text>
         <LeapLoadingFrog active={!facing.canRecord} />
 
-        <View style={styles.cardFooter}>
-          <View style={styles.expirePill}>
-            <Text style={styles.expireText}>
-              {window.isLive
-                ? `Expires in ${formatHMS(window.msUntilExpire)}`
-                : `Drops in ${formatHMS(window.msUntilDrop)}`}
-            </Text>
+        <View style={styles.metaRow}>
+          <Text style={styles.instructions} numberOfLines={2}>
+            {facing.instructionsLine}
+          </Text>
+          <View style={styles.timerPill}>
+            <Ionicons name="time-outline" size={14} color={colors.green} />
+            <Text style={styles.timerText}>{countdownLabel}</Text>
           </View>
-          <View style={styles.liveRow}>
-            <View style={styles.liveBarBg}>
-              <View style={styles.liveBarFill} />
-            </View>
-            <Text style={styles.liveText} numberOfLines={1}>
-              {window.isLive
-                ? typeof liveCount === 'number'
-                  ? `${liveCount} posted today`
-                  : '— posted today'
-                : 'N/A posted today'}
+        </View>
+
+        <View style={styles.statsRow}>
+          <Text style={styles.statsLabel} numberOfLines={1}>
+            {postedLabel}
+          </Text>
+          {showBeFirst ? (
+            <Text style={styles.statsCheer} numberOfLines={1}>
+              Be first!
             </Text>
-          </View>
+          ) : null}
+        </View>
+        <View style={styles.liveBarBg}>
+          <View style={[styles.liveBarFill, { width: liveBarFillWidth(liveCount) }]} />
         </View>
       </View>
 
@@ -254,6 +285,7 @@ export function TodayScreen() {
           style={styles.leapBtn}
         />
         <Text style={styles.bottomHint}>TAP TO RECORD</Text>
+        <Text style={styles.bottomSub}>{LEAP_BOTTOM_TAGLINE}</Text>
         <TouchableOpacity
           onPress={() => setSuggestOpen(true)}
           activeOpacity={0.85}
@@ -261,7 +293,6 @@ export function TodayScreen() {
           accessibilityLabel="Suggest a leap"
           style={styles.suggestBtn}
         >
-          <Text style={styles.suggestBtnText}>{LEAP_BOTTOM_TAGLINE}</Text>
           <Text style={styles.suggestBtnTextStrong}>Suggest a leap</Text>
         </TouchableOpacity>
       </View>
@@ -502,97 +533,108 @@ const styles = StyleSheet.create({
   },
   card: {
     marginTop: 18,
+    flexShrink: 1,
     borderRadius: 22,
     backgroundColor: colors.cardTint,
-    padding: 18,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 16,
     borderWidth: 1,
     borderColor: '#E6F4D7',
   },
   badge: {
-    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 12,
+  },
+  badgeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.moss,
+  },
+  badgeText: {
+    fontSize: 11,
+    letterSpacing: 1.4,
+    fontWeight: '900',
+    color: colors.green,
+  },
+  title: {
+    marginTop: 12,
+    fontWeight: '900',
+    color: colors.text,
+    letterSpacing: -0.3,
+  },
+  metaRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    minWidth: 0,
+  },
+  instructions: {
+    flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.green,
+    fontWeight: '700',
+  },
+  timerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
     height: 30,
     borderRadius: 15,
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: '#E6F4D7',
+    flexShrink: 0,
   },
-  badgeText: {
-    fontSize: 11,
-    letterSpacing: 1.2,
-    fontWeight: '900',
-    color: colors.muted,
-  },
-  title: {
-    marginTop: 14,
-    fontSize: 36,
-    lineHeight: 40,
-    fontWeight: '900',
-    color: colors.text,
-  },
-  instructions: {
-    marginTop: 10,
-    fontSize: 13,
-    lineHeight: 18,
-    color: colors.muted,
-    fontWeight: '600',
-  },
-  cardFooter: {
-    marginTop: 14,
-    flexDirection: 'column',
-    alignItems: 'stretch',
-    gap: 10,
-  },
-  expirePill: {
-    alignSelf: 'flex-start',
-    minHeight: 34,
-    borderRadius: 17,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: '#E6F4D7',
-  },
-  expireText: {
+  timerText: {
     fontSize: 11,
     fontWeight: '800',
     color: colors.text,
+    fontVariant: ['tabular-nums'],
   },
-  liveRow: {
+  statsRow: {
+    marginTop: 12,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
-    width: '100%',
     minWidth: 0,
   },
-  liveBarBg: {
-    height: 3,
-    flexGrow: 1,
+  statsLabel: {
+    flex: 1,
     flexShrink: 1,
-    minWidth: 40,
-    maxWidth: 112,
+    minWidth: 0,
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.green,
+  },
+  statsCheer: {
+    flexShrink: 0,
+    fontSize: 12,
+    fontWeight: '900',
+    color: colors.moss,
+  },
+  liveBarBg: {
+    marginTop: 8,
+    height: 4,
+    width: '100%',
     borderRadius: 2,
-    backgroundColor: '#D1D5DB',
+    backgroundColor: '#DCE8D0',
     overflow: 'hidden',
   },
   liveBarFill: {
-    height: 3,
-    width: '36%',
-    maxWidth: 40,
+    height: 4,
     borderRadius: 2,
-    backgroundColor: '#F97316',
-  },
-  liveText: {
-    flexShrink: 1,
-    minWidth: 0,
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.muted,
+    backgroundColor: colors.moss,
+    minWidth: 6,
   },
   bottom: {
     flex: 1,
@@ -619,21 +661,14 @@ const styles = StyleSheet.create({
     color: colors.muted,
   },
   suggestBtn: {
-    marginTop: 6,
+    marginTop: 4,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 14,
   },
-  suggestBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.muted,
-    textAlign: 'center',
-  },
   suggestBtnTextStrong: {
-    marginTop: 2,
     fontSize: 13,
     fontWeight: '900',
     color: colors.coral,

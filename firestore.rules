@@ -348,28 +348,62 @@ service cloud.firestore {
           request.resource.data.moderationStatus == 'pending'
           || request.resource.data.moderationStatus == 'approved'
         )
-        && request.resource.data.keys().hasOnly([
-          'uid',
-          'username',
-          'challengeDate',
-          'challengeTitle',
-          'challengeSubtitle',
-          'prompt',
-          'maxDurationSeconds',
-          'source',
-          'url',
-          'storagePath',
-          'moderationStatus',
-          'createdAt',
-          'viewCount',
-          'likesCount',
-          'commentsCount',
-          'shareCount',
-          'saveCount',
-          'reportCount',
-          'deleted',
-          'challengeCompleted',
-        ])
+        && (
+          (
+            !('photoUrl' in request.resource.data)
+            && request.resource.data.keys().hasOnly([
+              'uid',
+              'username',
+              'challengeDate',
+              'challengeTitle',
+              'challengeSubtitle',
+              'prompt',
+              'maxDurationSeconds',
+              'source',
+              'url',
+              'storagePath',
+              'moderationStatus',
+              'createdAt',
+              'viewCount',
+              'likesCount',
+              'commentsCount',
+              'shareCount',
+              'saveCount',
+              'reportCount',
+              'deleted',
+              'challengeCompleted',
+            ])
+          )
+          || (
+            'photoUrl' in request.resource.data
+            && request.resource.data.photoUrl is string
+            && request.resource.data.photoUrl.size() > 0
+            && request.resource.data.photoUrl.size() < 2048
+            && request.resource.data.keys().hasOnly([
+              'uid',
+              'username',
+              'photoUrl',
+              'challengeDate',
+              'challengeTitle',
+              'challengeSubtitle',
+              'prompt',
+              'maxDurationSeconds',
+              'source',
+              'url',
+              'storagePath',
+              'moderationStatus',
+              'createdAt',
+              'viewCount',
+              'likesCount',
+              'commentsCount',
+              'shareCount',
+              'saveCount',
+              'reportCount',
+              'deleted',
+              'challengeCompleted',
+            ])
+          )
+        )
         && request.resource.data.username is string
         && request.resource.data.username.size() > 0
         && request.resource.data.username.size() < 64

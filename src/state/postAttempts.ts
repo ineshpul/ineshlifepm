@@ -25,6 +25,8 @@ async function maxAttemptsForChallengeDate(tx: Transaction, challengeDate: strin
 export type PostedVideoPayload = {
   uid: string;
   username: string;
+  /** Denormalized public avatar at post time (fallback when `users/{uid}` is slow or unavailable). */
+  photoUrl?: string;
   challengeDate: string;
   challengeTitle: string;
   challengeSubtitle: string;

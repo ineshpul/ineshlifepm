@@ -11,6 +11,7 @@
     "deploy": "firebase deploy --only functions",
     "backfill:leap": "npm run build && node lib/runBackfillLeapLeaperPointsScript.js",
     "backfill:weekly": "npm run build && node lib/runBackfillWeeklyLeaperWeekScript.js",
+    "backfill:identity": "npm run build && node lib/runBackfillUserIdentityScript.js",
     "heal:first-post": "npm run build && node lib/runHealGlobalFirstPostScript.js",
     "recompute:all": "npm run build && node lib/runRecomputeAllVerticalScoresScript.js",
     "dedupe:usernames": "npm run build && node lib/scripts/dedupeUsernames.js",

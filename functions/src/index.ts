@@ -22,6 +22,7 @@ import { submitChallengeSuggestionCallable } from './challengeSuggestion';
 import { scheduledLeapViewingMeta } from './leapViewingMeta';
 import { getWeeklyLeaperboardCallable } from './getWeeklyLeaperboardCallable';
 import { backfillWeeklyLeaperWeekCallable } from './backfillWeeklyLeaperWeekCallable';
+import { backfillUserIdentityFromVideosCallable } from './backfillUserIdentityFromVideosCallable';
 import { backfillApprovedPostCountCallable } from './backfillApprovedPostCountCallable';
 import { healGlobalFirstPostForDayCallable } from './healGlobalFirstPostForDayCallable';
 
@@ -46,6 +47,7 @@ export {
   scheduledLeapViewingMeta,
   getWeeklyLeaperboardCallable,
   backfillWeeklyLeaperWeekCallable,
+  backfillUserIdentityFromVideosCallable,
   backfillApprovedPostCountCallable,
   healGlobalFirstPostForDayCallable,
 };

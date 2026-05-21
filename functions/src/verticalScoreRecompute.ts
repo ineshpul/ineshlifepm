@@ -2,6 +2,7 @@ import * as logger from 'firebase-functions/logger';
 import * as admin from 'firebase-admin';
 import { onDocumentCreated, onDocumentDeleted, onDocumentWritten } from 'firebase-functions/v2/firestore';
 
+import { syncUserIdentityFromVideo } from './syncUserIdentityFromVideo';
 import { buildLeaperPointsPatch, incrementUserLeapInches } from './leaperPoints';
 import { recomputeUserWeeklyLeaperFields, writeUserWeeklyLeaperFields } from './weeklyLeaperFields';
 import {
@@ -591,8 +592,16 @@ async function ownerUidFromVideoId(videoId: string): Promise<string | null> {
 export const onVerticalScoreVideoCreated = onDocumentCreated(
   { document: `${POST_COLLECTION}/{videoId}`, region: REGION },
   async (event) => {
-    const uid = String(event.data?.data()?.uid ?? '');
+    const data = event.data?.data() as Record<string, unknown> | undefined;
+    const uid = String(data?.uid ?? '');
     if (!uid) return;
+    if (data) {
+      try {
+        await syncUserIdentityFromVideo(admin.firestore(), uid, data);
+      } catch (e) {
+        logger.warn('sync user identity from video failed (create)', { uid, e });
+      }
+    }
     try {
       await recomputeUserLeapStatsAdmin(uid);
     } catch (e) {
@@ -668,6 +677,12 @@ export const onVerticalScoreVideoApprovedLeaper = onDocumentWritten(
     const videoRef = admin.firestore().doc(`${POST_COLLECTION}/${videoId}`);
     const owner = String(after.uid ?? '').trim();
     if (!owner) return;
+
+    try {
+      await syncUserIdentityFromVideo(admin.firestore(), owner, after);
+    } catch (e) {
+      logger.warn('sync user identity from video failed (write)', { owner, videoId, e });
+    }
 
     const afterStatus = String(after.moderationStatus ?? '');
     const beforeStatus = before ? String(before.moderationStatus ?? '') : '';

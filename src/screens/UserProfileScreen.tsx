@@ -11,7 +11,16 @@ import {
 import { Image } from 'expo-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
-import { collection, doc, limit, onSnapshot, query, where } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getDoc,
+  limit,
+  onSnapshot,
+  query,
+  where,
+  type DocumentSnapshot,
+} from 'firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Screen } from '../components/Screen';
@@ -30,9 +39,17 @@ import { subscribeFollowing, type FollowingRow } from '../services/social';
 import { showError } from '../utils/ui';
 import { formatLeapGainTodayBanner, formatLeapInchesDisplay } from '../lib/verticalScore';
 import { showFollowingListToOthers } from '../lib/profileVisibility';
+import {
+  normalizeUsernameHint,
+  photoUrlFromRecord,
+  resolveProfileIdentity,
+  usernameFromRecord,
+} from '../lib/resolveProfileIdentity';
 import { profileScreenStyles as ps } from '../styles/profileScreenStyles';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'UserProfile'>;
+
+type ProfileFetchStatus = 'loading' | 'ready' | 'error';
 
 type ProfileVideo = {
   id: string;
@@ -47,39 +64,119 @@ type ProfileVideo = {
   commentsCount: number;
   ownerUid: string;
   username: string;
+  photoUrl: string;
 };
+
+function logUserProfileFetch(
+  label: string,
+  uid: string,
+  snap: DocumentSnapshot | null,
+  err?: unknown
+) {
+  if (!__DEV__) return;
+  const exists = snap?.exists() ?? false;
+  const data = exists && snap ? (snap.data() as Record<string, unknown>) : null;
+  console.log('[UserProfile] profile fetch', {
+    label,
+    uid,
+    exists,
+    username: data?.username,
+    photoUrl: data?.photoUrl ?? data?.photoURL ?? data?.avatarUrl,
+    err: err != null ? String(err) : undefined,
+  });
+}
 
 export function UserProfileScreen({ route, navigation }: Props) {
   const nav = useNavigation<any>();
   const { user } = useAuth();
   const { uid, username: usernameHint } = route.params;
+  const hintUsername = normalizeUsernameHint(usernameHint);
 
-  const [profile, setProfile] = React.useState<any>(null);
+  const [profile, setProfile] = React.useState<Record<string, unknown> | null>(null);
+  const [profileStatus, setProfileStatus] = React.useState<ProfileFetchStatus>('loading');
   const [videos, setVideos] = React.useState<ProfileVideo[]>([]);
+  const [videosHydrated, setVideosHydrated] = React.useState(false);
   const [dmBusy, setDmBusy] = React.useState(false);
   const [theirFollowing, setTheirFollowing] = React.useState<FollowingRow[]>([]);
   const [highestLeapOpen, setHighestLeapOpen] = React.useState(false);
+  const profileRetryDoneRef = React.useRef(false);
 
   React.useEffect(() => {
+    profileRetryDoneRef.current = false;
     if (!isFirebaseConfigured() || !uid) {
       setProfile(null);
+      setProfileStatus('ready');
       return;
     }
+
+    setProfile(null);
+    setProfileStatus('loading');
     const ref = doc(firestore(), 'users', uid);
-    return onSnapshot(ref, (snap) => setProfile(snap.exists() ? snap.data() : null));
+
+    const finishReady = (snap: DocumentSnapshot, label: string) => {
+      logUserProfileFetch(label, uid, snap);
+      setProfile(snap.exists() ? (snap.data() as Record<string, unknown>) : null);
+      setProfileStatus('ready');
+    };
+
+    const retryFetch = (reason: string) => {
+      if (profileRetryDoneRef.current) {
+        setProfileStatus('error');
+        return;
+      }
+      profileRetryDoneRef.current = true;
+      void getDoc(ref)
+        .then((retrySnap) => finishReady(retrySnap, `retry-getDoc:${reason}`))
+        .catch((e) => {
+          logUserProfileFetch(`retry-getDoc-error:${reason}`, uid, null, e);
+          setProfileStatus('error');
+        });
+    };
+
+    const handleSnapshot = (snap: DocumentSnapshot, label: string) => {
+      const exists = snap.exists();
+      const data = exists ? (snap.data() as Record<string, unknown>) : null;
+      const username = usernameFromRecord(data);
+      const photoUrl = photoUrlFromRecord(data);
+      const emptyIdentity = !exists || (username === '' && photoUrl === '');
+
+      setProfile(data);
+      if (emptyIdentity && !profileRetryDoneRef.current) {
+        retryFetch(label);
+        return;
+      }
+      setProfileStatus('ready');
+      logUserProfileFetch(label, uid, snap);
+    };
+
+    return onSnapshot(
+      ref,
+      (snap) => handleSnapshot(snap, 'onSnapshot'),
+      (err) => {
+        logUserProfileFetch('onSnapshot-error', uid, null, err);
+        retryFetch('onSnapshot-error');
+      }
+    );
   }, [uid]);
 
-  const profileUsername = profile?.username != null ? String(profile.username).trim() : '';
+  const newestVideo = videos[0];
+  const identity = React.useMemo(
+    () =>
+      resolveProfileIdentity({
+        profile,
+        usernameHint: hintUsername || undefined,
+        videoFallback: newestVideo
+          ? { username: newestVideo.username, photoUrl: newestVideo.photoUrl }
+          : null,
+      }),
+    [profile, hintUsername, newestVideo]
+  );
+
+  const profileUsername = identity.username;
   React.useLayoutEffect(() => {
-    const hint = usernameHint != null ? String(usernameHint).replace(/^@+/u, '').trim() : '';
-    const title =
-      profileUsername !== ''
-        ? `@${profileUsername}`
-        : hint !== ''
-          ? `@${hint}`
-          : 'Profile';
+    const title = profileUsername !== '' ? `@${profileUsername}` : hintUsername !== '' ? `@${hintUsername}` : 'Profile';
     navigation.setOptions({ title });
-  }, [navigation, profileUsername, usernameHint]);
+  }, [navigation, profileUsername, hintUsername]);
 
   const viewerUid = user?.uid ?? firebaseAuth().currentUser?.uid ?? '';
   const isSelf = Boolean(viewerUid && viewerUid === uid);
@@ -89,7 +186,7 @@ export function UserProfileScreen({ route, navigation }: Props) {
     isModerator: user?.isModerator,
   });
   const leapGateForOthers = !isSelf && !canViewOthersVideos;
-  const followingVisible = showFollowingListToOthers(profile as Record<string, unknown> | undefined);
+  const followingVisible = showFollowingListToOthers(profile ?? undefined);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !uid || isSelf || !followingVisible) {
@@ -100,14 +197,17 @@ export function UserProfileScreen({ route, navigation }: Props) {
   }, [uid, isSelf, followingVisible]);
 
   React.useEffect(() => {
+    setVideosHydrated(false);
     if (!isFirebaseConfigured() || !uid) {
       setVideos([]);
+      setVideosHydrated(true);
       return;
     }
     const vUid = user?.uid ?? firebaseAuth().currentUser?.uid ?? '';
     const isViewerOwner = Boolean(vUid && vUid === uid);
     if (!isViewerOwner && !canViewOthersVideos) {
       setVideos([]);
+      setVideosHydrated(true);
       return;
     }
     const col = collection(firestore(), 'videos');
@@ -118,51 +218,67 @@ export function UserProfileScreen({ route, navigation }: Props) {
       q,
       (snap) => {
         const rows = snap.docs
-          .filter((d) => !Boolean((d.data() as any)?.deleted))
+          .filter((d) => !Boolean((d.data() as Record<string, unknown>)?.deleted))
           .map((d) => {
-            const data: any = d.data();
+            const data = d.data() as Record<string, unknown>;
             const createdAtMs =
-              typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
-            const leapInches = Number(data?.leapInches ?? data?.leapInchesAwarded ?? 0);
+              typeof (data.createdAt as { toMillis?: () => number })?.toMillis === 'function'
+                ? (data.createdAt as { toMillis: () => number }).toMillis()
+                : 0;
+            const leapInches = Number(data.leapInches ?? data.leapInchesAwarded ?? 0);
+            const videoUsername = String(data.username ?? '').trim();
             return {
               id: d.id,
-              challengeDate: String(data?.challengeDate ?? ''),
-              prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
-              url: String(data?.url ?? ''),
+              challengeDate: String(data.challengeDate ?? ''),
+              prompt: String(data.prompt ?? data.challengeTitle ?? ''),
+              url: String(data.url ?? ''),
               createdAtMs,
-              moderationStatus: String(data?.moderationStatus ?? ''),
+              moderationStatus: String(data.moderationStatus ?? ''),
               leapInches: Number.isFinite(leapInches) ? leapInches : 0,
-              maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
-              likesCount: Number(data?.likesCount ?? 0),
-              commentsCount: Number(data?.commentsCount ?? 0),
-              ownerUid: String(data?.uid ?? uid),
-              username: String(data?.username ?? usernameHint ?? profile?.username ?? 'user'),
+              maxDurationSeconds: normalizeTaskDurationSeconds(data.maxDurationSeconds),
+              likesCount: Number(data.likesCount ?? 0),
+              commentsCount: Number(data.commentsCount ?? 0),
+              ownerUid: String(data.uid ?? uid),
+              username: videoUsername,
+              photoUrl: photoUrlFromRecord(data),
             } satisfies ProfileVideo;
           })
           .sort((a, b) => b.createdAtMs - a.createdAtMs);
         setVideos(rows);
+        setVideosHydrated(true);
       },
-      () => setVideos([])
+      () => {
+        setVideos([]);
+        setVideosHydrated(true);
+      }
     );
-  }, [uid, user?.uid, usernameHint, profile?.username, canViewOthersVideos]);
+  }, [uid, user?.uid, canViewOthersVideos]);
 
-  const username = String(profile?.username ?? usernameHint ?? 'user');
-  const stats = useProfileStats(profile as Record<string, unknown> | undefined, videos);
+  const stats = useProfileStats(profile ?? undefined, videos);
+
+  const identityPending =
+    profileStatus === 'loading' ||
+    (profileStatus === 'ready' &&
+      profileUsername === '' &&
+      hintUsername === '' &&
+      !videosHydrated);
+
+  const identityUnavailable = profileStatus === 'error' && profileUsername === '' && hintUsername === '';
 
   const openDmWithUser = React.useCallback(async () => {
-    if (!viewerUid || isSelf) return;
+    if (!viewerUid || isSelf || !profileUsername) return;
     setDmBusy(true);
     try {
       const id = await getOrCreateDm({
         currentUid: viewerUid,
         otherUid: uid,
-        otherDisplayName: username,
+        otherDisplayName: profileUsername,
       });
       nav.navigate('Tabs', {
         screen: 'Chat',
         params: {
           screen: 'Conversation',
-          params: { conversationId: id, threadTitle: username },
+          params: { conversationId: id, threadTitle: profileUsername },
         },
       });
     } catch (e) {
@@ -170,27 +286,26 @@ export function UserProfileScreen({ route, navigation }: Props) {
     } finally {
       setDmBusy(false);
     }
-  }, [viewerUid, isSelf, uid, username, nav]);
+  }, [viewerUid, isSelf, uid, profileUsername, nav]);
 
   const openLeapsFeed = React.useCallback(() => {
     if (isSelf) {
       nav.navigate('MyLeaps');
       return;
     }
+    const leapUsername = profileUsername || hintUsername;
     if (leapGateForOthers) {
-      nav.navigate('TakeTheLeapForLeaps', { uid, username: usernameHint ?? username });
+      nav.navigate('TakeTheLeapForLeaps', { uid, username: leapUsername || undefined });
       return;
     }
-    nav.navigate('UserLeaps', { uid, username: usernameHint ?? username });
-  }, [isSelf, nav, uid, usernameHint, username, leapGateForOthers]);
+    nav.navigate('UserLeaps', { uid, username: leapUsername || undefined });
+  }, [isSelf, nav, uid, hintUsername, profileUsername, leapGateForOthers]);
 
   const bio = String(profile?.bio ?? '').trim();
-  const photoUrl = String(
-    profile?.photoUrl ?? profile?.photoURL ?? profile?.avatarUrl ?? ''
-  ).trim();
+  const photoUrl = identity.photoUrl;
   const initials =
-    (username.split(/[\s_]+/).filter(Boolean)[0]?.[0] ?? 'U').toUpperCase() +
-    (username.split(/[\s_]+/).filter(Boolean)[1]?.[0] ?? '').toUpperCase();
+    (profileUsername.split(/[\s_]+/).filter(Boolean)[0]?.[0] ?? hintUsername[0] ?? 'U').toUpperCase() +
+    (profileUsername.split(/[\s_]+/).filter(Boolean)[1]?.[0] ?? '').toUpperCase();
 
   const leapsCtaLabel =
     videos.length > 0
@@ -208,7 +323,9 @@ export function UserProfileScreen({ route, navigation }: Props) {
       >
         <View style={ps.card}>
           <View style={ps.avatar}>
-            {photoUrl ? (
+            {identityPending ? (
+              <ActivityIndicator size="large" color={colors.moss} />
+            ) : photoUrl ? (
               <Image
                 key={`profile-avatar-${uid}-${photoUrl}`}
                 recyclingKey={`${uid}|${photoUrl}`}
@@ -221,20 +338,28 @@ export function UserProfileScreen({ route, navigation }: Props) {
               <Text style={ps.avatarText}>{initials || 'U'}</Text>
             )}
           </View>
-          <Text style={ps.name}>{username}</Text>
-          {isSelf ? (
-            <Text style={ps.handle}>@{username}</Text>
-          ) : (
-            <UsernameLink uid={uid} username={username} style={ps.handle} />
-          )}
+          {identityPending ? (
+            <ActivityIndicator style={styles.nameLoader} size="small" color={colors.moss} />
+          ) : identityUnavailable ? (
+            <Text style={ps.name}>Profile</Text>
+          ) : profileUsername ? (
+            <>
+              <Text style={ps.name}>{profileUsername}</Text>
+              {isSelf ? (
+                <Text style={ps.handle}>@{profileUsername}</Text>
+              ) : (
+                <UsernameLink uid={uid} username={profileUsername} style={ps.handle} />
+              )}
+            </>
+          ) : null}
           {bio ? <Text style={ps.profileBio}>{bio}</Text> : null}
-          {!isSelf && user?.uid ? (
+          {!isSelf && user?.uid && profileUsername ? (
             <View style={ps.profileActionsRow}>
               <FollowButton
                 viewerUid={user.uid}
                 viewerUsername={user.username}
                 targetUid={uid}
-                targetUsername={username}
+                targetUsername={profileUsername}
                 targetPhotoUrl={photoUrl || null}
               />
               <TouchableOpacity
@@ -297,10 +422,10 @@ export function UserProfileScreen({ route, navigation }: Props) {
           <Ionicons name="chevron-forward" size={18} color={colors.coral} />
         </TouchableOpacity>
 
-        {!isSelf && followingVisible && theirFollowing.length > 0 ? (
+        {!isSelf && followingVisible && theirFollowing.length > 0 && profileUsername ? (
           <TouchableOpacity
             style={ps.openLeapsCta}
-            onPress={() => nav.navigate('FollowingList', { uid, username })}
+            onPress={() => nav.navigate('FollowingList', { uid, username: profileUsername })}
             activeOpacity={0.85}
             accessibilityRole="button"
             accessibilityLabel="Open following list"
@@ -325,4 +450,5 @@ export function UserProfileScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   screen: { paddingHorizontal: 16, paddingTop: 6, flex: 1 },
+  nameLoader: { marginTop: 8, marginBottom: 4 },
 });
