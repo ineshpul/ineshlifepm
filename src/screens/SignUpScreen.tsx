@@ -31,7 +31,7 @@ export function SignUpScreen() {
       await signUp({ username: username.trim(), email: email.trim(), password });
       Alert.alert(
         'Check your email',
-        'We sent a verification link. You can use the app now; finish verifying when you are ready.'
+        'We sent a verification link. If you do not see it in a few minutes, check your spam or junk folder. You can use the app now; finish verifying when you are ready.'
       );
     } catch (e: unknown) {
       const code =

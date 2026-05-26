@@ -57,6 +57,7 @@ import {
 } from '../services/social';
 import { setAppBadgeCount } from '../services/pushNotifications';
 import { useSettingsPreferences } from '../state/settingsPreferences';
+import { FEED_PREVIEW_SCROLL_LIMIT } from '../constants/feedPreview';
 import {
   challengeDateKeysForFirestoreIn,
   computeFeedViewingFromNow,
@@ -126,6 +127,14 @@ export function FeedScreen() {
   const { preferences, patch } = useSettingsPreferences();
   const { clearPostedOverride, hasPostedToday: canViewEveryoneFeed } = useAppState();
   const { user } = useAuth();
+  const feedPreviewMode = Boolean(user?.uid && !canViewEveryoneFeed);
+  const [feedPreviewLocked, setFeedPreviewLocked] = React.useState(false);
+
+  React.useEffect(() => {
+    if (canViewEveryoneFeed) {
+      setFeedPreviewLocked(false);
+    }
+  }, [canViewEveryoneFeed]);
   /**
    * NY calendar day for queries — not `useChallengeWindow()` (that ticked 250ms and re-rendered this whole screen constantly).
    * Poll lightly so we still roll over after midnight without starving the JS thread.
@@ -197,13 +206,34 @@ export function FeedScreen() {
   }, [slotHeight, windowHeight, insets.top, insets.bottom]);
 
   const scrollTopThreshold = Math.max(800, pageHeight * 2.2);
+  const maxFeedPreviewOffset = React.useMemo(
+    () => Math.max(0, (FEED_PREVIEW_SCROLL_LIMIT - 1) * pageHeight),
+    [pageHeight]
+  );
+
   const onFeedScroll = React.useCallback(
     (e: any) => {
       const y = Number(e?.nativeEvent?.contentOffset?.y ?? 0);
       const on = y >= scrollTopThreshold;
       setShowScrollTop((prev) => (prev === on ? prev : on));
+
+      if (
+        feedPreviewMode &&
+        !feedPreviewLocked &&
+        pageHeight > 40 &&
+        y > maxFeedPreviewOffset + pageHeight * 0.12
+      ) {
+        flatListRef.current?.scrollToOffset({ offset: maxFeedPreviewOffset, animated: true });
+        setFeedPreviewLocked(true);
+      }
     },
-    [scrollTopThreshold]
+    [
+      scrollTopThreshold,
+      feedPreviewMode,
+      feedPreviewLocked,
+      pageHeight,
+      maxFeedPreviewOffset,
+    ]
   );
 
   const previousChallengeDateKey = React.useMemo(
@@ -226,6 +256,9 @@ export function FeedScreen() {
     v = v.filter((item) => !preferences.blockedUsernames.includes(item.username));
     v = v.filter((item) => !preferences.mutedUsernames.includes(item.username));
     v = v.filter((item) => !preferences.hiddenVideoIds.includes(item.id));
+    if (feedPreviewMode) {
+      v = v.slice(0, FEED_PREVIEW_SCROLL_LIMIT);
+    }
     return v;
   }, [
     videos,
@@ -235,6 +268,7 @@ export function FeedScreen() {
     preferences.hiddenVideoIds,
     user?.uid,
     followingRows,
+    feedPreviewMode,
   ]);
 
   const scrollToTop = React.useCallback(() => {
@@ -322,7 +356,7 @@ export function FeedScreen() {
   /** After posting (or first load), reel rows can mount before viewability runs; sync scroll + active id once. */
   const prevFeedNonEmptyCountRef = React.useRef(0);
   React.useEffect(() => {
-    if (!canViewEveryoneFeed) {
+    if (!user?.uid || (!canViewEveryoneFeed && !feedPreviewMode)) {
       prevFeedNonEmptyCountRef.current = 0;
       return;
     }
@@ -346,7 +380,7 @@ export function FeedScreen() {
       });
     });
     return () => handle.cancel?.();
-  }, [canViewEveryoneFeed, feedHydrated, pageHeight, displayVideos]);
+  }, [user?.uid, canViewEveryoneFeed, feedPreviewMode, feedHydrated, pageHeight, displayVideos]);
 
   const canStaffMod = Boolean(user?.isAdmin || user?.isModerator);
 
@@ -405,7 +439,7 @@ export function FeedScreen() {
   };
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured() || !user?.uid || !canViewEveryoneFeed) {
+    if (!isFirebaseConfigured() || !user?.uid) {
       setVideos([]);
       setFeedHydrated(true);
       return;
@@ -596,9 +630,17 @@ export function FeedScreen() {
       for (const u of approvedUnsubs) u();
       mineUnsub?.();
     };
-  }, [nyCalendarDay, viewingChallengeDateKey, user?.uid, canViewEveryoneFeed]);
+  }, [nyCalendarDay, viewingChallengeDateKey, user?.uid]);
 
-  if (!canViewEveryoneFeed) {
+  if (!user?.uid) {
+    return <TakeTheLeapGate variant="feed" />;
+  }
+
+  if (feedPreviewMode && feedPreviewLocked) {
+    return <TakeTheLeapGate variant="feed" />;
+  }
+
+  if (feedPreviewMode && feedHydrated && displayVideos.length === 0) {
     return <TakeTheLeapGate variant="feed" />;
   }
 
@@ -655,6 +697,14 @@ export function FeedScreen() {
           clipUri={cameraRollSaveUri}
           onDismiss={() => setCameraRollSaveUri(null)}
         />
+      ) : null}
+
+      {feedPreviewMode ? (
+        <View style={styles.previewBanner} pointerEvents="none">
+          <Text style={styles.previewBannerText}>
+            Preview — swipe up to {FEED_PREVIEW_SCROLL_LIMIT} leaps, then take yours to unlock the feed
+          </Text>
+        </View>
       ) : null}
 
       <View ref={feedSlotRef} style={styles.feedSlot} onLayout={onSlotLayout} collapsable={false}>
@@ -859,6 +909,23 @@ export function FeedScreen() {
 const styles = StyleSheet.create({
   screen: {
     paddingHorizontal: 12,
+  },
+  previewBanner: {
+    marginHorizontal: 12,
+    marginBottom: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: colors.cardTint,
+    borderWidth: 1,
+    borderColor: '#E6F4D7',
+  },
+  previewBannerText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.muted,
+    textAlign: 'center',
+    lineHeight: 17,
   },
   feedScreen: {
     flex: 1,

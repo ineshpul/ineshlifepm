@@ -138,7 +138,10 @@ export function SignInScreen() {
       const { otpId: id } = await sendLoginOtpEmail(email.trim());
       setOtpId(id);
       setOtpCode('');
-      Alert.alert('Code sent', 'Check your inbox for a new 6-digit code.');
+      Alert.alert(
+        'Code sent',
+        'Check your inbox for a new 6-digit code. If it does not arrive, look in spam or junk.'
+      );
     } catch (e: unknown) {
       Alert.alert('Could not resend', friendlySignInError(e));
     } finally {
@@ -163,7 +166,7 @@ export function SignInScreen() {
         {step === 'otp' ? (
           <Text style={styles.rules}>
             We sent a 6-digit code to <Text style={styles.emailEmph}>{email.trim()}</Text>. Enter it
-            below, then sign in. Codes expire in 10 minutes.
+            below, then sign in. If you do not see it, check spam or junk. Codes expire in 10 minutes.
           </Text>
         ) : (
           <Text style={styles.rules}>

@@ -43,7 +43,10 @@ export function useRecordDualMode(cameraLayout: Layout) {
 
   const showExpoGoPip = active && !pipSuspended && isExpoGo && cameraLayout.width > 0;
 
-  const useCameraViewPreview = !useMultiCamPreview;
+  /** Invisible back `CameraView` under MultiCam — stable ref for `recordAsync`. */
+  const useStackedBackRecordCamera = active && !isExpoGo;
+
+  const useCameraViewPreview = !useMultiCamPreview && !useStackedBackRecordCamera;
   const useBackCamera = active && !isExpoGo;
 
   const toggle = React.useCallback(async (): Promise<DualToggleResult> => {
@@ -98,6 +101,7 @@ export function useRecordDualMode(cameraLayout: Layout) {
     pipRect,
     panGesture,
     useMultiCamPreview,
+    useStackedBackRecordCamera,
     useCameraViewPreview,
     useBackCamera,
     showExpoGoPip,
