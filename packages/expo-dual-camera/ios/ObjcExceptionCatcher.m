@@ -1,8 +1,6 @@
 #import "ObjcExceptionCatcher.h"
 
-@implementation ObjcExceptionCatcher
-
-+ (BOOL)tryWithBlock:(void (^)(void))block outError:(NSError **)outError
+BOOL ObjcPerformCatching(void (^block)(void), NSError **outError)
 {
   @try {
     block();
@@ -19,5 +17,3 @@
     return NO;
   }
 }
-
-@end

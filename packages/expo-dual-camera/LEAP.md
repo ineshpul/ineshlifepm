@@ -1,4 +1,4 @@
-# Leap fork notes (`55.2.4-leap.2`)
+# Leap fork notes (`55.2.4-leap.4`)
 
 Vendored `expo-dual-camera` with native dual-cam PiP video recording.
 
@@ -8,8 +8,8 @@ Vendored `expo-dual-camera` with native dual-cam PiP video recording.
 |------|------|
 | `DualCameraCaptureController.swift` | Single `captureSessionQueue` for **all** `AVCaptureSession` mutations; preview, photo, recording orchestration |
 | `DualCameraPiPMovieWriter.swift` | PiP compositor + `AVAssetWriter` only (no session access) |
-| `ObjcExceptionCatcher` | Pure Obj-C `@try`/`@catch` for `NSException` |
-| `DualCameraTurboSafe.swift` | Every TurboModule async/sync entry: Swift `do/catch` **and** `ObjcExceptionCatcher` |
+| `ObjcExceptionCatcher` | Pure Obj-C `ObjcPerformCatching(_,&err)` C function (`@try`/`@catch`) |
+| `DualCameraTurboSafe.swift` | Every TurboModule async/sync entry: Swift `do/catch` **and** `ObjcPerformCatching` |
 | `ExpoDualCameraModule.swift` | Thin JS bridge — no capture logic |
 
 ## Recording guards

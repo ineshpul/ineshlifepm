@@ -2,13 +2,11 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Objective-C `@try` / `@catch` wrapper — Swift `do`/`catch` does **not** catch `NSException`.
-@interface ObjcExceptionCatcher : NSObject
-
-/// Runs `block` under `@try`. Returns YES on success. On `NSException`, returns NO and fills `outError` when non-NULL.
-+ (BOOL)tryWithBlock:(NS_NOESCAPE void (^)(void))block outError:(NSError *_Nullable *_Nullable)outError
-  NS_SWIFT_NAME(performCatching(_:error:));
-
-@end
+/// C entry point for Swift — `NSError **` bridges reliably as the second positional argument (`&err`).
+/// Class methods with `error:` labels have repeatedly failed EAS/Xcode Swift import.
+FOUNDATION_EXPORT BOOL ObjcPerformCatching(
+  void (NS_NOESCAPE ^ _Nonnull block)(void),
+  NSError * _Nullable * _Nullable outError
+);
 
 NS_ASSUME_NONNULL_END
