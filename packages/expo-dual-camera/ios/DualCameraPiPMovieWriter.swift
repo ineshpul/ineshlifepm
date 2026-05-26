@@ -9,7 +9,6 @@ struct DualCameraRecordingOptions {
   let pipHeight: CGFloat
   let maxDurationSec: Double
   let mirrorFront: Bool
-  /** When false, writer is video-only (no mic in capture graph). */
   let recordsAudio: Bool
 
   init(from dict: [String: Any]?) {
@@ -28,7 +27,28 @@ struct DualCameraRecordingOptions {
   }
 }
 
-final class DualCameraVideoRecorder {
+enum DualCameraRecorderError: LocalizedError {
+  case alreadyRecording
+  case notRecording
+  case cannotConfigureWriter
+  case cannotStartWriter
+  case noFrames
+  case sessionNotReady
+
+  var errorDescription: String? {
+    switch self {
+    case .alreadyRecording: return "Recording already in progress"
+    case .notRecording: return "No active recording"
+    case .cannotConfigureWriter: return "Could not configure video writer"
+    case .cannotStartWriter: return "Could not start video writer"
+    case .noFrames: return "No video frames were captured"
+    case .sessionNotReady: return "Dual camera session is not ready for recording"
+    }
+  }
+}
+
+/// PiP compositor + `AVAssetWriter`. **Does not** touch `AVCaptureSession` — only consumes sample buffers.
+final class DualCameraPiPMovieWriter {
   private(set) var isRecording = false
 
   private var assetWriter: AVAssetWriter?
@@ -38,17 +58,15 @@ final class DualCameraVideoRecorder {
 
   private let ciContext = CIContext(options: nil)
   private let frontBufferLock = NSLock()
-  /// Serializes writer + timeline fields; samples may arrive on one queue from multiple outputs.
   private let writerLock = NSLock()
+
   private struct TimestampedSample {
     let pts: CMTime
     let sample: CMSampleBuffer
   }
-  /// Small rolling buffer so we can pick the closest front frame per back frame.
+
   private var frontSamples: [TimestampedSample] = []
-  /// If front/back drift more than this, we prefer no PiP over obviously wrong PiP.
   private let maxFrontSkewSec: Double = 0.12
-  /// How long we keep front frames for matching (seconds).
   private let frontBufferWindowSec: Double = 0.75
   private let frontBufferMaxCount: Int = 30
 
@@ -153,7 +171,6 @@ final class DualCameraVideoRecorder {
     if frontSamples.count > frontBufferMaxCount {
       frontSamples.removeFirst(frontSamples.count - frontBufferMaxCount)
     }
-    // Prune old samples to keep searches fast and reduce the chance of stale PiP.
     let cutoff = CMTime(seconds: frontBufferWindowSec, preferredTimescale: 600)
     while let first = frontSamples.first, CMTimeSubtract(pts, first.pts) > cutoff {
       frontSamples.removeFirst()
@@ -178,10 +195,10 @@ final class DualCameraVideoRecorder {
       writer.startSession(atSourceTime: pts)
     }
 
-    // Keep original PTS; writer session is started at the same source time.
     _ = input.append(sample)
   }
 
+  /// Returns `false` when max duration exceeded (caller may stop recording).
   func appendBackSample(_ sample: CMSampleBuffer) -> Bool {
     writerLock.lock()
     defer { writerLock.unlock() }
@@ -199,8 +216,8 @@ final class DualCameraVideoRecorder {
       writer.startSession(atSourceTime: pts)
     }
 
-    if maxDuration > .zero {
-      let elapsed = CMTimeSubtract(pts, recordingStartPTS!)
+    if maxDuration > .zero, let start = recordingStartPTS {
+      let elapsed = CMTimeSubtract(pts, start)
       if elapsed >= maxDuration {
         return false
       }
@@ -243,11 +260,12 @@ final class DualCameraVideoRecorder {
     let endPTS = lastVideoPTS
     let outW = Int(outputSize.width)
     let outH = Int(outputSize.height)
+    let framesWritten = frameCount
     vInput.markAsFinished()
     aInput?.markAsFinished()
     writerLock.unlock()
 
-    writer.finishWriting { [weak self, frameCount, startPTS, endPTS, url, outW, outH] in
+    writer.finishWriting { [weak self, framesWritten, startPTS, endPTS, url, outW, outH] in
       self?.writerLock.lock()
       self?.assetWriter = nil
       self?.videoInput = nil
@@ -261,7 +279,7 @@ final class DualCameraVideoRecorder {
         completion(.failure(error))
         return
       }
-      if frameCount < 1 {
+      if framesWritten < 1 {
         completion(.failure(DualCameraRecorderError.noFrames))
         return
       }
@@ -301,8 +319,6 @@ final class DualCameraVideoRecorder {
     lastVideoPTS = nil
     outputURL = nil
   }
-
-  // MARK: - Compositing
 
   private func compositeFrame(backSample: CMSampleBuffer) -> CVPixelBuffer? {
     guard let backImage = ciImage(from: backSample) else { return nil }
@@ -348,8 +364,6 @@ final class DualCameraVideoRecorder {
 
     guard !samples.isEmpty else { return nil }
 
-    // Prefer a sample at or before the back frame (reduces "future" PiP),
-    // but allow closest within a small skew window.
     var best: TimestampedSample?
     var bestAbs: Double = .greatestFiniteMagnitude
 
@@ -421,35 +435,11 @@ final class DualCameraVideoRecorder {
       .cropped(to: CGRect(origin: .zero, size: targetSize))
   }
 
-  /// UI-style normalized rect (origin top-left) → Core Image space (origin bottom-left).
   private func pipRectInOutputSpace(normalized: CGRect, outputSize: CGSize) -> CGRect {
     let w = normalized.width * outputSize.width
     let h = normalized.height * outputSize.height
     let x = normalized.origin.x * outputSize.width
     let y = (1.0 - normalized.origin.y - normalized.height) * outputSize.height
     return CGRect(x: x, y: y, width: w, height: h)
-  }
-
-  // Intentionally no sample re-timing: we start the writer session at the first sample PTS,
-  // then append samples using their original timestamps.
-}
-
-enum DualCameraRecorderError: LocalizedError {
-  case alreadyRecording
-  case notRecording
-  case cannotConfigureWriter
-  case cannotStartWriter
-  case noFrames
-  case sessionNotReady
-
-  var errorDescription: String? {
-    switch self {
-    case .alreadyRecording: return "Recording already in progress"
-    case .notRecording: return "No active recording"
-    case .cannotConfigureWriter: return "Could not configure video writer"
-    case .cannotStartWriter: return "Could not start video writer"
-    case .noFrames: return "No video frames were captured"
-    case .sessionNotReady: return "Dual camera session is not ready"
-    }
   }
 }

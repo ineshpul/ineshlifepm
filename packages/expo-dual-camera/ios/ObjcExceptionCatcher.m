@@ -1,6 +1,8 @@
-#import "EXDualCameraExceptionCatcher.h"
+#import "ObjcExceptionCatcher.h"
 
-BOOL EXDualCameraTryBlock(void (^block)(void), NSError **outError)
+@implementation ObjcExceptionCatcher
+
++ (BOOL)tryWithBlock:(void (^)(void))block outError:(NSError **)outError
 {
   @try {
     block();
@@ -9,7 +11,7 @@ BOOL EXDualCameraTryBlock(void (^block)(void), NSError **outError)
     if (outError) {
       NSString *domain = @"expo.dual.camera.ns_exception";
       NSDictionary *userInfo = @{
-        NSLocalizedDescriptionKey: exception.reason ?: @"Native exception",
+        NSLocalizedDescriptionKey: exception.reason ?: @"Native NSException",
         @"name": exception.name ?: @"NSException",
       };
       *outError = [NSError errorWithDomain:domain code:1 userInfo:userInfo];
@@ -17,3 +19,5 @@ BOOL EXDualCameraTryBlock(void (^block)(void), NSError **outError)
     return NO;
   }
 }
+
+@end

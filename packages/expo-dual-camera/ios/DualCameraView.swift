@@ -41,9 +41,9 @@ public class DualCameraView: ExpoView {
 
     @objc private func handleWindowChange() {
         if window != nil {
-            DualCameraSessionManager.shared.register(self, side: side)
+            DualCameraCaptureController.shared.register(self, side: side)
         } else {
-            DualCameraSessionManager.shared.unregister(self)
+            DualCameraCaptureController.shared.unregister(self)
         }
     }
 
@@ -58,25 +58,25 @@ public class DualCameraView: ExpoView {
     func setSide(_ newSide: String) {
         guard newSide != side else { return }
         let wasAttached = window != nil
-        if wasAttached { DualCameraSessionManager.shared.unregister(self) }
+        if wasAttached { DualCameraCaptureController.shared.unregister(self) }
         side = newSide
-        if wasAttached { DualCameraSessionManager.shared.register(self, side: side) }
+        if wasAttached { DualCameraCaptureController.shared.register(self, side: side) }
     }
 
     func setLens(_ lens: String) {
-        DualCameraSessionManager.shared.setBackLens(lens)
+        DualCameraCaptureController.shared.setBackLens(lens)
     }
 
     func setZoom(_ zoom: Double) {
-        DualCameraSessionManager.shared.setZoom(side: side, normalizedZoom: zoom)
+        DualCameraCaptureController.shared.setZoom(side: side, normalizedZoom: zoom)
     }
 
     func setEnableTorch(_ enabled: Bool) {
-        DualCameraSessionManager.shared.setTorch(enabled)
+        DualCameraCaptureController.shared.setTorch(enabled)
     }
 
     func setFlash(_ mode: String) {
-        DualCameraSessionManager.shared.setFlash(mode)
+        DualCameraCaptureController.shared.setFlash(mode)
     }
 
     func setMirror(_ mirror: Bool) {
@@ -88,7 +88,7 @@ public class DualCameraView: ExpoView {
     }
 
     func setAutofocus(_ mode: String) {
-        DualCameraSessionManager.shared.setAutofocus(side: side, mode: mode)
+        DualCameraCaptureController.shared.setAutofocus(side: side, mode: mode)
     }
 
     // MARK: - Preview Management
@@ -137,6 +137,6 @@ public class DualCameraView: ExpoView {
 
     deinit {
         NSObject.cancelPreviousPerformRequests(withTarget: self)
-        DualCameraSessionManager.shared.unregister(self)
+        DualCameraCaptureController.shared.unregister(self)
     }
 }

@@ -1,111 +1,91 @@
-import ExpoModulesCore
 import AVFoundation
+import ExpoModulesCore
 
+/// JS-facing module: **no** capture logic here — only delegates to `DualCameraCaptureController` behind `DualCameraTurboSafe`.
 public class ExpoDualCameraModule: Module {
   public func definition() -> ModuleDefinition {
     Name("ExpoDualCamera")
 
-    // MARK: - Support Check
-
     AsyncFunction("isSupported") { () -> Bool in
-      AVCaptureMultiCamSession.isMultiCamSupported
+      DualCameraTurboSafe.isMultiCamSupported()
     }
 
-    // MARK: - Permissions
-
     AsyncFunction("getCameraPermissionsAsync") { () -> [String: Any] in
-      DualCameraSessionManager.permissionResponse()
+      DualCameraCaptureController.permissionResponse()
     }
 
     AsyncFunction("requestCameraPermissionsAsync") { (promise: Promise) in
-      if AVCaptureDevice.authorizationStatus(for: .video) == .authorized {
-        promise.resolve(DualCameraSessionManager.permissionResponse())
-        return
-      }
-      AVCaptureDevice.requestAccess(for: .video) { _ in
-        promise.resolve(DualCameraSessionManager.permissionResponse())
+      DualCameraTurboSafe.invokeAsync(promise: promise) {
+        if AVCaptureDevice.authorizationStatus(for: .video) == .authorized {
+          promise.resolve(DualCameraCaptureController.permissionResponse())
+          return
+        }
+        AVCaptureDevice.requestAccess(for: .video) { _ in
+          var innerNs: NSError?
+          let innerOk = ObjcExceptionCatcher.try(block: {
+            promise.resolve(DualCameraCaptureController.permissionResponse())
+          }, outError: &innerNs)
+          if !innerOk {
+            promise.reject(
+              "E_DUAL_CAMERA_NS_EXCEPTION",
+              (innerNs as NSError?)?.localizedDescription ?? "NSException"
+            )
+          }
+        }
       }
     }
 
-    // MARK: - Photo Capture
-
     AsyncFunction("takePictureAsync") { (side: String, options: [String: Any]?, promise: Promise) in
-      var err: NSError?
-      let ok = EXDualCameraTryBlock({
+      DualCameraTurboSafe.invokeAsync(promise: promise) {
         let opts = CaptureOptions(from: options)
-        DualCameraSessionManager.shared.takePicture(side: side, options: opts) { result in
+        DualCameraCaptureController.shared.takePicture(side: side, options: opts) { result in
           switch result {
           case .success(let data):
             promise.resolve(data)
-          case .failure(let captureError):
-            promise.reject("E_CAPTURE", captureError.localizedDescription)
+          case .failure(let error):
+            promise.reject("E_CAPTURE", error.localizedDescription)
           }
         }
-      }, &err)
-      if !ok {
-        promise.reject("E_CAPTURE_EXCEPTION", (err as NSError?)?.localizedDescription ?? "Native exception")
       }
     }
 
-    // MARK: - Session Control
-
     Function("pausePreview") {
-      var err: NSError?
-      let ok = EXDualCameraTryBlock({
-        DualCameraSessionManager.shared.pausePreview()
-      }, &err)
-      if !ok {
-        NSLog("[ExpoDualCamera] pausePreview exception: %@", (err as NSError?)?.localizedDescription ?? "unknown")
+      DualCameraTurboSafe.invokeSync {
+        DualCameraCaptureController.shared.pausePreview()
       }
     }
 
     Function("resumePreview") {
-      var err: NSError?
-      let ok = EXDualCameraTryBlock({
-        DualCameraSessionManager.shared.resumePreview()
-      }, &err)
-      if !ok {
-        NSLog("[ExpoDualCamera] resumePreview exception: %@", (err as NSError?)?.localizedDescription ?? "unknown")
+      DualCameraTurboSafe.invokeSync {
+        DualCameraCaptureController.shared.resumePreview()
       }
     }
 
-    // MARK: - Video Recording
-
     AsyncFunction("startRecording") { (options: [String: Any]?, promise: Promise) in
-      var err: NSError?
-      let ok = EXDualCameraTryBlock({
-        DualCameraSessionManager.shared.startRecording(options: options) { result in
+      DualCameraTurboSafe.invokeAsync(promise: promise) {
+        DualCameraCaptureController.shared.startRecording(options: options) { result in
           switch result {
           case .success:
             promise.resolve(true)
-          case .failure(let recordError):
-            promise.reject("E_RECORDING_START", recordError.localizedDescription)
+          case .failure(let error):
+            promise.reject("E_RECORDING_START", error.localizedDescription)
           }
         }
-      }, &err)
-      if !ok {
-        promise.reject("E_RECORDING_START_EXCEPTION", (err as NSError?)?.localizedDescription ?? "Native exception")
       }
     }
 
     AsyncFunction("stopRecording") { (promise: Promise) in
-      var err: NSError?
-      let ok = EXDualCameraTryBlock({
-        DualCameraSessionManager.shared.stopRecording { result in
+      DualCameraTurboSafe.invokeAsync(promise: promise) {
+        DualCameraCaptureController.shared.stopRecording { result in
           switch result {
           case .success(let data):
             promise.resolve(data)
-          case .failure(let recordError):
-            promise.reject("E_RECORDING_STOP", recordError.localizedDescription)
+          case .failure(let error):
+            promise.reject("E_RECORDING_STOP", error.localizedDescription)
           }
         }
-      }, &err)
-      if !ok {
-        promise.reject("E_RECORDING_STOP_EXCEPTION", (err as NSError?)?.localizedDescription ?? "Native exception")
       }
     }
-
-    // MARK: - View
 
     View(DualCameraView.self) {
       Events("onCameraReady", "onMountError")

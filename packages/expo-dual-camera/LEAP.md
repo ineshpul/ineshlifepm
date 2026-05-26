@@ -1,23 +1,22 @@
-# Leap fork notes (`55.2.4-leap.0`)
+# Leap fork notes (`55.2.4-leap.2`)
 
-This is a vendored copy of `expo-dual-camera` with Leap-specific native video recording.
+Vendored `expo-dual-camera` with native dual-cam PiP video recording.
 
-## iOS additions
+## iOS layout (rewrite)
 
-- `DualCameraVideoRecorder.swift` — composites back + front PiP into one MP4 via `AVAssetWriter`
-- `DualCameraSessionManager` — mic input, sample-buffer delegates, `startRecording` / `stopRecording`
-- JS: `startRecording`, `stopRecording`, `recordAsync`
+| File | Role |
+|------|------|
+| `DualCameraCaptureController.swift` | Single `captureSessionQueue` for **all** `AVCaptureSession` mutations; preview, photo, recording orchestration |
+| `DualCameraPiPMovieWriter.swift` | PiP compositor + `AVAssetWriter` only (no session access) |
+| `ObjcExceptionCatcher` | Pure Obj-C `@try`/`@catch` for `NSException` |
+| `DualCameraTurboSafe.swift` | Every TurboModule async/sync entry: Swift `do/catch` **and** `ObjcExceptionCatcher` |
+| `ExpoDualCameraModule.swift` | Thin JS bridge — no capture logic |
+
+## Recording guards
+
+- `startRecording` rejects immediately if `isConfiguringCaptureSession`, `isStopping`, `!session.isRunning`, or paused.
+- Sample buffers run on `sampleBufferQueue`; session graph on `captureSessionQueue` only.
 
 ## Rebuild required
 
-After changing Swift, run a new **EAS iOS build** (not Expo Go). The app depends on `"expo-dual-camera": "file:./packages/expo-dual-camera"`.
-
-## Crash hardening (TestFlight `.ips`)
-
-- `startRecording` must not `promise.resolve(nil)` — use `true` (TurboModule can abort on `nil`).
-- Serialize `AVAssetWriter` access with a lock; route **audio + video** sample delegates onto the **same** queue as video.
-- Fix mic graph bug: after `addInput(mic)`, `canAddInput(mic)` was false so the audio **output** was never added.
-- Do not `sem.wait()` on the capture session queue for mic permission.
-- Only activate `AVAudioSession` when the session actually has a mic track.
-- `finishWriting`: capture PTS + dimensions before async completion; clear writer state **inside** the completion handler (was clearing too early).
-- Optional `recordsAudio` on the writer when there is no mic in the graph.
+After changing Swift, run a new **EAS iOS build** (not Expo Go). Root `package.json`: `"expo-dual-camera": "file:./packages/expo-dual-camera"`.
