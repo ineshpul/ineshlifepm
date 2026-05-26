@@ -39,6 +39,8 @@ export type DualCameraRecordingOptions = {
     maxDurationSec: number;
     /** Mirror the front PiP in the composite. @default true */
     mirrorFront?: boolean;
+    /** Injected by native when the capture session has a mic track. Omit in app code. */
+    recordsAudio?: boolean;
 };
 export type DualCameraRecordingResult = {
     uri: string;

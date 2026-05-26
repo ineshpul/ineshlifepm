@@ -73,6 +73,7 @@ enum DualCameraError: LocalizedError {
     case noPhotoOutput
     case torchUnavailable
     case microphoneDenied
+    case microphoneNotDetermined
     case recordingInProgress
 
     var errorDescription: String? {
@@ -82,6 +83,7 @@ enum DualCameraError: LocalizedError {
         case .noPhotoOutput: return "Photo output not available"
         case .torchUnavailable: return "Torch is not available on this device"
         case .microphoneDenied: return "Microphone permission denied"
+        case .microphoneNotDetermined: return "Microphone permission not determined — allow mic in Settings, then try again"
         case .recordingInProgress: return "Recording already in progress"
         }
     }
@@ -128,7 +130,6 @@ class DualCameraSessionManager: NSObject {
 
     private let sessionQueue = DispatchQueue(label: "com.expodualcamera.session")
     private let videoQueue = DispatchQueue(label: "com.expodualcamera.video", qos: .userInitiated)
-    private let audioQueue = DispatchQueue(label: "com.expodualcamera.audio")
 
     private override init() {
         super.init()
@@ -304,12 +305,15 @@ class DualCameraSessionManager: NSObject {
             var audioOut: AVCaptureAudioDataOutput?
             if let mic = AVCaptureDevice.default(for: .audio),
                let micInput = try? AVCaptureDeviceInput(device: mic) {
+                var micAdded = false
                 if session.canAddInput(micInput) {
                     session.addInputWithNoConnections(micInput)
+                    micAdded = true
                 }
                 let audio = AVCaptureAudioDataOutput()
-                audio.setSampleBufferDelegate(self, queue: self.audioQueue)
-                if session.canAddOutput(audio), session.canAddInput(micInput) {
+                // Same queue as video samples so delegate + AVAssetWriter are serialized (no cross-thread races).
+                audio.setSampleBufferDelegate(self, queue: self.videoQueue)
+                if micAdded, session.canAddOutput(audio) {
                     session.addOutputWithNoConnections(audio)
                     if let micPort = micInput.ports.first {
                         let audioConn = AVCaptureConnection(inputPorts: [micPort], output: audio)
@@ -508,30 +512,26 @@ class DualCameraSessionManager: NSObject {
                 completion(.failure(DualCameraError.microphoneDenied))
                 return
             }
+            // Never block sessionQueue on permission UI — request mic from JS before recording.
             if micStatus == .notDetermined {
-                let sem = DispatchSemaphore(value: 0)
-                var granted = false
-                AVCaptureDevice.requestAccess(for: .audio) { ok in
-                    granted = ok
-                    sem.signal()
-                }
-                sem.wait()
-                if !granted {
-                    completion(.failure(DualCameraError.microphoneDenied))
+                completion(.failure(DualCameraError.microphoneNotDetermined))
+                return
+            }
+
+            self.lastRecordingResult = nil
+            if self.audioOutput != nil {
+                do {
+                    try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetooth])
+                    try AVAudioSession.sharedInstance().setActive(true)
+                } catch {
+                    completion(.failure(error))
                     return
                 }
             }
 
-            self.lastRecordingResult = nil
-            do {
-                try AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetooth])
-                try AVAudioSession.sharedInstance().setActive(true)
-            } catch {
-                completion(.failure(error))
-                return
-            }
-
-            let recordingOptions = DualCameraRecordingOptions(from: options)
+            var opts = options ?? [:]
+            opts["recordsAudio"] = self.audioOutput != nil
+            let recordingOptions = DualCameraRecordingOptions(from: opts)
             do {
                 try self.videoRecorder.start(options: recordingOptions)
                 self.scheduleMaxDurationStop(seconds: recordingOptions.maxDurationSec)

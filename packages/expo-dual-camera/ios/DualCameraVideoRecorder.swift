@@ -9,6 +9,8 @@ struct DualCameraRecordingOptions {
   let pipHeight: CGFloat
   let maxDurationSec: Double
   let mirrorFront: Bool
+  /** When false, writer is video-only (no mic in capture graph). */
+  let recordsAudio: Bool
 
   init(from dict: [String: Any]?) {
     let pip = dict?["pip"] as? [String: Any]
@@ -18,6 +20,7 @@ struct DualCameraRecordingOptions {
     pipHeight = CGFloat((pip?["height"] as? Double) ?? 0.22)
     maxDurationSec = (dict?["maxDurationSec"] as? Double) ?? 60
     mirrorFront = (dict?["mirrorFront"] as? Bool) ?? true
+    recordsAudio = (dict?["recordsAudio"] as? Bool) ?? true
   }
 
   var normalizedPipRect: CGRect {
@@ -35,6 +38,8 @@ final class DualCameraVideoRecorder {
 
   private let ciContext = CIContext(options: nil)
   private let frontBufferLock = NSLock()
+  /// Serializes writer + timeline fields; samples may arrive on one queue from multiple outputs.
+  private let writerLock = NSLock()
   private struct TimestampedSample {
     let pts: CMTime
     let sample: CMSampleBuffer
@@ -55,14 +60,19 @@ final class DualCameraVideoRecorder {
   private var mirrorFront = true
   private var outputSize = CGSize(width: 720, height: 1280)
   private var frameCount: Int64 = 0
+  private var recordsAudio = true
 
   func start(options: DualCameraRecordingOptions) throws {
+    writerLock.lock()
+    defer { writerLock.unlock() }
+
     guard !isRecording else {
       throw DualCameraRecorderError.alreadyRecording
     }
 
     normalizedPip = options.normalizedPipRect
     mirrorFront = options.mirrorFront
+    recordsAudio = options.recordsAudio
     maxDuration = CMTime(seconds: options.maxDurationSec, preferredTimescale: 600)
     frameCount = 0
     frontSamples = []
@@ -100,20 +110,27 @@ final class DualCameraVideoRecorder {
       sourcePixelBufferAttributes: attrs
     )
 
-    let aInput = AVAssetWriterInput(mediaType: .audio, outputSettings: [
-      AVFormatIDKey: kAudioFormatMPEG4AAC,
-      AVNumberOfChannelsKey: 1,
-      AVSampleRateKey: 44_100,
-      AVEncoderBitRateKey: 128_000,
-    ])
-    aInput.expectsMediaDataInRealTime = true
-
-    guard writer.canAdd(vInput), writer.canAdd(aInput) else {
-      throw DualCameraRecorderError.cannotConfigureWriter
+    var aInput: AVAssetWriterInput?
+    if recordsAudio {
+      let audio = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+        AVFormatIDKey: kAudioFormatMPEG4AAC,
+        AVNumberOfChannelsKey: 1,
+        AVSampleRateKey: 44_100,
+        AVEncoderBitRateKey: 128_000,
+      ])
+      audio.expectsMediaDataInRealTime = true
+      aInput = audio
+      guard writer.canAdd(vInput), writer.canAdd(audio) else {
+        throw DualCameraRecorderError.cannotConfigureWriter
+      }
+      writer.add(vInput)
+      writer.add(audio)
+    } else {
+      guard writer.canAdd(vInput) else {
+        throw DualCameraRecorderError.cannotConfigureWriter
+      }
+      writer.add(vInput)
     }
-
-    writer.add(vInput)
-    writer.add(aInput)
 
     guard writer.startWriting() else {
       throw writer.error ?? DualCameraRecorderError.cannotStartWriter
@@ -145,7 +162,11 @@ final class DualCameraVideoRecorder {
   }
 
   func appendAudioSample(_ sample: CMSampleBuffer) {
+    writerLock.lock()
+    defer { writerLock.unlock() }
+
     guard isRecording,
+          recordsAudio,
           let writer = assetWriter,
           let input = audioInput,
           writer.status == .writing,
@@ -162,6 +183,9 @@ final class DualCameraVideoRecorder {
   }
 
   func appendBackSample(_ sample: CMSampleBuffer) -> Bool {
+    writerLock.lock()
+    defer { writerLock.unlock() }
+
     guard isRecording,
           let writer = assetWriter,
           let vInput = videoInput,
@@ -193,28 +217,46 @@ final class DualCameraVideoRecorder {
   }
 
   func finish(completion: @escaping (Result<[String: Any], Error>) -> Void) {
+    writerLock.lock()
     guard isRecording else {
+      writerLock.unlock()
       completion(.failure(DualCameraRecorderError.notRecording))
       return
     }
-
     isRecording = false
+    writerLock.unlock()
+
     frontBufferLock.lock()
     frontSamples = []
     frontBufferLock.unlock()
 
+    writerLock.lock()
     guard let writer = assetWriter,
           let url = outputURL,
-          let vInput = videoInput,
-          let aInput = audioInput else {
+          let vInput = videoInput else {
+      writerLock.unlock()
       completion(.failure(DualCameraRecorderError.notRecording))
       return
     }
-
+    let aInput = audioInput
+    let startPTS = recordingStartPTS
+    let endPTS = lastVideoPTS
+    let outW = Int(outputSize.width)
+    let outH = Int(outputSize.height)
     vInput.markAsFinished()
-    aInput.markAsFinished()
+    aInput?.markAsFinished()
+    writerLock.unlock()
 
-    writer.finishWriting { [frameCount] in
+    writer.finishWriting { [weak self, frameCount, startPTS, endPTS, url, outW, outH] in
+      self?.writerLock.lock()
+      self?.assetWriter = nil
+      self?.videoInput = nil
+      self?.audioInput = nil
+      self?.pixelBufferAdaptor = nil
+      self?.recordingStartPTS = nil
+      self?.lastVideoPTS = nil
+      self?.writerLock.unlock()
+
       if let error = writer.error {
         completion(.failure(error))
         return
@@ -224,7 +266,7 @@ final class DualCameraVideoRecorder {
         return
       }
       let durationSec: Double
-      if let start = self.recordingStartPTS, let last = self.lastVideoPTS {
+      if let start = startPTS, let last = endPTS {
         durationSec = max(0, CMTimeGetSeconds(CMTimeSubtract(last, start)))
       } else {
         durationSec = 0
@@ -233,20 +275,16 @@ final class DualCameraVideoRecorder {
       completion(.success([
         "uri": url.absoluteString,
         "durationMs": durationMs,
-        "width": Int(self.outputSize.width),
-        "height": Int(self.outputSize.height),
+        "width": outW,
+        "height": outH,
       ]))
     }
-
-    assetWriter = nil
-    videoInput = nil
-    audioInput = nil
-    pixelBufferAdaptor = nil
-    recordingStartPTS = nil
-    lastVideoPTS = nil
   }
 
   func cancel() {
+    writerLock.lock()
+    defer { writerLock.unlock() }
+
     isRecording = false
     frontSamples = []
     if let writer = assetWriter, writer.status == .writing {
@@ -342,8 +380,11 @@ final class DualCameraVideoRecorder {
       result = result.oriented(orientation)
     }
     if mirror {
-      result = result.transformed(by: CGAffineTransform(scaleX: -1, y: 1))
-        .transformed(by: CGAffineTransform(translationX: result.extent.width, y: 0))
+      let e = result.extent
+      let t = CGAffineTransform(translationX: -e.midX, y: -e.midY)
+        .scaledBy(x: -1, y: 1)
+        .translatedBy(x: e.midX, y: e.midY)
+      result = result.transformed(by: t)
     }
     return result
   }

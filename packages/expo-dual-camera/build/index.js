@@ -53,6 +53,9 @@ export async function startRecording(options) {
 export async function stopRecording() {
     const result = await ExpoDualCameraModule.stopRecording();
     if (pendingRecord) {
+        if (pendingRecord.maxTimer) {
+            clearTimeout(pendingRecord.maxTimer);
+        }
         pendingRecord.resolve(result);
         pendingRecord = null;
     }
@@ -66,11 +69,11 @@ export function recordAsync(options) {
         return Promise.reject(new Error('A dual-camera recording is already in progress'));
     }
     return new Promise((resolve, reject) => {
-        pendingRecord = { resolve, reject };
         const maxMs = Math.max(1, Math.round((options?.maxDurationSec || 60) * 1000));
         const timer = setTimeout(() => {
             stopRecording().catch(() => { });
         }, maxMs + 650);
+        pendingRecord = { resolve, reject, maxTimer: timer };
         ExpoDualCameraModule.startRecording(options).catch((e) => {
             clearTimeout(timer);
             pendingRecord = null;

@@ -57,7 +57,8 @@ public class ExpoDualCameraModule: Module {
       DualCameraSessionManager.shared.startRecording(options: options) { result in
         switch result {
         case .success:
-          promise.resolve(nil)
+          // Avoid resolving `nil` — some RN / TurboModule paths treat it as invalid and abort.
+          promise.resolve(true)
         case .failure(let error):
           promise.reject("E_RECORDING_START", error.localizedDescription)
         }
