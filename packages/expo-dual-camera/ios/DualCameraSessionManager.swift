@@ -100,8 +100,10 @@ class DualCameraSessionManager: NSObject {
 
     // Session state
     private var session: AVCaptureMultiCamSession?
-    private(set) var isRunning = false
-    private var isPaused = false
+  private(set) var isRunning = false
+  private var isPaused = false
+  /// Prevents startRecording while teardown is in progress.
+  private var isStopping = false
     private var backLens: String = "wide"
 
     // Devices
@@ -160,7 +162,7 @@ class DualCameraSessionManager: NSObject {
     func unregister(_ view: DualCameraView) {
         if view === frontView { frontView = nil }
         if view === backView { backView = nil }
-        stop()
+    stop()
     }
 
     func setBackLens(_ lens: String) {
@@ -398,33 +400,41 @@ class DualCameraSessionManager: NSObject {
         }
     }
 
-    private func stop() {
-        isRunning = false
-        isPaused = false
-        activePhotoDelegates.removeAll()
-        cancelMaxDurationTimer()
-        if videoRecorder.isRecording {
-            videoRecorder.cancel()
-            lastRecordingResult = nil
-        }
+  private func stop() {
+    // Serialize all teardown with recording/start logic (which also runs on sessionQueue).
+    sessionQueue.async { [weak self] in
+      guard let self else { return }
+      self.isStopping = true
+      self.isRunning = false
+      self.isPaused = false
+      self.activePhotoDelegates.removeAll()
+      self.cancelMaxDurationTimer()
+      if self.videoRecorder.isRecording {
+        self.videoRecorder.cancel()
+      }
+      self.lastRecordingResult = nil
 
-        sessionQueue.async { [weak self] in
-            self?.session?.stopRunning()
+      let sess = self.session
+      sess?.stopRunning()
 
-            DispatchQueue.main.async {
-                self?.frontView?.detachPreview()
-                self?.backView?.detachPreview()
-                self?.session = nil
-                self?.frontDevice = nil
-                self?.backDevice = nil
-                self?.frontPhotoOutput = nil
-                self?.backPhotoOutput = nil
-                self?.frontVideoOutput = nil
-                self?.backVideoOutput = nil
-                self?.audioOutput = nil
-            }
+      DispatchQueue.main.async {
+        self.frontView?.detachPreview()
+        self.backView?.detachPreview()
+        self.session = nil
+        self.frontDevice = nil
+        self.backDevice = nil
+        self.frontPhotoOutput = nil
+        self.backPhotoOutput = nil
+        self.frontVideoOutput = nil
+        self.backVideoOutput = nil
+        self.audioOutput = nil
+        // Allow restart after we fully detached views.
+        self.sessionQueue.async { [weak self] in
+          self?.isStopping = false
         }
+      }
     }
+  }
 
     // MARK: - Pause / Resume
 
@@ -498,7 +508,7 @@ class DualCameraSessionManager: NSObject {
     ) {
         sessionQueue.async { [weak self] in
             guard let self else { return }
-            guard self.isRunning, !self.isPaused, self.session != nil else {
+      guard self.isRunning, !self.isPaused, !self.isStopping, let session = self.session, session.isRunning else {
                 completion(.failure(DualCameraRecorderError.sessionNotReady))
                 return
             }

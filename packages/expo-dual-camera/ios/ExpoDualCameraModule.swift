@@ -30,49 +30,79 @@ public class ExpoDualCameraModule: Module {
     // MARK: - Photo Capture
 
     AsyncFunction("takePictureAsync") { (side: String, options: [String: Any]?, promise: Promise) in
-      let opts = CaptureOptions(from: options)
-      DualCameraSessionManager.shared.takePicture(side: side, options: opts) { result in
-        switch result {
-        case .success(let data):
-          promise.resolve(data)
-        case .failure(let error):
-          promise.reject("E_CAPTURE", error.localizedDescription)
+      var err: NSError?
+      let ok = EXDualCameraExceptionCatcher.tryBlock({
+        let opts = CaptureOptions(from: options)
+        DualCameraSessionManager.shared.takePicture(side: side, options: opts) { result in
+          switch result {
+          case .success(let data):
+            promise.resolve(data)
+          case .failure(let error):
+            promise.reject("E_CAPTURE", error.localizedDescription)
+          }
         }
+      }, error: &err)
+      if !ok, let err {
+        promise.reject("E_CAPTURE_EXCEPTION", err.localizedDescription)
       }
     }
 
     // MARK: - Session Control
 
     Function("pausePreview") {
-      DualCameraSessionManager.shared.pausePreview()
+      var err: NSError?
+      let ok = EXDualCameraExceptionCatcher.tryBlock({
+        DualCameraSessionManager.shared.pausePreview()
+      }, error: &err)
+      if !ok, let err {
+        // Functions can't reject; convert to a logged error instead.
+        NSLog("[ExpoDualCamera] pausePreview exception: %@", err.localizedDescription)
+      }
     }
 
     Function("resumePreview") {
-      DualCameraSessionManager.shared.resumePreview()
+      var err: NSError?
+      let ok = EXDualCameraExceptionCatcher.tryBlock({
+        DualCameraSessionManager.shared.resumePreview()
+      }, error: &err)
+      if !ok, let err {
+        NSLog("[ExpoDualCamera] resumePreview exception: %@", err.localizedDescription)
+      }
     }
 
     // MARK: - Video Recording
 
     AsyncFunction("startRecording") { (options: [String: Any]?, promise: Promise) in
-      DualCameraSessionManager.shared.startRecording(options: options) { result in
-        switch result {
-        case .success:
-          // Avoid resolving `nil` — some RN / TurboModule paths treat it as invalid and abort.
-          promise.resolve(true)
-        case .failure(let error):
-          promise.reject("E_RECORDING_START", error.localizedDescription)
+      var err: NSError?
+      let ok = EXDualCameraExceptionCatcher.tryBlock({
+        DualCameraSessionManager.shared.startRecording(options: options) { result in
+          switch result {
+          case .success:
+            promise.resolve(true)
+          case .failure(let error):
+            promise.reject("E_RECORDING_START", error.localizedDescription)
+          }
         }
+      }, error: &err)
+      if !ok, let err {
+        promise.reject("E_RECORDING_START_EXCEPTION", err.localizedDescription)
       }
     }
 
     AsyncFunction("stopRecording") { (promise: Promise) in
-      DualCameraSessionManager.shared.stopRecording { result in
-        switch result {
-        case .success(let data):
-          promise.resolve(data)
-        case .failure(let error):
-          promise.reject("E_RECORDING_STOP", error.localizedDescription)
+      var err: NSError?
+      let ok = EXDualCameraExceptionCatcher.tryBlock({
+        DualCameraSessionManager.shared.stopRecording { result in
+          switch result {
+          case .success(let data):
+            promise.resolve(data)
+          case .failure(let error):
+            promise.reject("E_RECORDING_STOP", error.localizedDescription)
+          }
         }
+      }, error: &err)
+      if !ok, let err {
+        promise.reject("E_RECORDING_STOP_EXCEPTION", err.localizedDescription)
       }
     }
 
