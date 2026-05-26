@@ -506,9 +506,9 @@ final class DualCameraCaptureController: NSObject {
       }
 
       var photoEx: NSError?
-      let photoOk = ObjcExceptionCatcher.try(block: {
+      let photoOk = ObjcExceptionCatcher.performCatching({
         photoOutput.capturePhoto(with: settings, delegate: delegate)
-      }, outError: &photoEx)
+      }, error: &photoEx)
       if !photoOk {
         self.activePhotoDelegates.removeValue(forKey: delegateID)
         completion(.failure(photoEx ?? DualCameraError.noPhotoOutput))
@@ -569,13 +569,13 @@ final class DualCameraCaptureController: NSObject {
       let recordingOptions = DualCameraRecordingOptions(from: opts)
       var nsExceptionErr: NSError?
       var swiftStartError: Error?
-      let objcOk = ObjcExceptionCatcher.try(block: {
+      let objcOk = ObjcExceptionCatcher.performCatching({
         do {
           try self.movieWriter.start(options: recordingOptions)
         } catch {
           swiftStartError = error
         }
-      }, outError: &nsExceptionErr)
+      }, error: &nsExceptionErr)
       if !objcOk {
         completion(.failure(nsExceptionErr ?? NSError(
           domain: "expo.dual.camera",

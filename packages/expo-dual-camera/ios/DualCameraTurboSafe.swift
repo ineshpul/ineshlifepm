@@ -7,13 +7,13 @@ enum DualCameraTurboSafe {
 
   static func invokeAsync(promise: Promise, _ work: () throws -> Void) {
     var nsException: NSError?
-    let ok = ObjcExceptionCatcher.try(block: {
+    let ok = ObjcExceptionCatcher.performCatching({
       do {
         try work()
       } catch {
         promise.reject("E_DUAL_CAMERA_SWIFT", error.localizedDescription)
       }
-    }, outError: &nsException)
+    }, error: &nsException)
     if !ok {
       promise.reject(
         "E_DUAL_CAMERA_NS_EXCEPTION",
@@ -24,13 +24,13 @@ enum DualCameraTurboSafe {
 
   static func invokeSync(_ work: () throws -> Void) {
     var nsException: NSError?
-    let ok = ObjcExceptionCatcher.try(block: {
+    let ok = ObjcExceptionCatcher.performCatching({
       do {
         try work()
       } catch {
         NSLog("[ExpoDualCamera] Swift error: %@", error.localizedDescription)
       }
-    }, outError: &nsException)
+    }, error: &nsException)
     if !ok {
       NSLog("[ExpoDualCamera] NSException: %@", (nsException as NSError?)?.localizedDescription ?? "unknown")
     }
@@ -39,9 +39,9 @@ enum DualCameraTurboSafe {
   static func isMultiCamSupported() -> Bool {
     var value = false
     var nsException: NSError?
-    let ok = ObjcExceptionCatcher.try(block: {
+    let ok = ObjcExceptionCatcher.performCatching({
       value = AVCaptureMultiCamSession.isMultiCamSupported
-    }, outError: &nsException)
+    }, error: &nsException)
     return ok && value
   }
 }

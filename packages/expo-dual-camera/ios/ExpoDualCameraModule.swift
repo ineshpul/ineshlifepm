@@ -22,9 +22,9 @@ public class ExpoDualCameraModule: Module {
         }
         AVCaptureDevice.requestAccess(for: .video) { _ in
           var innerNs: NSError?
-          let innerOk = ObjcExceptionCatcher.try(block: {
+          let innerOk = ObjcExceptionCatcher.performCatching({
             promise.resolve(DualCameraCaptureController.permissionResponse())
-          }, outError: &innerNs)
+          }, error: &innerNs)
           if !innerOk {
             promise.reject(
               "E_DUAL_CAMERA_NS_EXCEPTION",
