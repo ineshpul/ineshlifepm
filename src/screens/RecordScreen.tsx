@@ -544,6 +544,14 @@ export function RecordScreen() {
     cameraReadyRef.current = false;
     void (async () => {
       const enabling = !dual.active;
+      // Release expo-camera before MultiCam: two sessions must not fight for the same hardware.
+      if (enabling && !dual.isExpoGo) {
+        dualPreviewReadyRef.current = false;
+        await mainCameraRef.current?.pausePreview?.().catch(() => {});
+        await new Promise<void>((resolve) =>
+          InteractionManager.runAfterInteractions(() => resolve())
+        );
+      }
       const result = await dual.toggle();
       if (!result.ok) {
         if (result.reason === 'no_module') {
@@ -559,13 +567,17 @@ export function RecordScreen() {
             new Error('This device does not support simultaneous front and back camera.')
           );
         }
+        if (enabling && !dual.isExpoGo) {
+          void resumePrimaryCameraPreview();
+        }
         return;
       }
       if (enabling && !dual.isExpoGo) {
         setCameraFacing('back');
         cameraReadyRef.current = false;
         dualPreviewReadyRef.current = false;
-        setCameraSessionKey((k) => k + 1);
+        // Do not bump cameraSessionKey here — it remounts MultiCam in the same tick as `active`
+        // and has caused back-to-back native session starts / crashes on tap.
         return;
       }
       if (!enabling) {

@@ -10,6 +10,9 @@ import { useRecordDualPip } from './useRecordDualPip';
 
 type Layout = { width: number; height: number };
 
+/** Let the single CameraView session fully release before mounting MultiCam (avoids iOS camera graph crashes). */
+const MULTICAM_ARM_DELAY_MS = 480;
+
 export type DualToggleResult =
   | { ok: true }
   | { ok: false; reason: 'busy' | 'no_module' | 'unsupported' };
@@ -27,6 +30,8 @@ export function useRecordDualMode(cameraLayout: Layout) {
   }, []);
 
   const [active, setActive] = React.useState(false);
+  /** When true, native MultiCam views may mount (delayed after `active` on real builds). */
+  const [multiCamArmed, setMultiCamArmed] = React.useState(false);
   const [toggleBusy, setToggleBusy] = React.useState(false);
   const [pipSuspended, setPipSuspended] = React.useState(false);
 
@@ -34,8 +39,18 @@ export function useRecordDualMode(cameraLayout: Layout) {
 
   const isExpoGo = isExpoGoClient();
 
+  React.useEffect(() => {
+    if (!active || isExpoGo) {
+      setMultiCamArmed(false);
+      return;
+    }
+    const t = setTimeout(() => setMultiCamArmed(true), MULTICAM_ARM_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [active, isExpoGo]);
+
   const useMultiCamPreview =
     active &&
+    multiCamArmed &&
     !pipSuspended &&
     !isExpoGo &&
     cameraLayout.width > 0 &&
@@ -53,6 +68,7 @@ export function useRecordDualMode(cameraLayout: Layout) {
     if (toggleBusy) return { ok: false, reason: 'busy' };
 
     if (active) {
+      setMultiCamArmed(false);
       setActive(false);
       resetPip();
       return { ok: true };
@@ -88,6 +104,7 @@ export function useRecordDualMode(cameraLayout: Layout) {
   }, []);
 
   const resetDualMode = React.useCallback(() => {
+    setMultiCamArmed(false);
     setActive(false);
     setPipSuspended(false);
     resetPip();
@@ -96,6 +113,8 @@ export function useRecordDualMode(cameraLayout: Layout) {
   return {
     showToggle,
     active,
+    /** True only after delay once native dual is on — MultiCam layer is mounting or mounted. */
+    multiCamArmed,
     toggleBusy,
     toggle,
     pipRect,
