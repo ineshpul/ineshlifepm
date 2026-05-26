@@ -1,7 +1,7 @@
 import AVFoundation
 import ExpoModulesCore
 
-/// JS-facing module: **no** capture logic here — only delegates to `DualCameraCaptureController` behind `DualCameraTurboSafe`.
+/// JS-facing module: thin delegate to `DualCameraCaptureController` with exactly-once Promise settlement.
 public class ExpoDualCameraModule: Module {
   public func definition() -> ModuleDefinition {
     Name("ExpoDualCamera")
@@ -15,18 +15,19 @@ public class ExpoDualCameraModule: Module {
     }
 
     AsyncFunction("requestCameraPermissionsAsync") { (promise: Promise) in
-      DualCameraTurboSafe.invokeAsync(promise: promise) {
+      let settled = DualCameraPromiseGuard(promise)
+      DualCameraTurboSafe.invokeAsync(guard: settled) { settled in
         if AVCaptureDevice.authorizationStatus(for: .video) == .authorized {
-          promise.resolve(DualCameraCaptureController.permissionResponse())
+          settled.resolve(DualCameraCaptureController.permissionResponse())
           return
         }
         AVCaptureDevice.requestAccess(for: .video) { _ in
           var innerNs: NSError?
           let innerOk = ObjcPerformCatching({
-            promise.resolve(DualCameraCaptureController.permissionResponse())
+            settled.resolve(DualCameraCaptureController.permissionResponse())
           }, &innerNs)
           if !innerOk {
-            promise.reject(
+            settled.reject(
               "E_DUAL_CAMERA_NS_EXCEPTION",
               (innerNs as NSError?)?.localizedDescription ?? "NSException"
             )
@@ -36,14 +37,15 @@ public class ExpoDualCameraModule: Module {
     }
 
     AsyncFunction("takePictureAsync") { (side: String, options: [String: Any]?, promise: Promise) in
-      DualCameraTurboSafe.invokeAsync(promise: promise) {
+      let settled = DualCameraPromiseGuard(promise)
+      DualCameraTurboSafe.invokeAsync(guard: settled) { settled in
         let opts = CaptureOptions(from: options)
         DualCameraCaptureController.shared.takePicture(side: side, options: opts) { result in
           switch result {
           case .success(let data):
-            promise.resolve(data)
+            settled.resolve(data)
           case .failure(let error):
-            promise.reject("E_CAPTURE", error.localizedDescription)
+            settled.reject("E_CAPTURE", error.localizedDescription)
           }
         }
       }
@@ -62,26 +64,40 @@ public class ExpoDualCameraModule: Module {
     }
 
     AsyncFunction("startRecording") { (options: [String: Any]?, promise: Promise) in
-      DualCameraTurboSafe.invokeAsync(promise: promise) {
+      guard let settled = DualCameraTurboSafe.acquireStartRecordingPromise(promise) else {
+        DualCameraPromiseGuard(promise).reject(
+          "E_RECORDING_BUSY",
+          "startRecording already in progress"
+        )
+        return
+      }
+      DualCameraTurboSafe.invokeAsync(guard: settled) { settled in
         DualCameraCaptureController.shared.startRecording(options: options) { result in
           switch result {
           case .success:
-            promise.resolve(true)
+            settled.resolve(true)
           case .failure(let error):
-            promise.reject("E_RECORDING_START", error.localizedDescription)
+            settled.reject("E_RECORDING_START", error.localizedDescription)
           }
         }
       }
     }
 
     AsyncFunction("stopRecording") { (promise: Promise) in
-      DualCameraTurboSafe.invokeAsync(promise: promise) {
+      guard let settled = DualCameraTurboSafe.acquireStopRecordingPromise(promise) else {
+        DualCameraPromiseGuard(promise).reject(
+          "E_RECORDING_BUSY",
+          "stopRecording already in progress"
+        )
+        return
+      }
+      DualCameraTurboSafe.invokeAsync(guard: settled) { settled in
         DualCameraCaptureController.shared.stopRecording { result in
           switch result {
           case .success(let data):
-            promise.resolve(data)
+            settled.resolve(data)
           case .failure(let error):
-            promise.reject("E_RECORDING_STOP", error.localizedDescription)
+            settled.reject("E_RECORDING_STOP", error.localizedDescription)
           }
         }
       }

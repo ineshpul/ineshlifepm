@@ -1,6 +1,6 @@
 {
   "name": "expo-dual-camera",
-  "version": "55.2.4-leap.4",
+  "version": "55.2.4-leap.5",
   "description": "Native dual camera support using AVCaptureMultiCamSession for iOS and CameraX for Android",
   "main": "build/index.js",
   "types": "build/index.d.ts",
