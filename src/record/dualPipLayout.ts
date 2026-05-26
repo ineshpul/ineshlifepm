@@ -42,3 +42,19 @@ export function clampDualPipRect(
   const { x, y } = clampDualPipPosition(frame.x, frame.y, bounds);
   return { x, y, width: DUAL_PIP_WIDTH, height: DUAL_PIP_HEIGHT };
 }
+
+/** Map preview-space PiP to normalized 0–1 coords for native compositor. */
+export function pipRectToNormalized(
+  pip: DualPipRect,
+  layout: { width: number; height: number }
+): { x: number; y: number; width: number; height: number } {
+  if (layout.width < 1 || layout.height < 1) {
+    return { x: 0.05, y: 0.05, width: 0.28, height: 0.22 };
+  }
+  return {
+    x: pip.x / layout.width,
+    y: pip.y / layout.height,
+    width: pip.width / layout.width,
+    height: pip.height / layout.height,
+  };
+}

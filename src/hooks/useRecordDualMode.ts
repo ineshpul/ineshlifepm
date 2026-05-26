@@ -43,8 +43,8 @@ export function useRecordDualMode(cameraLayout: Layout) {
 
   const showExpoGoPip = active && !pipSuspended && isExpoGo && cameraLayout.width > 0;
 
-  /** Invisible back `CameraView` under MultiCam — stable ref for `recordAsync`. */
-  const useStackedBackRecordCamera = active && !isExpoGo;
+  /** Native dual records inside MultiCam — no stacked expo-camera recorder. */
+  const useStackedBackRecordCamera = false;
 
   const useCameraViewPreview = !useMultiCamPreview && !useStackedBackRecordCamera;
   const useBackCamera = active && !isExpoGo;

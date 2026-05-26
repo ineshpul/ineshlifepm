@@ -32,7 +32,7 @@
     "expo-crypto": "~15.0.8",
     "expo-dev-client": "~6.0.21",
     "expo-device": "~8.0.10",
-    "expo-dual-camera": "55.2.3",
+    "expo-dual-camera": "file:./packages/expo-dual-camera",
     "expo-file-system": "~19.0.21",
     "expo-image": "~3.0.11",
     "expo-image-picker": "~17.0.10",

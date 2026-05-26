@@ -1,0 +1,46 @@
+{
+  "name": "expo-dual-camera",
+  "version": "55.2.4-leap.0",
+  "description": "Native dual camera support using AVCaptureMultiCamSession for iOS and CameraX for Android",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "files": [
+    "build",
+    "android",
+    "ios",
+    "app.plugin.js",
+    "plugins",
+    "expo-module.config.json"
+  ],
+  "scripts": {
+    "build": "expo-module build",
+    "clean": "expo-module clean",
+    "lint": "expo-module lint",
+    "test": "expo-module test"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "expo-dual-camera",
+    "ExpoDualCamera"
+  ],
+  "repository": "https://github.com/Dacaly/expo-dual-camera",
+  "bugs": {
+    "url": "https://github.com/Dacaly/expo-dual-camera/issues"
+  },
+  "author": "Dacaly <56800954+Dacaly@users.noreply.github.com> (https://github.com/Dacaly)",
+  "license": "MIT",
+  "homepage": "https://github.com/Dacaly/expo-dual-camera#readme",
+  "dependencies": {},
+  "devDependencies": {
+    "@types/react": "~19.1.1",
+    "expo-module-scripts": "^55.0.2",
+    "expo": "^55.0.18",
+    "react-native": "0.82.1"
+  },
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}
