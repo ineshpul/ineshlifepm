@@ -41,6 +41,8 @@ export type DualCameraRecordingOptions = {
     mirrorFront?: boolean;
     /** Injected by native when the capture session has a mic track. Omit in app code. */
     recordsAudio?: boolean;
+    /** Called after native `startRecording` succeeds, before waiting for `stopRecording`. */
+    onRecordingStarted?: () => void;
 };
 export type DualCameraRecordingResult = {
     uri: string;

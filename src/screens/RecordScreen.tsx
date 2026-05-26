@@ -152,6 +152,11 @@ export function RecordScreen() {
   const isRecordingRef = React.useRef(false);
   const recordingWatchdogRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const recordTapBusyRef = React.useRef(false);
+  /** Bumped on blur/unmount so in-flight `recordAsync` results are ignored. */
+  const recordingSessionRef = React.useRef(0);
+  const stopRecordingInFlightRef = React.useRef(false);
+  /** True while `recordAsync` is in flight (including after native start, before UI `isRecording`). */
+  const dualRecordAsyncActiveRef = React.useRef(false);
   /** Fewer React commits while Firebase reports many tiny upload progress ticks. */
   const uploadProgressGateRef = React.useRef({ lastShown: -1, lastAt: 0 });
 
@@ -164,20 +169,26 @@ export function RecordScreen() {
   }, []);
 
   const stopActiveRecording = React.useCallback(async () => {
-    if (dual.active && !dual.isExpoGo) {
+    if (stopRecordingInFlightRef.current) return;
+    stopRecordingInFlightRef.current = true;
+    try {
+      if (dual.active && !dual.isExpoGo) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { stopRecording } = require('expo-dual-camera') as typeof import('expo-dual-camera');
+          await stopRecording();
+        } catch {
+          /* noop */
+        }
+        return;
+      }
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { stopRecording } = require('expo-dual-camera') as typeof import('expo-dual-camera');
-        await stopRecording();
+        (getActiveRecordCamera() as { stopRecording?: () => void } | null)?.stopRecording?.();
       } catch {
         /* noop */
       }
-      return;
-    }
-    try {
-      (getActiveRecordCamera() as { stopRecording?: () => void } | null)?.stopRecording?.();
-    } catch {
-      /* noop */
+    } finally {
+      stopRecordingInFlightRef.current = false;
     }
   }, [dual.active, dual.isExpoGo, getActiveRecordCamera]);
 
@@ -291,23 +302,25 @@ export function RecordScreen() {
       return () => {
         task.cancel?.();
         recordingAbortRef.current = true;
+        recordingSessionRef.current += 1;
         setPreRecordCountdown(null);
         setRecordingSecondsLeft(null);
         if (recordingWatchdogRef.current) {
           clearTimeout(recordingWatchdogRef.current);
           recordingWatchdogRef.current = null;
         }
-        if (isRecordingRef.current) {
-          void stopActiveRecording();
-          setTimeout(() => {
-            cameraReadyRef.current = false;
-            void mainCameraRef.current?.pausePreview?.().catch(() => {});
-          }, 500);
-        } else {
+        void (async () => {
+          if (
+            isRecordingRef.current ||
+            (dual.active && !dual.isExpoGo && dualRecordAsyncActiveRef.current)
+          ) {
+            await stopActiveRecording();
+          }
           cameraReadyRef.current = false;
+          dualPreviewReadyRef.current = false;
           void mainCameraRef.current?.pausePreview?.().catch(() => {});
-        }
-        void setAudioSessionForPlayback().catch(() => {});
+          void setAudioSessionForPlayback().catch(() => {});
+        })();
       };
     }, [resumePrimaryCameraPreview, stopActiveRecording])
   );
@@ -411,28 +424,51 @@ export function RecordScreen() {
       if (recordingAbortRef.current) return;
 
       const durationSec = Math.max(1, maxSec);
+      const sessionId = recordingSessionRef.current + 1;
+      recordingSessionRef.current = sessionId;
       setRecordingSecondsLeft(maxSec);
-      setIsRecording(true);
-      isRecordingRef.current = true;
-
-      recordingWatchdogRef.current = setTimeout(() => {
-        recordingWatchdogRef.current = null;
-        if (!isRecordingRef.current) return;
-        void stopActiveRecording();
-      }, durationSec * 1000 + 2800);
 
       let fileUri: string | null = null;
 
       if (useNativeDualRecording) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { recordAsync } = require('expo-dual-camera') as typeof import('expo-dual-camera');
-        const result = await recordAsync({
+        dualRecordAsyncActiveRef.current = true;
+        let result;
+        try {
+          result = await recordAsync({
           pip: pipRectToNormalized(dual.pipRect, cameraLayout),
           maxDurationSec: durationSec,
           mirrorFront: true,
+          onRecordingStarted: () => {
+            if (recordingSessionRef.current !== sessionId || recordingAbortRef.current) {
+              return;
+            }
+            setIsRecording(true);
+            isRecordingRef.current = true;
+            recordingWatchdogRef.current = setTimeout(() => {
+              recordingWatchdogRef.current = null;
+              if (!isRecordingRef.current) return;
+              void stopActiveRecording();
+            }, durationSec * 1000 + 2800);
+          },
         });
+        } finally {
+          dualRecordAsyncActiveRef.current = false;
+        }
+        if (recordingSessionRef.current !== sessionId) {
+          return;
+        }
         fileUri = result.uri ?? null;
       } else {
+        setIsRecording(true);
+        isRecordingRef.current = true;
+        recordingWatchdogRef.current = setTimeout(() => {
+          recordingWatchdogRef.current = null;
+          if (!isRecordingRef.current) return;
+          void stopActiveRecording();
+        }, durationSec * 1000 + 2800);
+
         const recordCamera = getActiveRecordCamera();
         if (!recordCamera) {
           showError('Camera not ready', new Error('Try again in a moment.'));
@@ -440,6 +476,9 @@ export function RecordScreen() {
           return;
         }
         const result = await recordCamera.recordAsync({ maxDuration: durationSec });
+        if (recordingSessionRef.current !== sessionId) {
+          return;
+        }
         fileUri = result?.uri ?? null;
       }
 
