@@ -31,19 +31,19 @@ public class ExpoDualCameraModule: Module {
 
     AsyncFunction("takePictureAsync") { (side: String, options: [String: Any]?, promise: Promise) in
       var err: NSError?
-      let ok = EXDualCameraExceptionCatcher.tryBlock({
+      let ok = EXDualCameraTryBlock({
         let opts = CaptureOptions(from: options)
         DualCameraSessionManager.shared.takePicture(side: side, options: opts) { result in
           switch result {
           case .success(let data):
             promise.resolve(data)
-          case .failure(let error):
-            promise.reject("E_CAPTURE", error.localizedDescription)
+          case .failure(let captureError):
+            promise.reject("E_CAPTURE", captureError.localizedDescription)
           }
         }
-      }, error: &err)
-      if !ok, let err {
-        promise.reject("E_CAPTURE_EXCEPTION", err.localizedDescription)
+      }, &err)
+      if !ok {
+        promise.reject("E_CAPTURE_EXCEPTION", (err as NSError?)?.localizedDescription ?? "Native exception")
       }
     }
 
@@ -51,22 +51,21 @@ public class ExpoDualCameraModule: Module {
 
     Function("pausePreview") {
       var err: NSError?
-      let ok = EXDualCameraExceptionCatcher.tryBlock({
+      let ok = EXDualCameraTryBlock({
         DualCameraSessionManager.shared.pausePreview()
-      }, error: &err)
-      if !ok, let err {
-        // Functions can't reject; convert to a logged error instead.
-        NSLog("[ExpoDualCamera] pausePreview exception: %@", err.localizedDescription)
+      }, &err)
+      if !ok {
+        NSLog("[ExpoDualCamera] pausePreview exception: %@", (err as NSError?)?.localizedDescription ?? "unknown")
       }
     }
 
     Function("resumePreview") {
       var err: NSError?
-      let ok = EXDualCameraExceptionCatcher.tryBlock({
+      let ok = EXDualCameraTryBlock({
         DualCameraSessionManager.shared.resumePreview()
-      }, error: &err)
-      if !ok, let err {
-        NSLog("[ExpoDualCamera] resumePreview exception: %@", err.localizedDescription)
+      }, &err)
+      if !ok {
+        NSLog("[ExpoDualCamera] resumePreview exception: %@", (err as NSError?)?.localizedDescription ?? "unknown")
       }
     }
 
@@ -74,35 +73,35 @@ public class ExpoDualCameraModule: Module {
 
     AsyncFunction("startRecording") { (options: [String: Any]?, promise: Promise) in
       var err: NSError?
-      let ok = EXDualCameraExceptionCatcher.tryBlock({
+      let ok = EXDualCameraTryBlock({
         DualCameraSessionManager.shared.startRecording(options: options) { result in
           switch result {
           case .success:
             promise.resolve(true)
-          case .failure(let error):
-            promise.reject("E_RECORDING_START", error.localizedDescription)
+          case .failure(let recordError):
+            promise.reject("E_RECORDING_START", recordError.localizedDescription)
           }
         }
-      }, error: &err)
-      if !ok, let err {
-        promise.reject("E_RECORDING_START_EXCEPTION", err.localizedDescription)
+      }, &err)
+      if !ok {
+        promise.reject("E_RECORDING_START_EXCEPTION", (err as NSError?)?.localizedDescription ?? "Native exception")
       }
     }
 
     AsyncFunction("stopRecording") { (promise: Promise) in
       var err: NSError?
-      let ok = EXDualCameraExceptionCatcher.tryBlock({
+      let ok = EXDualCameraTryBlock({
         DualCameraSessionManager.shared.stopRecording { result in
           switch result {
           case .success(let data):
             promise.resolve(data)
-          case .failure(let error):
-            promise.reject("E_RECORDING_STOP", error.localizedDescription)
+          case .failure(let recordError):
+            promise.reject("E_RECORDING_STOP", recordError.localizedDescription)
           }
         }
-      }, error: &err)
-      if !ok, let err {
-        promise.reject("E_RECORDING_STOP_EXCEPTION", err.localizedDescription)
+      }, &err)
+      if !ok {
+        promise.reject("E_RECORDING_STOP_EXCEPTION", (err as NSError?)?.localizedDescription ?? "Native exception")
       }
     }
 

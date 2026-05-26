@@ -2,12 +2,10 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Catch Objective-C NSExceptions so they never cross the TurboModule boundary.
-@interface EXDualCameraExceptionCatcher : NSObject
-
-+ (BOOL)tryBlock:(NS_NOESCAPE void (^)(void))block error:(NSError * _Nullable * _Nullable)error;
-
-@end
+/// Runs `block` and returns YES. On NSException, returns NO and optionally sets *outError.
+FOUNDATION_EXPORT BOOL EXDualCameraTryBlock(
+  void (NS_NOESCAPE ^ _Nonnull block)(void),
+  NSError * _Nullable * _Nullable outError
+);
 
 NS_ASSUME_NONNULL_END
-
