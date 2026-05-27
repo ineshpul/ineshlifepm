@@ -790,33 +790,6 @@ export function RecordScreen() {
           <Text style={styles.topBtnText}>↺</Text>
         </TouchableOpacity>
       </View>
-      {!clipUri && !postedToday && playerFacing.canRecord ? (
-        <View style={styles.modeToggleRow}>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel={
-              cameraMode === 'dual' ? 'Switch to single camera' : 'Switch to dual camera'
-            }
-            onPress={toggleCameraMode}
-            disabled={isRecording || preRecordCountdown != null}
-            activeOpacity={0.85}
-            style={[
-              styles.modeToggleBtn,
-              cameraMode === 'dual' && styles.modeToggleBtnActive,
-              (isRecording || preRecordCountdown != null) && styles.modeToggleBtnDisabled,
-            ]}
-          >
-            <Ionicons
-              name={cameraMode === 'dual' ? 'copy' : 'copy-outline'}
-              size={14}
-              color={colors.white}
-            />
-            <Text style={styles.modeToggleText}>
-              {cameraMode === 'dual' ? 'DUAL CAMERA' : 'SINGLE CAMERA'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
       {!playerFacing.canRecord ? (
         <View style={styles.frogStrip}>
           <LeapLoadingFrog active dark />
@@ -844,17 +817,17 @@ export function RecordScreen() {
             <Text style={styles.cameraLoadingText}>Opening camera…</Text>
           </View>
         ) : canUseCamera ? (
-          cameraMode === 'dual' ? (
-            <DualCameraRecorder
-              active={dualActive}
-              maxDurationSec={maxSec}
-              controllerRef={dualControllerRef}
-              onRecordingTick={(left) => setRecordingSecondsLeft(left)}
-              onCapture={handleDualCapture}
-              onError={handleDualError}
-            />
-          ) : (
-            <>
+          <>
+            {cameraMode === 'dual' ? (
+              <DualCameraRecorder
+                active={dualActive}
+                maxDurationSec={maxSec}
+                controllerRef={dualControllerRef}
+                onRecordingTick={(left) => setRecordingSecondsLeft(left)}
+                onCapture={handleDualCapture}
+                onError={handleDualError}
+              />
+            ) : (
               <SingleCameraRecorder
                 active={cameraActive}
                 initialFacing={cameraFacing}
@@ -864,29 +837,56 @@ export function RecordScreen() {
                 onCapture={handleSingleCapture}
                 onError={handleSingleError}
               />
-              {canUseCamera && !postedToday && !clipUri && preRecordCountdown == null ? (
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    cameraFacing === 'front' ? 'Use back camera' : 'Use front camera'
-                  }
-                  onPress={onFlipCamera}
-                  // Flip works mid-record now (vision-camera's persistent recorder
-                  // bridges the device swap), so we only block it during the 3-2-1
-                  // countdown to keep the pre-record state stable.
-                  disabled={preRecordCountdown != null}
-                  style={[
-                    styles.flipFab,
-                    isRecording && styles.flipFabRecording,
-                    preRecordCountdown != null && styles.flipFabDisabled,
-                  ]}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons name="camera-reverse-outline" size={26} color={colors.white} />
-                </TouchableOpacity>
-              ) : null}
-            </>
-          )
+            )}
+            {!postedToday && !clipUri && preRecordCountdown == null && cameraMode === 'single' ? (
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={
+                  cameraFacing === 'front' ? 'Use back camera' : 'Use front camera'
+                }
+                onPress={onFlipCamera}
+                // Flip works mid-record now (vision-camera's persistent recorder
+                // bridges the device swap), so we only block it during the 3-2-1
+                // countdown to keep the pre-record state stable.
+                disabled={preRecordCountdown != null}
+                style={[
+                  styles.cornerFab,
+                  styles.cornerFabLeft,
+                  isRecording && styles.cornerFabRecording,
+                  preRecordCountdown != null && styles.cornerFabDisabled,
+                ]}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="camera-reverse-outline" size={26} color={colors.white} />
+              </TouchableOpacity>
+            ) : null}
+            {!postedToday && !clipUri && preRecordCountdown == null ? (
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={
+                  cameraMode === 'dual' ? 'Switch to single camera' : 'Switch to dual camera'
+                }
+                onPress={toggleCameraMode}
+                // Mode swap recreates the underlying session, so we keep it
+                // disabled while a recording or countdown is in progress to
+                // avoid yanking the camera out from under it.
+                disabled={isRecording || preRecordCountdown != null}
+                style={[
+                  styles.cornerFab,
+                  styles.cornerFabRight,
+                  cameraMode === 'dual' && styles.cornerFabActive,
+                  (isRecording || preRecordCountdown != null) && styles.cornerFabDisabled,
+                ]}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name={cameraMode === 'dual' ? 'copy' : 'copy-outline'}
+                  size={24}
+                  color={colors.white}
+                />
+              </TouchableOpacity>
+            ) : null}
+          </>
         ) : (
           <View style={styles.demo}>
             <Text style={styles.demoTitle}>Demo Mode</Text>
@@ -1087,34 +1087,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   postedText: { color: colors.white, fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
-  modeToggleRow: {
-    alignSelf: 'center',
-    marginTop: 10,
-  },
-  modeToggleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-  },
-  modeToggleBtnActive: {
-    backgroundColor: 'rgba(76,175,80,0.22)',
-    borderColor: 'rgba(76,175,80,0.55)',
-  },
-  modeToggleBtnDisabled: {
-    opacity: 0.45,
-  },
-  modeToggleText: {
-    color: colors.white,
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 1.4,
-  },
   outOfAttemptsCard: {
     marginHorizontal: 16,
     marginTop: 10,
@@ -1159,15 +1131,24 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.18)',
   },
-  flipFabDisabled: {
+  cornerFabDisabled: {
     opacity: 0.45,
   },
-  flipFabRecording: {
+  cornerFabRecording: {
     opacity: 0.92,
   },
-  flipFab: {
-    position: 'absolute',
+  cornerFabActive: {
+    backgroundColor: 'rgba(76,175,80,0.55)',
+    borderColor: 'rgba(255,255,255,0.45)',
+  },
+  cornerFabLeft: {
+    left: 14,
+  },
+  cornerFabRight: {
     right: 14,
+  },
+  cornerFab: {
+    position: 'absolute',
     bottom: 14,
     zIndex: 20,
     width: 48,

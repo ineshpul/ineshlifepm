@@ -70,6 +70,9 @@ export function SingleCameraRecorder({
   // for the recording to survive a flip mid-take.
   const videoOutput = useVideoOutput({
     targetResolution: CommonResolutions.FHD_16_9,
+    // Push the recorder above its default bitrate so 1080p selfies don't look
+    // muddy. ~10 Mbps is a comfortable target for 1080p H.264.
+    targetBitRate: 10_000_000,
     enableAudio: true,
     enablePersistentRecorder: true,
     fileType: 'mp4',
@@ -121,6 +124,15 @@ export function SingleCameraRecorder({
 
     void (async () => {
       try {
+        // Vision Camera tracks its own permission state. Request both
+        // explicitly so the very first `configure({ enableAudio: true })`
+        // doesn't throw "Audio Permission not yet granted".
+        if (VisionCamera.microphonePermissionStatus !== 'authorized') {
+          await VisionCamera.requestMicrophonePermission().catch(() => false);
+        }
+        if (VisionCamera.cameraPermissionStatus !== 'authorized') {
+          await VisionCamera.requestCameraPermission().catch(() => false);
+        }
         session = await VisionCamera.createCameraSession(false);
         if (cancelled) {
           await session.stop().catch(() => undefined);
@@ -308,7 +320,6 @@ export function SingleCameraRecorder({
         previewOutput={previewOutput}
         resizeMode="cover"
       />
-      <View style={styles.overlayFade} pointerEvents="none" />
       {!isReady ? (
         <View style={styles.loadingOverlay} pointerEvents="none">
           <ActivityIndicator size="large" color={colors.white} />
@@ -337,9 +348,5 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.85)',
     fontSize: 13,
     fontWeight: '700',
-  },
-  overlayFade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.12)',
   },
 });

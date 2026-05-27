@@ -90,6 +90,9 @@ export function DualCameraRecorder({
 
   const backVideo = useVideoOutput({
     targetResolution: CommonResolutions.FHD_16_9,
+    // Push above default to keep 1080p crisp even when multi-cam is sharing
+    // bandwidth with the front recorder.
+    targetBitRate: 10_000_000,
     enableAudio: true,
     fileType: 'mp4',
   });
@@ -97,6 +100,7 @@ export function DualCameraRecorder({
   // "main" mic. Capturing audio twice creates phasing artifacts on playback.
   const frontVideo = useVideoOutput({
     targetResolution: CommonResolutions.HD_16_9,
+    targetBitRate: 6_000_000,
     enableAudio: false,
     fileType: 'mp4',
   });
@@ -139,6 +143,16 @@ export function DualCameraRecorder({
 
     void (async () => {
       try {
+        // Vision Camera tracks its own permission state. Request mic explicitly
+        // before configuring with `enableAudio: true`, or `session.configure`
+        // throws "Audio Permission not yet granted" even when the OS already
+        // granted it via expo-av.
+        if (VisionCamera.microphonePermissionStatus !== 'authorized') {
+          await VisionCamera.requestMicrophonePermission().catch(() => false);
+        }
+        if (VisionCamera.cameraPermissionStatus !== 'authorized') {
+          await VisionCamera.requestCameraPermission().catch(() => false);
+        }
         session = await VisionCamera.createCameraSession(true);
         if (cancelled) {
           await session.stop().catch(() => undefined);
@@ -413,7 +427,6 @@ export function DualCameraRecorder({
         previewOutput={bigPreview}
         resizeMode="cover"
       />
-      <View style={styles.overlayFade} pointerEvents="none" />
 
       {!isReady ? (
         <View style={styles.loadingOverlay} pointerEvents="none">
@@ -480,10 +493,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.85)',
     fontSize: 13,
     fontWeight: '700',
-  },
-  overlayFade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.12)',
   },
   pipWrap: {
     position: 'absolute',
