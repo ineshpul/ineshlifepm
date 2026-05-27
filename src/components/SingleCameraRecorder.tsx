@@ -39,12 +39,14 @@ type Props = {
 };
 
 /**
- * Single-camera recorder built on vision-camera v5 with a persistent recorder.
+ * Single-camera recorder built on vision-camera v5 using the
+ * hardware-accelerated AVCaptureMovieFileOutput path (persistent recorder OFF —
+ * see the comment on `useVideoOutput` below for why).
  *
- * The persistent recorder uses AVAssetWriter on iOS and `asPersistentRecording()`
- * on Android, both of which can continue writing across an input-device swap
- * without losing the file. That's what makes flip-mid-record possible — calling
- * `flip()` reconfigures the session's input but leaves the recorder running.
+ * `flip()` reconfigures the session's input device. It is a no-op during an
+ * active recording: changing the input mid-record with the non-persistent
+ * recorder corrupts the output file, so we match expo-camera's behavior and
+ * require the user to stop recording before flipping.
  */
 export function SingleCameraRecorder({
   active,
@@ -68,13 +70,20 @@ export function SingleCameraRecorder({
   const previewOutput = usePreviewOutput();
   // Audio is captured on the main video output. Persistent recorder is required
   // for the recording to survive a flip mid-take.
+  // NOTE: `enablePersistentRecorder` is intentionally OFF. When true,
+  // vision-camera swaps the hardware-backed AVCaptureMovieFileOutput for a
+  // custom AVCaptureVideoDataOutput + AVAssetWriter pipeline. That path is
+  // CPU-heavy (visible preview lag), encodes lower-quality video at the same
+  // requested bitrate, and writes the front camera's mirror transform as
+  // track metadata rather than baked pixels — which players render
+  // inconsistently and the user perceived as "front camera inverts now".
+  //
+  // The tradeoff: with persistentRecorder off, you can't flip the camera
+  // mid-recording. We hide the flip button during recording in single mode
+  // (RecordScreen) to match the original expo-camera UX.
   const videoOutput = useVideoOutput({
     targetResolution: CommonResolutions.FHD_16_9,
-    // Push the recorder above its default bitrate so 1080p selfies don't look
-    // muddy. ~10 Mbps is a comfortable target for 1080p H.264.
-    targetBitRate: 10_000_000,
     enableAudio: true,
-    enablePersistentRecorder: true,
     fileType: 'mp4',
   });
 
@@ -278,6 +287,9 @@ export function SingleCameraRecorder({
   }, []);
 
   const flip = React.useCallback(() => {
+    // Refuse to flip mid-record: reconfiguring the session input while the
+    // (non-persistent) movie file output is writing produces a truncated file.
+    if (isRecordingRef.current) return;
     setFacing((f) => (f === 'front' ? 'back' : 'front'));
   }, []);
 

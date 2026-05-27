@@ -838,23 +838,22 @@ export function RecordScreen() {
                 onError={handleSingleError}
               />
             )}
-            {!postedToday && !clipUri && preRecordCountdown == null && cameraMode === 'single' ? (
+            {!postedToday &&
+            !clipUri &&
+            preRecordCountdown == null &&
+            cameraMode === 'single' &&
+            !isRecording ? (
               <TouchableOpacity
                 accessibilityRole="button"
                 accessibilityLabel={
                   cameraFacing === 'front' ? 'Use back camera' : 'Use front camera'
                 }
                 onPress={onFlipCamera}
-                // Flip works mid-record now (vision-camera's persistent recorder
-                // bridges the device swap), so we only block it during the 3-2-1
-                // countdown to keep the pre-record state stable.
-                disabled={preRecordCountdown != null}
-                style={[
-                  styles.cornerFab,
-                  styles.cornerFabLeft,
-                  isRecording && styles.cornerFabRecording,
-                  preRecordCountdown != null && styles.cornerFabDisabled,
-                ]}
+                // We hide the flip FAB during recording: vision-camera's
+                // non-persistent movie file output corrupts the in-flight clip
+                // if the input device changes. The user can stop, flip, and
+                // start a new take — matching the original expo-camera UX.
+                style={[styles.cornerFab, styles.cornerFabLeft]}
                 activeOpacity={0.85}
               >
                 <Ionicons name="camera-reverse-outline" size={26} color={colors.white} />
@@ -1133,9 +1132,6 @@ const styles = StyleSheet.create({
   },
   cornerFabDisabled: {
     opacity: 0.45,
-  },
-  cornerFabRecording: {
-    opacity: 0.92,
   },
   cornerFabActive: {
     backgroundColor: 'rgba(76,175,80,0.55)',
