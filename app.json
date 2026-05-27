@@ -61,7 +61,10 @@
             "useFrameworks": "static",
             "forceStaticLinking": [
               "RNFBApp",
-              "RNFBAnalytics"
+              "RNFBAnalytics",
+              "VisionCamera",
+              "NitroModules",
+              "NitroImage"
             ]
           }
         }
@@ -76,8 +79,7 @@
       ],
       "expo-web-browser",
       "expo-media-library",
-      "expo-video",
-      "expo-dual-camera"
+      "expo-video"
     ],
     "extra": {
       "eas": {
