@@ -59,6 +59,10 @@ import { setAppBadgeCount } from '../services/pushNotifications';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import { FEED_PREVIEW_SCROLL_LIMIT } from '../constants/feedPreview';
 import {
+  isFeedPreviewExhausted,
+  markFeedPreviewExhausted,
+} from '../state/feedPreviewLock';
+import {
   challengeDateKeysForFirestoreIn,
   computeFeedViewingFromNow,
   groupDayKeysForFirestoreInQuery,
@@ -129,12 +133,8 @@ export function FeedScreen() {
   const { user } = useAuth();
   const feedPreviewMode = Boolean(user?.uid && !canViewEveryoneFeed);
   const [feedPreviewLocked, setFeedPreviewLocked] = React.useState(false);
+  const [feedPreviewLockHydrated, setFeedPreviewLockHydrated] = React.useState(false);
 
-  React.useEffect(() => {
-    if (canViewEveryoneFeed) {
-      setFeedPreviewLocked(false);
-    }
-  }, [canViewEveryoneFeed]);
   /**
    * NY calendar day for queries — not `useChallengeWindow()` (that ticked 250ms and re-rendered this whole screen constantly).
    * Poll lightly so we still roll over after midnight without starving the JS thread.
@@ -164,6 +164,28 @@ export function FeedScreen() {
     const id = setInterval(tick, 5000);
     return () => clearInterval(id);
   }, []);
+
+  React.useEffect(() => {
+    if (canViewEveryoneFeed) {
+      setFeedPreviewLocked(false);
+      setFeedPreviewLockHydrated(true);
+      return;
+    }
+    if (!user?.uid || !feedPreviewMode) {
+      setFeedPreviewLockHydrated(true);
+      return;
+    }
+    let cancelled = false;
+    setFeedPreviewLockHydrated(false);
+    void isFeedPreviewExhausted(user.uid, viewingChallengeDateKey).then((exhausted) => {
+      if (cancelled) return;
+      if (exhausted) setFeedPreviewLocked(true);
+      setFeedPreviewLockHydrated(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [canViewEveryoneFeed, user?.uid, feedPreviewMode, viewingChallengeDateKey]);
 
   React.useEffect(() => {
     void Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
@@ -225,6 +247,9 @@ export function FeedScreen() {
       ) {
         flatListRef.current?.scrollToOffset({ offset: maxFeedPreviewOffset, animated: true });
         setFeedPreviewLocked(true);
+        if (user?.uid) {
+          void markFeedPreviewExhausted(user.uid, viewingChallengeDateKey);
+        }
       }
     },
     [
@@ -233,6 +258,8 @@ export function FeedScreen() {
       feedPreviewLocked,
       pageHeight,
       maxFeedPreviewOffset,
+      user?.uid,
+      viewingChallengeDateKey,
     ]
   );
 
@@ -636,7 +663,7 @@ export function FeedScreen() {
     return <TakeTheLeapGate variant="feed" />;
   }
 
-  if (feedPreviewMode && feedPreviewLocked) {
+  if (feedPreviewMode && feedPreviewLockHydrated && feedPreviewLocked) {
     return <TakeTheLeapGate variant="feed" />;
   }
 

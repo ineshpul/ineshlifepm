@@ -41,6 +41,14 @@ export function pausePreview() {
 export function resumePreview() {
     ExpoDualCameraModule.resumePreview();
 }
+/** Swap which camera is full-frame vs PiP while dual-cam recording (iOS MultiCam). */
+export function swapRecordingLayout() {
+    ExpoDualCameraModule.swapRecordingLayout();
+}
+/** Merge single-camera flip segments into one clip (iOS). */
+export async function concatVideoSegments(options) {
+    return await ExpoDualCameraModule.concatVideoSegments(options);
+}
 let pendingRecord = null;
 /** Start dual-cam PiP video recording (iOS MultiCam). */
 export async function startRecording(options) {

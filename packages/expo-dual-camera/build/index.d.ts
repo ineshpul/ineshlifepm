@@ -27,6 +27,12 @@ export declare function takePictureAsync(side: "front" | "back", options?: DualC
 export declare function pausePreview(): void;
 /** Resume a paused camera session. Fires `onCameraReady` again on both views. */
 export declare function resumePreview(): void;
+/** Swap which camera is full-frame vs PiP while dual-cam recording (iOS MultiCam). */
+export declare function swapRecordingLayout(): void;
+/** Merge single-camera flip segments into one clip (iOS). */
+export declare function concatVideoSegments(options: {
+    uris: string[];
+}): Promise<DualCameraRecordingResult>;
 /** Start dual-cam PiP video recording (iOS MultiCam). */
 export declare function startRecording(options: DualCameraRecordingOptions): Promise<void>;
 /** Stop recording and return the composited MP4 file. */

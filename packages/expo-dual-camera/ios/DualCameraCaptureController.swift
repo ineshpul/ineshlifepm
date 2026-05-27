@@ -522,6 +522,12 @@ final class DualCameraCaptureController: NSObject {
     movieWriter.isRecording
   }
 
+  func swapRecordingLayout() {
+    captureSessionQueue.async { [weak self] in
+      self?.movieWriter.swapRecordingLayout()
+    }
+  }
+
   func startRecording(
     options: [String: Any]?,
     completion: @escaping (Result<Void, Error>) -> Void

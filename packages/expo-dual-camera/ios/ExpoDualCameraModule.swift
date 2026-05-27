@@ -63,6 +63,32 @@ public class ExpoDualCameraModule: Module {
       }
     }
 
+    Function("swapRecordingLayout") {
+      DualCameraTurboSafe.invokeSync {
+        DualCameraCaptureController.shared.swapRecordingLayout()
+      }
+    }
+
+    AsyncFunction("concatVideoSegments") { (options: [String: Any]?, promise: Promise) in
+      let settled = DualCameraPromiseGuard(promise)
+      DualCameraTurboSafe.invokeAsync(guard: settled) { settled in
+        let rawUris = options?["uris"] as? [String] ?? []
+        let urls = rawUris.compactMap { URL(string: $0) }
+        guard !urls.isEmpty else {
+          settled.reject("E_CONCAT", "No video segments to merge")
+          return
+        }
+        DualCameraVideoConcat.concat(urls: urls) { result in
+          switch result {
+          case .success(let data):
+            settled.resolve(data)
+          case .failure(let error):
+            settled.reject("E_CONCAT", error.localizedDescription)
+          }
+        }
+      }
+    }
+
     AsyncFunction("startRecording") { (options: [String: Any]?, promise: Promise) in
       guard let settled = DualCameraTurboSafe.acquireStartRecordingPromise(promise) else {
         DualCameraPromiseGuard(promise).reject(
