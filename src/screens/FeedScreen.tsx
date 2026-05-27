@@ -30,6 +30,7 @@ import {
 } from 'firebase/firestore';
 
 import { FeedCameraRollSaveBanner } from '../components/FeedCameraRollSaveBanner';
+import { FeedPreviewChoice } from '../components/FeedPreviewChoice';
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
 import { UsernameLink } from '../components/UsernameLink';
 import { Brandmark } from '../components/Brandmark';
@@ -58,6 +59,11 @@ import {
 import { setAppBadgeCount } from '../services/pushNotifications';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import { FEED_PREVIEW_SCROLL_LIMIT } from '../constants/feedPreview';
+import {
+  clearFeedPreviewConsumed,
+  loadFeedPreviewConsumed,
+  persistFeedPreviewConsumed,
+} from '../state/feedPreviewLock';
 import {
   challengeDateKeysForFirestoreIn,
   computeFeedViewingFromNow,
@@ -128,13 +134,13 @@ export function FeedScreen() {
   const { clearPostedOverride, hasPostedToday: canViewEveryoneFeed } = useAppState();
   const { user } = useAuth();
   const feedPreviewMode = Boolean(user?.uid && !canViewEveryoneFeed);
-  const [feedPreviewLocked, setFeedPreviewLocked] = React.useState(false);
+  /** Preview used or skipped for this challenge day — gate only, persisted across restarts. */
+  const [feedPreviewConsumed, setFeedPreviewConsumed] = React.useState(false);
+  /** User chose "Preview 3 leaps" this visit (resets when leaving feed until consumed). */
+  const [feedPreviewSessionActive, setFeedPreviewSessionActive] = React.useState(false);
+  /** False until AsyncStorage is read so we do not flash the feed after a prior consume. */
+  const [feedPreviewLockHydrated, setFeedPreviewLockHydrated] = React.useState(!feedPreviewMode);
 
-  React.useEffect(() => {
-    if (canViewEveryoneFeed) {
-      setFeedPreviewLocked(false);
-    }
-  }, [canViewEveryoneFeed]);
   /**
    * NY calendar day for queries — not `useChallengeWindow()` (that ticked 250ms and re-rendered this whole screen constantly).
    * Poll lightly so we still roll over after midnight without starving the JS thread.
@@ -164,6 +170,66 @@ export function FeedScreen() {
     const id = setInterval(tick, 5000);
     return () => clearInterval(id);
   }, []);
+
+  const persistPreviewConsumedForDay = React.useCallback(() => {
+    if (user?.uid) {
+      void persistFeedPreviewConsumed(user.uid, viewingChallengeDateKey);
+    }
+  }, [user?.uid, viewingChallengeDateKey]);
+
+  /** Skip for the day — gate only from here on. */
+  const markFeedPreviewConsumed = React.useCallback(() => {
+    setFeedPreviewConsumed(true);
+    setFeedPreviewSessionActive(false);
+    persistPreviewConsumedForDay();
+  }, [persistPreviewConsumedForDay]);
+
+  /** Tap "Preview" — burns the one daily preview immediately; reels only for this visit. */
+  const startFeedPreviewSession = React.useCallback(() => {
+    setFeedPreviewConsumed(true);
+    setFeedPreviewSessionActive(true);
+    persistPreviewConsumedForDay();
+  }, [persistPreviewConsumedForDay]);
+
+  const endFeedPreviewSession = React.useCallback(() => {
+    setFeedPreviewSessionActive(false);
+  }, []);
+
+  React.useEffect(() => {
+    if (!feedPreviewMode || !user?.uid) {
+      setFeedPreviewConsumed(false);
+      setFeedPreviewSessionActive(false);
+      setFeedPreviewLockHydrated(true);
+      return;
+    }
+    let cancelled = false;
+    setFeedPreviewLockHydrated(false);
+    void loadFeedPreviewConsumed(user.uid, viewingChallengeDateKey).then((consumed) => {
+      if (cancelled) return;
+      setFeedPreviewConsumed(consumed);
+      setFeedPreviewSessionActive(false);
+      setFeedPreviewLockHydrated(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [feedPreviewMode, user?.uid, viewingChallengeDateKey]);
+
+  React.useEffect(() => {
+    if (!canViewEveryoneFeed || !user?.uid) return;
+    setFeedPreviewConsumed(false);
+    setFeedPreviewSessionActive(false);
+    void clearFeedPreviewConsumed(user.uid, viewingChallengeDateKey);
+  }, [canViewEveryoneFeed, user?.uid, viewingChallengeDateKey]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      return () => {
+        if (!feedPreviewMode) return;
+        setFeedPreviewSessionActive(false);
+      };
+    }, [feedPreviewMode])
+  );
 
   React.useEffect(() => {
     void Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
@@ -219,20 +285,21 @@ export function FeedScreen() {
 
       if (
         feedPreviewMode &&
-        !feedPreviewLocked &&
+        feedPreviewSessionActive &&
         pageHeight > 40 &&
         y > maxFeedPreviewOffset + pageHeight * 0.12
       ) {
         flatListRef.current?.scrollToOffset({ offset: maxFeedPreviewOffset, animated: true });
-        setFeedPreviewLocked(true);
+        endFeedPreviewSession();
       }
     },
     [
       scrollTopThreshold,
       feedPreviewMode,
-      feedPreviewLocked,
+      feedPreviewSessionActive,
       pageHeight,
       maxFeedPreviewOffset,
+      endFeedPreviewSession,
     ]
   );
 
@@ -636,11 +703,39 @@ export function FeedScreen() {
     return <TakeTheLeapGate variant="feed" />;
   }
 
-  if (feedPreviewMode && feedPreviewLocked) {
+  const showFeedPreviewChoice =
+    feedPreviewMode &&
+    feedPreviewLockHydrated &&
+    !feedPreviewConsumed &&
+    !feedPreviewSessionActive;
+
+  const previewVideosReady = feedHydrated && displayVideos.length > 0;
+
+  if (feedPreviewMode && !feedPreviewLockHydrated) {
+    return (
+      <Screen style={styles.feedScreen}>
+        <View style={styles.previewLockLoading}>
+          <ActivityIndicator size="large" color={colors.text} />
+        </View>
+      </Screen>
+    );
+  }
+
+  if (feedPreviewMode && feedPreviewConsumed && !feedPreviewSessionActive) {
     return <TakeTheLeapGate variant="feed" />;
   }
 
-  if (feedPreviewMode && feedHydrated && displayVideos.length === 0) {
+  if (showFeedPreviewChoice) {
+    return (
+      <FeedPreviewChoice
+        previewDisabled={!previewVideosReady}
+        onPreview={startFeedPreviewSession}
+        onSkip={markFeedPreviewConsumed}
+      />
+    );
+  }
+
+  if (feedPreviewMode && feedPreviewSessionActive && feedHydrated && displayVideos.length === 0) {
     return <TakeTheLeapGate variant="feed" />;
   }
 
@@ -929,6 +1024,11 @@ const styles = StyleSheet.create({
   },
   feedScreen: {
     flex: 1,
+  },
+  previewLockLoading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerWrap: {
     paddingHorizontal: 12,
