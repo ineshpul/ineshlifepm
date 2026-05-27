@@ -1,19 +1,9 @@
 import * as React from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import {
-  CommonResolutions,
-  NativePreviewView,
-  useCameraDevice,
-  usePreviewOutput,
-  useVideoOutput,
-  VisionCamera,
-} from 'react-native-vision-camera';
-import type {
-  CameraSession,
-  Recorder,
-} from 'react-native-vision-camera';
+import { CameraView, type CameraType } from 'expo-camera';
 
 import { colors } from '../theme/colors';
+import { useCameraPreviewFreezeRecovery } from '../hooks/useCameraPreviewFreezeRecovery';
 
 export type SingleCameraFacing = 'front' | 'back';
 
@@ -23,7 +13,7 @@ export type SingleCameraController = {
   readonly facing: SingleCameraFacing;
   start: () => Promise<void>;
   stop: () => Promise<void>;
-  /** Flip front<->back. Safe to call while recording (the recorder is persistent). */
+  /** Toggle front<->back. No-op while recording — expo-camera cannot flip mid-take on iOS. */
   flip: () => void;
 };
 
@@ -39,14 +29,19 @@ type Props = {
 };
 
 /**
- * Single-camera recorder built on vision-camera v5 using the
- * hardware-accelerated AVCaptureMovieFileOutput path (persistent recorder OFF —
- * see the comment on `useVideoOutput` below for why).
+ * Single-camera recorder backed by expo-camera's `CameraView`.
  *
- * `flip()` reconfigures the session's input device. It is a no-op during an
- * active recording: changing the input mid-record with the non-persistent
- * recorder corrupts the output file, so we match expo-camera's behavior and
- * require the user to stop recording before flipping.
+ * Why not vision-camera v5? Empirically its iOS preview/recording quality was
+ * noticeably worse than expo-camera's at the same target resolution, with
+ * visible lag during recording and inconsistent front-camera mirroring on
+ * playback. Dual mode still uses vision-camera (`DualCameraRecorder`) because
+ * expo-camera doesn't expose multi-cam sessions; for single-camera capture
+ * we prefer the proven, hardware-accelerated `AVCaptureMovieFileOutput` path
+ * that `CameraView` uses.
+ *
+ * The component exposes the same `SingleCameraController` shape the vision-
+ * camera implementation did, so `RecordScreen` doesn't care which backend is
+ * in use.
  */
 export function SingleCameraRecorder({
   active,
@@ -58,237 +53,118 @@ export function SingleCameraRecorder({
   controllerRef,
 }: Props) {
   const [facing, setFacing] = React.useState<SingleCameraFacing>(initialFacing);
-  const facingRef = React.useRef(facing);
-  React.useEffect(() => {
-    facingRef.current = facing;
-  }, [facing]);
-
-  const backDevice = useCameraDevice('back');
-  const frontDevice = useCameraDevice('front');
-  const currentDevice = facing === 'front' ? frontDevice : backDevice;
-
-  const previewOutput = usePreviewOutput();
-  // Audio is captured on the main video output. Persistent recorder is required
-  // for the recording to survive a flip mid-take.
-  // NOTE: `enablePersistentRecorder` is intentionally OFF. When true,
-  // vision-camera swaps the hardware-backed AVCaptureMovieFileOutput for a
-  // custom AVCaptureVideoDataOutput + AVAssetWriter pipeline. That path is
-  // CPU-heavy (visible preview lag), encodes lower-quality video at the same
-  // requested bitrate, and writes the front camera's mirror transform as
-  // track metadata rather than baked pixels — which players render
-  // inconsistently and the user perceived as "front camera inverts now".
-  //
-  // The tradeoff: with persistentRecorder off, you can't flip the camera
-  // mid-recording. We hide the flip button during recording in single mode
-  // (RecordScreen) to match the original expo-camera UX.
-  const videoOutput = useVideoOutput({
-    targetResolution: CommonResolutions.FHD_16_9,
-    enableAudio: true,
-    fileType: 'mp4',
-  });
-
   const [isReady, setIsReady] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
+  /** Bumped to force a CameraView remount when the freeze watchdog trips. */
+  const [sessionKey, setSessionKey] = React.useState(0);
 
-  const sessionRef = React.useRef<CameraSession | null>(null);
-  const recorderRef = React.useRef<Recorder | null>(null);
+  const cameraRef = React.useRef<CameraView | null>(null);
+  const cameraReadyRef = React.useRef(false);
   const isRecordingRef = React.useRef(false);
-  const stopGuardRef = React.useRef(false);
+  const stopInFlightRef = React.useRef(false);
   const tickIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
-  const reconfigureBusyRef = React.useRef(false);
+  const recordingSecondsLeftRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
 
-  // Build the initial connection list whenever the active device changes.
-  // The `mirrorMode` on the preview gives users the natural selfie-view feel;
-  // the recording itself is captured non-mirrored (sensor-native), which
-  // matches the prior expo-camera behavior.
-  const buildConnections = React.useCallback(
-    (faceFor: SingleCameraFacing) => {
-      const device = faceFor === 'front' ? frontDevice : backDevice;
-      if (!device) return null;
-      return [
-        {
-          input: device,
-          outputs: [
-            { output: previewOutput, mirrorMode: faceFor === 'front' ? 'on' : 'off' } as const,
-            { output: videoOutput, mirrorMode: 'off' } as const,
-          ],
-          constraints: [],
-        },
-      ];
-    },
-    [backDevice, frontDevice, previewOutput, videoOutput]
-  );
-
-  // Create + start the session once both devices have resolved. Teardown
-  // cancels any in-flight recording so we don't leave dangling file writers.
+  // Reset readiness on any external transition that drops the view (mode swap,
+  // remount via sessionKey, becoming inactive). `onCameraReady` will flip it
+  // back to true once expo-camera has the session warmed up again.
   React.useEffect(() => {
-    if (!backDevice || !frontDevice) return;
+    cameraReadyRef.current = false;
+    setIsReady(false);
+  }, [sessionKey, facing, active]);
 
-    let cancelled = false;
-    let session: CameraSession | null = null;
+  const { markPreviewPulse } = useCameraPreviewFreezeRecovery({
+    enabled: active && !isRecording,
+    isRecording,
+    recordingSecondsLeft: recordingSecondsLeftRef.current,
+    onRecover: React.useCallback(() => {
+      // Remount the CameraView. The session is fully re-created by expo-camera
+      // on remount, which is the only reliable way out of its sporadic preview
+      // freeze on iOS after audio-session collisions.
+      setSessionKey((k) => k + 1);
+    }, []),
+  });
 
-    void (async () => {
-      try {
-        // Vision Camera tracks its own permission state. Request both
-        // explicitly so the very first `configure({ enableAudio: true })`
-        // doesn't throw "Audio Permission not yet granted".
-        if (VisionCamera.microphonePermissionStatus !== 'authorized') {
-          await VisionCamera.requestMicrophonePermission().catch(() => false);
-        }
-        if (VisionCamera.cameraPermissionStatus !== 'authorized') {
-          await VisionCamera.requestCameraPermission().catch(() => false);
-        }
-        session = await VisionCamera.createCameraSession(false);
-        if (cancelled) {
-          await session.stop().catch(() => undefined);
-          return;
-        }
-        const connections = buildConnections(facingRef.current);
-        if (!connections) return;
-        await session.configure(connections);
-        if (cancelled) {
-          await session.stop().catch(() => undefined);
-          return;
-        }
-        await session.start();
-        if (cancelled) {
-          await session.stop().catch(() => undefined);
-          return;
-        }
-        sessionRef.current = session;
-        setIsReady(true);
-      } catch (e) {
-        if (!cancelled) onError?.(e);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      const s = session ?? sessionRef.current;
-      sessionRef.current = null;
-      setIsReady(false);
-      void (async () => {
-        const rec = recorderRef.current;
-        recorderRef.current = null;
-        if (tickIntervalRef.current) {
-          clearInterval(tickIntervalRef.current);
-          tickIntervalRef.current = null;
-        }
-        try {
-          if (rec?.isRecording) await rec.cancelRecording();
-        } catch {
-          /* ignore */
-        }
-        try {
-          await s?.stop();
-        } catch {
-          /* ignore */
-        }
-      })();
-    };
-  }, [backDevice, frontDevice, buildConnections, onError]);
-
-  // Pause/resume the session when the parent toggles `active` (e.g. screen blur).
-  React.useEffect(() => {
-    const s = sessionRef.current;
-    if (!s || !isReady) return;
-    if (active) {
-      void s.start().catch(() => undefined);
-    } else {
-      void s.stop().catch(() => undefined);
-    }
-  }, [active, isReady]);
-
-  // Reconfigure the input device whenever facing flips. With persistent recorder
-  // enabled, any in-flight `Recorder` keeps writing across this reconfigure.
-  React.useEffect(() => {
-    const s = sessionRef.current;
-    if (!s || !isReady) return;
-    if (reconfigureBusyRef.current) return;
-    const connections = buildConnections(facing);
-    if (!connections) return;
-    reconfigureBusyRef.current = true;
-    void (async () => {
-      try {
-        await s.configure(connections);
-      } catch (e) {
-        onError?.(e);
-      } finally {
-        reconfigureBusyRef.current = false;
-      }
-    })();
-  }, [facing, isReady, buildConnections, onError]);
-
-  const start = React.useCallback(async () => {
-    if (!isReady || isRecordingRef.current) return;
-    if (!videoOutput) return;
-
-    stopGuardRef.current = false;
-    try {
-      const recorder = await videoOutput.createRecorder({ maxDuration: maxDurationSec });
-      recorderRef.current = recorder;
-
-      await recorder.startRecording(
-        (filePath) => {
-          const uri = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
-          onCapture(uri);
-        },
-        (err) => {
-          onError?.(err);
-        }
-      );
-
-      setIsRecording(true);
-      isRecordingRef.current = true;
-
-      let elapsed = 0;
-      onRecordingTick?.(maxDurationSec);
-      tickIntervalRef.current = setInterval(() => {
-        elapsed += 1;
-        const left = Math.max(0, maxDurationSec - elapsed);
-        onRecordingTick?.(left);
-        if (left <= 0 && tickIntervalRef.current) {
-          clearInterval(tickIntervalRef.current);
-          tickIntervalRef.current = null;
-        }
-      }, 1000);
-    } catch (e) {
-      onError?.(e);
-      setIsRecording(false);
-      isRecordingRef.current = false;
-      recorderRef.current = null;
-      if (tickIntervalRef.current) {
-        clearInterval(tickIntervalRef.current);
-        tickIntervalRef.current = null;
-      }
-    }
-  }, [isReady, videoOutput, maxDurationSec, onCapture, onError, onRecordingTick]);
-
-  const stop = React.useCallback(async () => {
-    if (stopGuardRef.current) return;
-    stopGuardRef.current = true;
-    const rec = recorderRef.current;
-    recorderRef.current = null;
-    setIsRecording(false);
-    isRecordingRef.current = false;
+  const stopTickInterval = React.useCallback(() => {
     if (tickIntervalRef.current) {
       clearInterval(tickIntervalRef.current);
       tickIntervalRef.current = null;
     }
+    recordingSecondsLeftRef.current = null;
+  }, []);
+
+  const start = React.useCallback(async () => {
+    if (isRecordingRef.current) return;
+    if (!cameraReadyRef.current || !cameraRef.current) {
+      throw new Error('Camera not ready');
+    }
+
+    stopInFlightRef.current = false;
+    isRecordingRef.current = true;
+    setIsRecording(true);
+
+    // Drive the seconds-left tick the same way DualCameraRecorder does, so
+    // RecordScreen's UI updates work uniformly across modes.
+    let elapsed = 0;
+    recordingSecondsLeftRef.current = maxDurationSec;
+    onRecordingTick?.(maxDurationSec);
+    tickIntervalRef.current = setInterval(() => {
+      elapsed += 1;
+      const left = Math.max(0, maxDurationSec - elapsed);
+      recordingSecondsLeftRef.current = left;
+      onRecordingTick?.(left);
+      if (left <= 0 && tickIntervalRef.current) {
+        clearInterval(tickIntervalRef.current);
+        tickIntervalRef.current = null;
+      }
+    }, 1000);
+
+    // `recordAsync` blocks until the recording ends, either by `maxDuration`
+    // elapsing or `stopRecording()` being invoked. Fire-and-forget here so the
+    // controller's `start()` resolves immediately and the parent can manage
+    // its own state machine.
+    void (async () => {
+      try {
+        const result = await cameraRef.current?.recordAsync({
+          maxDuration: maxDurationSec,
+        });
+        const rawUri = result?.uri ?? null;
+        const uri = rawUri
+          ? rawUri.startsWith('file://')
+            ? rawUri
+            : `file://${rawUri}`
+          : null;
+        if (uri) onCapture(uri);
+      } catch (e) {
+        onError?.(e);
+      } finally {
+        stopInFlightRef.current = false;
+        isRecordingRef.current = false;
+        setIsRecording(false);
+        stopTickInterval();
+      }
+    })();
+  }, [maxDurationSec, onCapture, onError, onRecordingTick, stopTickInterval]);
+
+  const stop = React.useCallback(async () => {
+    if (!isRecordingRef.current) return;
+    if (stopInFlightRef.current) return;
+    stopInFlightRef.current = true;
     try {
-      if (rec?.isRecording) await rec.stopRecording();
+      cameraRef.current?.stopRecording?.();
     } catch {
-      /* onRecordingFinished still fires with the file path */
+      /* `recordAsync` will still resolve with whatever file was written */
     }
   }, []);
 
   const flip = React.useCallback(() => {
-    // Refuse to flip mid-record: reconfiguring the session input while the
-    // (non-persistent) movie file output is writing produces a truncated file.
+    // expo-camera cannot switch `facing` mid-record on iOS without breaking the
+    // file. RecordScreen also hides the flip FAB during recording, but we
+    // guard defensively here too.
     if (isRecordingRef.current) return;
     setFacing((f) => (f === 'front' ? 'back' : 'front'));
   }, []);
@@ -316,21 +192,34 @@ export function SingleCameraRecorder({
     };
   }, [controllerRef, isReady, isRecording, facing, start, stop, flip]);
 
-  if (!currentDevice) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator size="large" color={colors.white} />
-        <Text style={styles.loadingText}>Finding camera…</Text>
-      </View>
-    );
-  }
+  // Map our 'front'/'back' to expo-camera's CameraType.
+  const cameraType: CameraType = facing === 'front' ? 'front' : 'back';
 
   return (
     <View style={StyleSheet.absoluteFill}>
-      <NativePreviewView
+      <CameraView
+        /** Do NOT include `facing` in `key` — remounting mid-recordAsync breaks recording and freezes preview. */
+        key={`single-cam-${sessionKey}`}
+        ref={cameraRef}
         style={StyleSheet.absoluteFill}
-        previewOutput={previewOutput}
-        resizeMode="cover"
+        facing={cameraType}
+        mode="video"
+        active={active}
+        mirror={facing === 'front'}
+        responsiveOrientationWhenOrientationLocked
+        onCameraReady={() => {
+          cameraReadyRef.current = true;
+          setIsReady(true);
+          markPreviewPulse();
+          requestAnimationFrame(() => {
+            void cameraRef.current?.resumePreview?.().catch(() => undefined);
+          });
+        }}
+        onMountError={({ message }) => {
+          cameraReadyRef.current = false;
+          setIsReady(false);
+          onError?.(new Error(message));
+        }}
       />
       {!isReady ? (
         <View style={styles.loadingOverlay} pointerEvents="none">
@@ -343,12 +232,6 @@ export function SingleCameraRecorder({
 }
 
 const styles = StyleSheet.create({
-  loading: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
