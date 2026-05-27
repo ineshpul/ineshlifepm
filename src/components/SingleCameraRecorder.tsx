@@ -3,7 +3,6 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { CameraView, type CameraType } from 'expo-camera';
 
 import { colors } from '../theme/colors';
-import { useCameraPreviewFreezeRecovery } from '../hooks/useCameraPreviewFreezeRecovery';
 
 export type SingleCameraFacing = 'front' | 'back';
 
@@ -55,46 +54,30 @@ export function SingleCameraRecorder({
   const [facing, setFacing] = React.useState<SingleCameraFacing>(initialFacing);
   const [isReady, setIsReady] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
-  /** Bumped to force a CameraView remount when the freeze watchdog trips. */
-  const [sessionKey, setSessionKey] = React.useState(0);
 
   const cameraRef = React.useRef<CameraView | null>(null);
   const cameraReadyRef = React.useRef(false);
   const isRecordingRef = React.useRef(false);
   const stopInFlightRef = React.useRef(false);
   const tickIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
-  const recordingSecondsLeftRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
 
-  // Reset readiness on any external transition that drops the view (mode swap,
-  // remount via sessionKey, becoming inactive). `onCameraReady` will flip it
-  // back to true once expo-camera has the session warmed up again.
-  React.useEffect(() => {
-    cameraReadyRef.current = false;
-    setIsReady(false);
-  }, [sessionKey, facing, active]);
-
-  const { markPreviewPulse } = useCameraPreviewFreezeRecovery({
-    enabled: active && !isRecording,
-    isRecording,
-    recordingSecondsLeft: recordingSecondsLeftRef.current,
-    onRecover: React.useCallback(() => {
-      // Remount the CameraView. The session is fully re-created by expo-camera
-      // on remount, which is the only reliable way out of its sporadic preview
-      // freeze on iOS after audio-session collisions.
-      setSessionKey((k) => k + 1);
-    }, []),
-  });
+  // NB: deliberately no "reset isReady when facing/active changes" effect.
+  // expo-camera handles facing flips in-place without remounting; flipping the
+  // `active` prop pauses/resumes the session without tearing it down. Once the
+  // CameraView has fired `onCameraReady` the very first time, we keep the
+  // ready flag true so the loading overlay doesn't flash on every flip or
+  // focus transition — that was the source of the "Starting camera…"
+  // notification showing continuously and the flip feeling sluggish.
 
   const stopTickInterval = React.useCallback(() => {
     if (tickIntervalRef.current) {
       clearInterval(tickIntervalRef.current);
       tickIntervalRef.current = null;
     }
-    recordingSecondsLeftRef.current = null;
   }, []);
 
   const start = React.useCallback(async () => {
@@ -110,12 +93,10 @@ export function SingleCameraRecorder({
     // Drive the seconds-left tick the same way DualCameraRecorder does, so
     // RecordScreen's UI updates work uniformly across modes.
     let elapsed = 0;
-    recordingSecondsLeftRef.current = maxDurationSec;
     onRecordingTick?.(maxDurationSec);
     tickIntervalRef.current = setInterval(() => {
       elapsed += 1;
       const left = Math.max(0, maxDurationSec - elapsed);
-      recordingSecondsLeftRef.current = left;
       onRecordingTick?.(left);
       if (left <= 0 && tickIntervalRef.current) {
         clearInterval(tickIntervalRef.current);
@@ -198,8 +179,6 @@ export function SingleCameraRecorder({
   return (
     <View style={StyleSheet.absoluteFill}>
       <CameraView
-        /** Do NOT include `facing` in `key` — remounting mid-recordAsync breaks recording and freezes preview. */
-        key={`single-cam-${sessionKey}`}
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
         facing={cameraType}
@@ -210,7 +189,6 @@ export function SingleCameraRecorder({
         onCameraReady={() => {
           cameraReadyRef.current = true;
           setIsReady(true);
-          markPreviewPulse();
           requestAnimationFrame(() => {
             void cameraRef.current?.resumePreview?.().catch(() => undefined);
           });
