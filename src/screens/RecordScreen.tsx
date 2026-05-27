@@ -157,6 +157,12 @@ export function RecordScreen() {
   const stopRecordingInFlightRef = React.useRef(false);
   /** True while `recordAsync` is in flight (including after native start, before UI `isRecording`). */
   const dualRecordAsyncActiveRef = React.useRef(false);
+  /** Set while stopping a segment to flip single-camera facing mid-recording. */
+  const flipDuringRecordingRef = React.useRef(false);
+  const flipBusyRef = React.useRef(false);
+  const [flipBusy, setFlipBusy] = React.useState(false);
+  /** Which camera is in the PiP bubble when dual mode is on (`front` = back is full-frame). */
+  const [dualPipCamera, setDualPipCamera] = React.useState<'front' | 'back'>('front');
   /** Fewer React commits while Firebase reports many tiny upload progress ticks. */
   const uploadProgressGateRef = React.useRef({ lastShown: -1, lastAt: 0 });
 
@@ -231,6 +237,7 @@ export function RecordScreen() {
     setRecordingSecondsLeft(null);
     setIsRecording(false);
     setCameraFacing('front');
+    setDualPipCamera('front');
     dual.resetDualMode();
     cameraReadyRef.current = false;
     dualPreviewReadyRef.current = false;
@@ -469,17 +476,64 @@ export function RecordScreen() {
           void stopActiveRecording();
         }, durationSec * 1000 + 2800);
 
-        const recordCamera = getActiveRecordCamera();
-        if (!recordCamera) {
-          showError('Camera not ready', new Error('Try again in a moment.'));
-          restorePreviewAfterRecording();
-          return;
+        const segments: string[] = [];
+        let remainingSec = durationSec;
+
+        while (remainingSec > 0 && !recordingAbortRef.current) {
+          if (recordingSessionRef.current !== sessionId) return;
+
+          flipDuringRecordingRef.current = false;
+          const recordCamera = getActiveRecordCamera();
+          if (!recordCamera) {
+            showError('Camera not ready', new Error('Try again in a moment.'));
+            restorePreviewAfterRecording();
+            return;
+          }
+
+          const segmentStartedAt = Date.now();
+          const result = await recordCamera.recordAsync({ maxDuration: remainingSec });
+          if (recordingSessionRef.current !== sessionId) return;
+
+          const segmentUri = result?.uri ?? null;
+          if (segmentUri) segments.push(segmentUri);
+
+          if (flipDuringRecordingRef.current && !recordingAbortRef.current) {
+            flipDuringRecordingRef.current = false;
+            flipBusyRef.current = false;
+            setFlipBusy(false);
+            const elapsedSec = Math.max(1, Math.ceil((Date.now() - segmentStartedAt) / 1000));
+            remainingSec = Math.max(0, remainingSec - elapsedSec);
+            if (remainingSec <= 0) break;
+            setCameraFacing((prev) => (prev === 'front' ? 'back' : 'front'));
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise((r) => setTimeout(r, 280));
+            // eslint-disable-next-line no-await-in-loop
+            await recordCamera.resumePreview?.().catch(() => {});
+            continue;
+          }
+          break;
         }
-        const result = await recordCamera.recordAsync({ maxDuration: durationSec });
-        if (recordingSessionRef.current !== sessionId) {
-          return;
+
+        if (recordingSessionRef.current !== sessionId) return;
+
+        if (segments.length === 0) {
+          fileUri = null;
+        } else if (segments.length === 1) {
+          fileUri = segments[0];
+        } else {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { concatVideoSegments } = require('expo-dual-camera') as typeof import('expo-dual-camera');
+            const merged = await concatVideoSegments({ uris: segments });
+            fileUri = merged.uri ?? null;
+          } catch {
+            fileUri = segments[segments.length - 1] ?? null;
+            showInfo(
+              'Partial merge',
+              'Your flip was saved as the latest segment. Rebuild the app on iOS to enable seamless merge.'
+            );
+          }
         }
-        fileUri = result?.uri ?? null;
       }
 
       if (fileUri) {
@@ -502,6 +556,9 @@ export function RecordScreen() {
     } catch (e) {
       showError('Recording failed', e);
     } finally {
+      flipDuringRecordingRef.current = false;
+      flipBusyRef.current = false;
+      setFlipBusy(false);
       if (recordingWatchdogRef.current) {
         clearTimeout(recordingWatchdogRef.current);
         recordingWatchdogRef.current = null;
@@ -516,11 +573,34 @@ export function RecordScreen() {
   };
 
   const onFlipCamera = React.useCallback(() => {
-    if (dual.active || postedToday || !playerFacing.canRecord || preRecordCountdown != null || !canUseCamera) {
+    if (postedToday || !playerFacing.canRecord || preRecordCountdown != null || !canUseCamera) {
       return;
     }
-    // expo-camera cannot reliably switch `facing` mid-record; it stops the recording on iOS.
-    if (isRecordingRef.current) return;
+    if (flipBusyRef.current) return;
+
+    if (isRecordingRef.current) {
+      if (dual.active && !dual.isExpoGo) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { swapRecordingLayout } = require('expo-dual-camera') as typeof import('expo-dual-camera');
+          swapRecordingLayout();
+          setDualPipCamera((prev) => (prev === 'front' ? 'back' : 'front'));
+        } catch (e) {
+          showError('Could not flip cameras', e);
+        }
+        return;
+      }
+      if (dual.active && dual.isExpoGo) {
+        setDualPipCamera((prev) => (prev === 'front' ? 'back' : 'front'));
+        return;
+      }
+      flipDuringRecordingRef.current = true;
+      flipBusyRef.current = true;
+      setFlipBusy(true);
+      void stopActiveRecording();
+      return;
+    }
+
     cameraReadyRef.current = false;
     InteractionManager.runAfterInteractions(() => {
       setCameraFacing((prev) => (prev === 'front' ? 'back' : 'front'));
@@ -528,7 +608,15 @@ export function RecordScreen() {
         void mainCameraRef.current?.resumePreview?.().catch(() => {});
       });
     });
-  }, [dual.active, postedToday, playerFacing.canRecord, preRecordCountdown, canUseCamera]);
+  }, [
+    dual.active,
+    dual.isExpoGo,
+    postedToday,
+    playerFacing.canRecord,
+    preRecordCountdown,
+    canUseCamera,
+    stopActiveRecording,
+  ]);
 
   const onToggleDualCamera = React.useCallback(() => {
     if (
@@ -951,6 +1039,7 @@ export function RecordScreen() {
               <RecordDualMultiCamView
                 key={`dual-mc-${cameraSessionKey}`}
                 pipRect={dual.pipRect}
+                pipCamera={dualPipCamera}
                 panGesture={dual.panGesture}
                 onReady={() => {
                   dualPreviewReadyRef.current = true;
@@ -988,18 +1077,22 @@ export function RecordScreen() {
                     />
                   </TouchableOpacity>
                 ) : null}
-                {!dual.active && preRecordCountdown == null ? (
+                {preRecordCountdown == null ? (
                   <TouchableOpacity
                     accessibilityRole="button"
                     accessibilityLabel={
-                      cameraFacing === 'front' ? 'Use back camera' : 'Use front camera'
+                      dual.active
+                        ? 'Swap main and selfie cameras'
+                        : cameraFacing === 'front'
+                          ? 'Use back camera'
+                          : 'Use front camera'
                     }
                     onPress={onFlipCamera}
-                    disabled={isRecording || preRecordCountdown != null}
+                    disabled={preRecordCountdown != null || flipBusy}
                     style={[
                       styles.flipFab,
                       isRecording && styles.flipFabRecording,
-                      isRecording && styles.dualFabDisabled,
+                      flipBusy && styles.dualFabDisabled,
                     ]}
                     activeOpacity={0.85}
                   >

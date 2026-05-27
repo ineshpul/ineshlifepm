@@ -79,6 +79,14 @@ final class DualCameraPiPMovieWriter {
   private var outputSize = CGSize(width: 720, height: 1280)
   private var frameCount: Int64 = 0
   private var recordsAudio = true
+  /// When `false`, back is full-frame and front is PiP. When `true`, front is full-frame and back is PiP.
+  private var pipShowsBackCamera = false
+
+  func swapRecordingLayout() {
+    writerLock.lock()
+    pipShowsBackCamera.toggle()
+    writerLock.unlock()
+  }
 
   func start(options: DualCameraRecordingOptions) throws {
     writerLock.lock()
@@ -94,6 +102,7 @@ final class DualCameraPiPMovieWriter {
     maxDuration = CMTime(seconds: options.maxDurationSec, preferredTimescale: 600)
     frameCount = 0
     frontSamples = []
+    pipShowsBackCamera = false
 
     let url = FileManager.default.temporaryDirectory
       .appendingPathComponent("dual-\(UUID().uuidString).mp4")
@@ -323,20 +332,37 @@ final class DualCameraPiPMovieWriter {
   private func compositeFrame(backSample: CMSampleBuffer) -> CVPixelBuffer? {
     guard let backImage = ciImage(from: backSample) else { return nil }
 
-    let orientedBack = orientedImage(backImage, sample: backSample, mirror: false)
-    let scaledBack = scaleToFill(orientedBack, targetSize: outputSize)
-
-    var output = scaledBack
-
     let backPTS = CMSampleBufferGetPresentationTimeStamp(backSample)
     let frontSample = selectFrontSample(near: backPTS)
+    let pip = pipRectInOutputSpace(normalized: normalizedPip, outputSize: outputSize)
+    let pipShowsBack = pipShowsBackCamera
 
-    if let frontSample, let frontImage = ciImage(from: frontSample) {
-      let orientedFront = orientedImage(frontImage, sample: frontSample, mirror: mirrorFront)
-      let pip = pipRectInOutputSpace(normalized: normalizedPip, outputSize: outputSize)
-      let scaledFront = scaleAspectFill(orientedFront, targetSize: pip.size)
-      let positioned = scaledFront.transformed(by: CGAffineTransform(translationX: pip.origin.x, y: pip.origin.y))
-      output = positioned.composited(over: output)
+    let orientedBack = orientedImage(backImage, sample: backSample, mirror: false)
+    let scaledBackFill = scaleToFill(orientedBack, targetSize: outputSize)
+    let scaledBackPip = scaleAspectFill(orientedBack, targetSize: pip.size)
+    let positionedBackPip = scaledBackPip.transformed(
+      by: CGAffineTransform(translationX: pip.origin.x, y: pip.origin.y)
+    )
+
+    var output: CIImage
+    if pipShowsBack {
+      if let frontSample, let frontImage = ciImage(from: frontSample) {
+        let orientedFront = orientedImage(frontImage, sample: frontSample, mirror: mirrorFront)
+        output = scaleToFill(orientedFront, targetSize: outputSize)
+      } else {
+        output = scaledBackFill
+      }
+      output = positionedBackPip.composited(over: output)
+    } else {
+      output = scaledBackFill
+      if let frontSample, let frontImage = ciImage(from: frontSample) {
+        let orientedFront = orientedImage(frontImage, sample: frontSample, mirror: mirrorFront)
+        let scaledFront = scaleAspectFill(orientedFront, targetSize: pip.size)
+        let positioned = scaledFront.transformed(
+          by: CGAffineTransform(translationX: pip.origin.x, y: pip.origin.y)
+        )
+        output = positioned.composited(over: output)
+      }
     }
 
     var pixelBuffer: CVPixelBuffer?

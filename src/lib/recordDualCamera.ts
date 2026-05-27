@@ -3,6 +3,7 @@ import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { requireNativeModule } from 'expo';
+import { Platform, UIManager } from 'react-native';
 
 import type { DualPipRect } from '../record/dualPipLayout';
 
@@ -22,6 +23,46 @@ export function hasDualCameraNativeModule(): boolean {
   }
 }
 
+/**
+ * JS can load `expo-dual-camera` while the **native view manager** is missing (Expo Go, old dev client).
+ * Mounting `DualCameraFrontView` then crashes with ViewManagerAdapter_ExpoDualCamera undefined.
+ */
+export function hasDualCameraNativeViews(): boolean {
+  if (isExpoGoClient() || !hasDualCameraNativeModule()) return false;
+  if (Platform.OS === 'web') return false;
+  try {
+    // UIManager.getViewManagerConfig is unreliable on New Architecture; probe the view manager directly.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { requireNativeViewManager } = require('expo-modules-core') as {
+      requireNativeViewManager: (name: string) => unknown;
+    };
+    const view = requireNativeViewManager('ExpoDualCamera');
+    return view != null;
+  } catch {
+    try {
+      const getConfig =
+        UIManager.getViewManagerConfig ??
+        (UIManager as { ViewManager?: { getViewManagerConfig?: (n: string) => unknown } }).ViewManager
+          ?.getViewManagerConfig;
+      if (typeof getConfig === 'function') {
+        return getConfig('ExpoDualCamera') != null;
+      }
+    } catch {
+      /* noop */
+    }
+    return false;
+  }
+}
+
+/** Both TurboModule and native views are in this binary. */
+export function canUseDualCameraNativePreview(): boolean {
+  if (isExpoGoClient() || !hasDualCameraNativeModule()) return false;
+  // iOS dev/TestFlight builds with the module linked should use native MultiCam even when
+  // UIManager probes fail under New Architecture.
+  if (Platform.OS === 'ios') return true;
+  return hasDualCameraNativeViews();
+}
+
 /** Show infinity toggle on real devices (capability checked when user taps). */
 export function canShowDualCameraToggle(): boolean {
   if (!Device.isDevice) return __DEV__;
@@ -36,11 +77,12 @@ export function logDualCameraToggleAvailability(): void {
     applicationId: Application.applicationId ?? null,
     appOwnership: Constants.appOwnership ?? null,
     nativeModulePeek: hasDualCameraNativeModule(),
+    nativeViewsPeek: hasDualCameraNativeViews(),
   });
 }
 
 export async function isDualCameraDeviceSupported(): Promise<boolean> {
-  if (isExpoGoClient()) return false;
+  if (isExpoGoClient() || !canUseDualCameraNativePreview()) return false;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { isSupported } = require('expo-dual-camera') as typeof import('expo-dual-camera');
@@ -61,7 +103,7 @@ export type RecordDualMultiCamViewProps = {
  * Static imports crash Expo Go because the native module is not in that binary.
  */
 export function loadRecordDualMultiCamView(): React.ComponentType<RecordDualMultiCamViewProps> | null {
-  if (isExpoGoClient()) return null;
+  if (!canUseDualCameraNativePreview()) return null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require('../components/RecordDualMultiCamView').RecordDualMultiCamView;

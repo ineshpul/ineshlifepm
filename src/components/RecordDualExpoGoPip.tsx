@@ -25,7 +25,8 @@ export function RecordDualExpoGoPip({ pipRect, panGesture }: Props) {
         ]}
       >
         <View style={styles.inner}>
-          <Text style={styles.text}>Available on app</Text>
+          <Text style={styles.text}>Full app only</Text>
+          <Text style={styles.subtext}>Dual camera needs a dev or TestFlight build</Text>
         </View>
         <View style={styles.border} pointerEvents="none" />
       </View>
@@ -52,6 +53,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     textAlign: 'center',
+  },
+  subtext: {
+    marginTop: 4,
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 9,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 12,
   },
   border: {
     ...StyleSheet.absoluteFillObject,

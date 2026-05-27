@@ -87,6 +87,14 @@ class ExpoDualCameraModule : Module() {
       DualCameraSessionManager.resumePreview()
     }
 
+    Function("swapRecordingLayout") {
+      // Android dual recording is preview-only in this fork; no-op.
+    }
+
+    AsyncFunction("concatVideoSegments") { options: Map<String, Any>?, promise: Promise ->
+      promise.reject("E_CONCAT", "concatVideoSegments is only supported on iOS in this build", null)
+    }
+
     // MARK: - View
 
     View(DualCameraView::class) {

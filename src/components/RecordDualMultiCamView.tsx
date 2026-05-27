@@ -1,86 +1,64 @@
 import * as React from 'react';
-import { StyleSheet, View } from 'react-native';
-import {
-  DualCameraBackView,
-  DualCameraFrontView,
-  useIsDualCameraReady,
-} from 'expo-dual-camera';
-import { GestureDetector } from 'react-native-gesture-handler';
+import { StyleSheet, Text, View } from 'react-native';
 
+import { canUseDualCameraNativePreview } from '../lib/recordDualCamera';
 import type { DualPipRect } from '../record/dualPipLayout';
-import { DUAL_PIP_HEIGHT, DUAL_PIP_WIDTH } from '../record/dualPipLayout';
 
 type Props = {
   pipRect: DualPipRect;
   panGesture: ReturnType<typeof import('react-native-gesture-handler').Gesture.Pan>;
+  pipCamera?: 'front' | 'back';
   onReady?: () => void;
 };
 
 /**
- * Simultaneous front + back via expo-dual-camera 55 (one MultiCam session, two views).
+ * Simultaneous front + back via expo-dual-camera.
+ * Does not import expo-dual-camera until native views are confirmed in this binary.
  */
-export function RecordDualMultiCamView({ pipRect, panGesture, onReady }: Props) {
-  const {
-    isReady,
-    onFrontCameraReady,
-    onBackCameraReady,
-    onFrontMountError,
-    onBackMountError,
-  } = useIsDualCameraReady();
+export function RecordDualMultiCamView(props: Props) {
+  if (!canUseDualCameraNativePreview()) {
+    return (
+      <View style={[StyleSheet.absoluteFill, styles.fallback]}>
+        <Text style={styles.fallbackText}>
+          Dual camera needs a dev build that includes expo-dual-camera (not Expo Go).
+        </Text>
+      </View>
+    );
+  }
 
-  React.useEffect(() => {
-    if (isReady) onReady?.();
-  }, [isReady, onReady]);
+  const Native = React.useMemo(() => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      return require('./RecordDualMultiCamViewNative')
+        .RecordDualMultiCamViewNative as React.ComponentType<Props>;
+    } catch {
+      return null;
+    }
+  }, []);
 
-  return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      <DualCameraBackView
-        style={StyleSheet.absoluteFill}
-        onCameraReady={onBackCameraReady}
-        onMountError={onBackMountError}
-      />
-      <GestureDetector gesture={panGesture}>
-        <View
-          style={[
-            styles.pipWrap,
-            {
-              left: pipRect.x,
-              top: pipRect.y,
-              width: pipRect.width,
-              height: pipRect.height,
-            },
-          ]}
-          accessibilityRole="adjustable"
-          accessibilityLabel="Move selfie preview"
-        >
-          <DualCameraFrontView
-            style={styles.pipView}
-            mirror
-            onCameraReady={onFrontCameraReady}
-            onMountError={onFrontMountError}
-          />
-          <View style={styles.pipBorder} pointerEvents="none" />
-        </View>
-      </GestureDetector>
-    </View>
-  );
+  if (!Native) {
+    return (
+      <View style={[StyleSheet.absoluteFill, styles.fallback]}>
+        <Text style={styles.fallbackText}>Dual camera module could not load.</Text>
+      </View>
+    );
+  }
+
+  return <Native {...props} />;
 }
 
 const styles = StyleSheet.create({
-  pipWrap: {
-    position: 'absolute',
-    zIndex: 12,
-    borderRadius: 14,
-    overflow: 'hidden',
+  fallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 20,
   },
-  pipView: {
-    width: DUAL_PIP_WIDTH,
-    height: DUAL_PIP_HEIGHT,
-  },
-  pipBorder: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.85)',
+  fallbackText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });
