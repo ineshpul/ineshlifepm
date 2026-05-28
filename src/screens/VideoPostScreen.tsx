@@ -54,6 +54,8 @@ export function VideoPostScreen({ route }: Props) {
   const [loadState, setLoadState] = React.useState<'loading' | 'missing' | 'error' | 'ready'>('loading');
   const [row, setRow] = React.useState<{
     url: string;
+    /** Companion PIP clip for BeReal-style dual-camera posts. */
+    secondaryUrl?: string;
     prompt: string;
     username: string;
     ownerUid: string;
@@ -90,8 +92,10 @@ export function VideoPostScreen({ route }: Props) {
           setLoadState('missing');
           return;
         }
+        const secondaryUrl = String(data?.secondaryUrl ?? '').trim();
         setRow({
           url,
+          ...(secondaryUrl ? { secondaryUrl } : {}),
           prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
           username: String(data?.username ?? 'user'),
           ownerUid: String(data?.uid ?? ''),
@@ -185,6 +189,20 @@ export function VideoPostScreen({ route }: Props) {
                 isLooping={false}
                 progressUpdateIntervalMillis={preferences.dataSaver ? 1000 : 250}
               />
+              {row.secondaryUrl ? (
+                <View style={styles.pip} pointerEvents="none">
+                  <Video
+                    source={{ uri: row.secondaryUrl }}
+                    style={styles.pipVideo}
+                    resizeMode={ResizeMode.COVER}
+                    shouldPlay={isFocused}
+                    isMuted
+                    isLooping
+                    volume={0}
+                    progressUpdateIntervalMillis={preferences.dataSaver ? 2000 : 1000}
+                  />
+                </View>
+              ) : null}
             </View>
 
             <UsernameLink uid={row.ownerUid} username={row.username} style={styles.userLine} />
@@ -234,6 +252,19 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   video: { width: '100%', height: '100%' },
+  pip: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 96,
+    height: 132,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#0B1020',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.7)',
+  },
+  pipVideo: { width: '100%', height: '100%' },
   userLine: { marginTop: 4, fontSize: 15, fontWeight: '900' },
   prompt: { fontSize: 15, fontWeight: '800', color: colors.text, lineHeight: 20 },
   meta: { fontSize: 12, fontWeight: '700', color: colors.muted },

@@ -80,6 +80,8 @@ type FeedVideo = {
   username: string;
   prompt: string;
   url: string;
+  /** Companion PIP clip for BeReal-style dual-camera posts (absent on solo clips). */
+  secondaryUrl?: string;
   createdAtMs: number;
   ownerUid: string;
   moderationStatus: string;
@@ -589,11 +591,13 @@ export function FeedScreen() {
               ? nyDateKey((rawCd as { toDate: () => Date }).toDate())
               : String(rawCd ?? '');
           const challengeDate = normalizeNyDateKey(cdRaw, viewingChallengeDateKey);
+          const secondaryUrlRaw = String(data?.secondaryUrl ?? '').trim();
           return {
             id: d.id,
             username: String(data?.username ?? 'user'),
             prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
             url: String(data?.url ?? ''),
+            ...(secondaryUrlRaw ? { secondaryUrl: secondaryUrlRaw } : {}),
             createdAtMs,
             ownerUid: String(data?.uid ?? ''),
             moderationStatus: String(data?.moderationStatus ?? 'approved'),
@@ -661,12 +665,14 @@ export function FeedScreen() {
                 rawMineCd && typeof (rawMineCd as { toDate?: () => Date }).toDate === 'function'
                   ? nyDateKey((rawMineCd as { toDate: () => Date }).toDate())
                   : String(rawMineCd ?? '');
+              const mineSecondaryUrl = String(data?.secondaryUrl ?? '').trim();
               mineDocs = [
                 {
                   id: snap.id,
                   username: String(data?.username ?? 'user'),
                   prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
                   url: String(data?.url ?? ''),
+                  ...(mineSecondaryUrl ? { secondaryUrl: mineSecondaryUrl } : {}),
                   createdAtMs,
                   ownerUid: String(data?.uid ?? ''),
                   moderationStatus: String(data?.moderationStatus ?? 'pending'),
@@ -863,6 +869,7 @@ export function FeedScreen() {
                 <FeedPostVideo
                   reel
                   url={item.url}
+                  secondaryUrl={item.secondaryUrl}
                   shouldPlay={isFocused && activeVideoId === item.id}
                   isMuted={false}
                   useNativeControls

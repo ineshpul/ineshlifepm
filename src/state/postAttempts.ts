@@ -36,6 +36,13 @@ export type PostedVideoPayload = {
   source: string;
   url: string;
   storagePath: string;
+  /**
+   * Companion PIP clip URL for BeReal-style dual-camera posts. When present,
+   * feed/playback components render this as a muted PIP overlay on top of
+   * the primary `url`. Absent on single-camera posts.
+   */
+  secondaryUrl?: string;
+  secondaryStoragePath?: string;
   moderationStatus: 'pending' | 'approved' | 'rejected';
 };
 

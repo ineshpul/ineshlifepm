@@ -17,6 +17,12 @@ function formatTimeLeft(totalSeconds: number) {
 
 function FeedPostVideoInner(props: {
   url: string;
+  /**
+   * Optional companion PIP clip URL for BeReal-style dual-camera posts.
+   * When present we render it as a muted overlay in the top-right corner so
+   * the viewer sees both cameras the same way they were recorded.
+   */
+  secondaryUrl?: string | null;
   shouldPlay: boolean;
   isMuted: boolean;
   useNativeControls: boolean;
@@ -31,6 +37,7 @@ function FeedPostVideoInner(props: {
 }) {
   const {
     url,
+    secondaryUrl,
     shouldPlay,
     isMuted,
     useNativeControls,
@@ -267,6 +274,20 @@ function FeedPostVideoInner(props: {
           <ActivityIndicator size="large" color={colors.white} />
         </View>
       ) : null}
+      {secondaryUrl ? (
+        <View style={reel ? styles.pipReel : styles.pip} pointerEvents="none">
+          <Video
+            source={{ uri: secondaryUrl }}
+            style={StyleSheet.absoluteFillObject}
+            resizeMode={ResizeMode.COVER}
+            shouldPlay={effectivePlay}
+            isMuted
+            isLooping={reel}
+            volume={0}
+            progressUpdateIntervalMillis={dataSaver ? 2000 : 1000}
+          />
+        </View>
+      ) : null}
       {reelTapLayer}
       {reel && likeFlash ? (
         <View style={styles.likeFlash} pointerEvents="none">
@@ -335,6 +356,35 @@ const styles = StyleSheet.create({
   },
   video: {
     ...StyleSheet.absoluteFillObject,
+  },
+  // PIP overlays for BeReal-style dual posts. The reel variant sits just above
+  // the timer bar so it doesn't get clipped by the safe-area; the inline
+  // (non-reel) variant uses a slightly smaller tile to match the boxed layout.
+  pip: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 96,
+    height: 132,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#0B1020',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.7)',
+    zIndex: 3,
+  },
+  pipReel: {
+    position: 'absolute',
+    top: 16,
+    right: 12,
+    width: 118,
+    height: 162,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#0B1020',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.75)',
+    zIndex: 3,
   },
   timerBar: {
     position: 'absolute',

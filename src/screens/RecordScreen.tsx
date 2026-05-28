@@ -549,11 +549,16 @@ export function RecordScreen() {
       // Let the "POSTING…" frame paint before we read the whole file into memory.
       await new Promise<void>((r) => requestAnimationFrame(() => r()));
 
-      const blob = await clipUriToBlob(clipUri);
       const ext = 'mp4';
       const contentType = 'video/mp4';
-      const path = `videos/${user.uid}/${viewingChallengeDateKey}/${Date.now()}.${ext}`;
-      const rref = ref(storage(), path);
+      const UPLOAD_TIMEOUT_MS = 12 * 60 * 1000;
+      const primaryPath = `videos/${user.uid}/${viewingChallengeDateKey}/${Date.now()}.${ext}`;
+      const primaryRef = ref(storage(), primaryPath);
+      const hasSecondary = Boolean(secondaryClipUri);
+      // Reserve more of the bar for the (larger) primary file. The PIP file is
+      // ~half the bitrate, so this roughly maps to clock time on Wi-Fi.
+      const primaryShare = hasSecondary ? 70 : 100;
+      const secondaryShare = 100 - primaryShare;
       setUploadPct(0);
 
       const reportUploadProgress = (rawPct: number) => {
@@ -571,42 +576,76 @@ export function RecordScreen() {
         setUploadPct(pct);
       };
 
-      const task = uploadBytesResumable(rref, blob, { contentType });
-      const UPLOAD_TIMEOUT_MS = 12 * 60 * 1000;
-      await new Promise<void>((resolve, reject) => {
-        const uploadTimeout = setTimeout(() => {
+      const runResumableUpload = async (
+        storageRef: typeof primaryRef,
+        sourceUri: string,
+        scaleStart: number,
+        scaleSpan: number
+      ): Promise<string> => {
+        const blob = await clipUriToBlob(sourceUri);
+        const task = uploadBytesResumable(storageRef, blob, { contentType });
+        await new Promise<void>((resolve, reject) => {
+          const uploadTimeout = setTimeout(() => {
+            try {
+              task.cancel();
+            } catch {
+              /* ignore */
+            }
+            reject(
+              new Error(
+                'Upload timed out. Stay on this screen on Wi‑Fi and try again, or use a shorter clip.'
+              )
+            );
+          }, UPLOAD_TIMEOUT_MS);
+          task.on(
+            'state_changed',
+            (snapshot) => {
+              const total = snapshot.totalBytes;
+              if (total > 0) {
+                const localPct = (100 * snapshot.bytesTransferred) / total;
+                reportUploadProgress(scaleStart + (localPct * scaleSpan) / 100);
+              }
+            },
+            (err) => {
+              clearTimeout(uploadTimeout);
+              reject(err);
+            },
+            () => {
+              clearTimeout(uploadTimeout);
+              resolve();
+            }
+          );
+        });
+        return await getDownloadURL(task.snapshot.ref);
+      };
+
+      const downloadUrl = await runResumableUpload(primaryRef, clipUri, 0, primaryShare);
+
+      let secondaryDownloadUrl: string | null = null;
+      let secondaryRef: typeof primaryRef | null = null;
+      let secondaryPath: string | null = null;
+      if (hasSecondary && secondaryClipUri) {
+        secondaryPath = `videos/${user.uid}/${viewingChallengeDateKey}/${Date.now()}_pip.${ext}`;
+        secondaryRef = ref(storage(), secondaryPath);
+        try {
+          secondaryDownloadUrl = await runResumableUpload(
+            secondaryRef,
+            secondaryClipUri,
+            primaryShare,
+            secondaryShare
+          );
+        } catch (e) {
+          // PIP upload failed. Roll back the primary so we don't strand a half-posted dual take.
           try {
-            task.cancel();
+            await deleteObject(primaryRef);
           } catch {
             /* ignore */
           }
-          reject(
-            new Error(
-              'Upload timed out. Stay on this screen on Wi‑Fi and try again, or use a shorter clip.'
-            )
-          );
-        }, UPLOAD_TIMEOUT_MS);
-        task.on(
-          'state_changed',
-          (snapshot) => {
-            const total = snapshot.totalBytes;
-            if (total > 0) {
-              reportUploadProgress((100 * snapshot.bytesTransferred) / total);
-            }
-          },
-          (err) => {
-            clearTimeout(uploadTimeout);
-            reject(err);
-          },
-          () => {
-            clearTimeout(uploadTimeout);
-            resolve();
-          }
-        );
-      });
+          throw e;
+        }
+      }
       setUploadPct(100);
       setPostSaving(true);
-      const downloadUrl = await getDownloadURL(task.snapshot.ref);
 
       try {
         const requireMod = Boolean(getExpoExtra().requirePostModeration);
@@ -629,15 +668,25 @@ export function RecordScreen() {
             maxDurationSeconds: maxSec,
             source: clipSource ?? 'unknown',
             url: downloadUrl,
-            storagePath: path,
+            storagePath: primaryPath,
+            ...(secondaryDownloadUrl && secondaryPath
+              ? { secondaryUrl: secondaryDownloadUrl, secondaryStoragePath: secondaryPath }
+              : {}),
             moderationStatus: requireMod ? 'pending' : 'approved',
           },
         });
       } catch (e) {
         try {
-          await deleteObject(rref);
+          await deleteObject(primaryRef);
         } catch {
           // ignore cleanup failures
+        }
+        if (secondaryRef) {
+          try {
+            await deleteObject(secondaryRef);
+          } catch {
+            /* ignore */
+          }
         }
         throw e;
       }

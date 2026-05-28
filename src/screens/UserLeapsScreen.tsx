@@ -37,6 +37,8 @@ type LeapVideo = {
   username: string;
   prompt: string;
   url: string;
+  /** Companion PIP clip for BeReal-style dual-camera posts. */
+  secondaryUrl?: string;
   createdAtMs: number;
   ownerUid: string;
   moderationStatus: string;
@@ -107,11 +109,13 @@ export function UserLeapsScreen({ route }: Props) {
             const createdAtMs =
               typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
             const uname = String(data?.username ?? '').trim();
+            const secondaryUrl = String(data?.secondaryUrl ?? '').trim();
             return {
               id: d.id,
               username: uname || hint || 'user',
               prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
               url: String(data?.url ?? ''),
+              ...(secondaryUrl ? { secondaryUrl } : {}),
               createdAtMs,
               ownerUid: String(data?.uid ?? targetUid),
               moderationStatus: String(data?.moderationStatus ?? ''),
@@ -261,6 +265,7 @@ export function UserLeapsScreen({ route }: Props) {
                   <FeedPostVideo
                     reel
                     url={item.url}
+                    secondaryUrl={item.secondaryUrl}
                     shouldPlay={isFocused && activeVideoId === item.id}
                     isMuted={false}
                     useNativeControls

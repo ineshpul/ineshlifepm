@@ -362,6 +362,9 @@ service cloud.firestore {
               'source',
               'url',
               'storagePath',
+              // Optional companion PIP clip URL + storage path for BeReal-style dual-camera posts.
+              'secondaryUrl',
+              'secondaryStoragePath',
               'moderationStatus',
               'createdAt',
               'viewCount',
@@ -391,6 +394,9 @@ service cloud.firestore {
               'source',
               'url',
               'storagePath',
+              // Optional companion PIP clip URL + storage path for BeReal-style dual-camera posts.
+              'secondaryUrl',
+              'secondaryStoragePath',
               'moderationStatus',
               'createdAt',
               'viewCount',
@@ -402,6 +408,24 @@ service cloud.firestore {
               'deleted',
               'challengeCompleted',
             ])
+          )
+        )
+        // Either both PIP fields are present (and valid) or both are absent.
+        && (
+          (
+            !('secondaryUrl' in request.resource.data)
+            && !('secondaryStoragePath' in request.resource.data)
+          )
+          || (
+            'secondaryUrl' in request.resource.data
+            && 'secondaryStoragePath' in request.resource.data
+            && request.resource.data.secondaryUrl is string
+            && request.resource.data.secondaryUrl.size() > 0
+            && request.resource.data.secondaryUrl.size() < 2048
+            && request.resource.data.secondaryStoragePath is string
+            && request.resource.data.secondaryStoragePath.matches(
+              '^videos/' + request.auth.uid + '/' + request.resource.data.challengeDate + '/[^/]+$'
+            )
           )
         )
         && request.resource.data.username is string

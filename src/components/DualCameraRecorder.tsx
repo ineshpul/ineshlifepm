@@ -96,12 +96,14 @@ export function DualCameraRecorder({
     enableAudio: true,
     fileType: 'mp4',
   });
-  // The PIP camera does not need audio — we want a single audio track from the
-  // "main" mic. Capturing audio twice creates phasing artifacts on playback.
+  // Both clips capture audio so the recording never goes silent regardless of
+  // which one ends up as the "primary" (big) video after a tap-to-swap. The
+  // feed/preview players keep the PIP overlay muted at playback time, so
+  // there's no phasing/echo from the duplicated audio track.
   const frontVideo = useVideoOutput({
     targetResolution: CommonResolutions.HD_16_9,
     targetBitRate: 6_000_000,
-    enableAudio: false,
+    enableAudio: true,
     fileType: 'mp4',
   });
 
