@@ -532,6 +532,20 @@ a {
   padding-top: 4px;
 }
 
+.form-feedback {
+  margin: 0;
+  font-size: 14px;
+  font-weight: var(--leap-weight-semibold);
+}
+
+.form-feedback-success {
+  color: var(--leap-green);
+}
+
+.form-feedback-error {
+  color: var(--leap-coral);
+}
+
 /* ——— Contact row (inside suggest card) ——— */
 .suggest-card-footer {
   margin-top: 28px;

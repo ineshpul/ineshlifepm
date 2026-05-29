@@ -12,25 +12,45 @@ const CHALLENGE_TIME = "12:00PM ET";
 export default function Home() {
   const [name, setName] = useState("");
   const [challenge, setChallenge] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState<"idle" | "success" | "error">(
+    "idle",
+  );
+  const [submitMessage, setSubmitMessage] = useState("");
 
-  function handleSuggestSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSuggestSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const trimmed = challenge.trim();
-    if (!trimmed) return;
+    if (!trimmed || submitting) return;
 
-    const from = name.trim();
-    const bodyLines = [
-      "Leap suggestion:",
-      "",
-      trimmed,
-      "",
-      from ? `From: ${from}` : "From: (anonymous)",
-    ];
+    setSubmitting(true);
+    setSubmitStatus("idle");
+    setSubmitMessage("");
 
-    const mailto = new URL(`mailto:${LEAP_EMAIL}`);
-    mailto.searchParams.set("subject", "Leap suggestion");
-    mailto.searchParams.set("body", bodyLines.join("\n"));
-    window.location.href = mailto.toString();
+    try {
+      const res = await fetch("/api/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), challenge: trimmed }),
+      });
+      const data = (await res.json()) as { error?: string };
+
+      if (!res.ok) {
+        setSubmitStatus("error");
+        setSubmitMessage(data.error ?? "Could not send your suggestion.");
+        return;
+      }
+
+      setSubmitStatus("success");
+      setSubmitMessage("Thanks — we got your idea!");
+      setName("");
+      setChallenge("");
+    } catch {
+      setSubmitStatus("error");
+      setSubmitMessage("Could not send your suggestion. Try again.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -267,10 +287,26 @@ export default function Home() {
                   />
                 </div>
                 <div className="form-actions">
-                  <button type="submit" className="btn-primary" disabled={!challenge.trim()}>
-                    Submit idea
+                  <button
+                    type="submit"
+                    className="btn-primary"
+                    disabled={!challenge.trim() || submitting}
+                  >
+                    {submitting ? "Sending…" : "Submit idea"}
                   </button>
                 </div>
+                {submitStatus !== "idle" ? (
+                  <p
+                    className={
+                      submitStatus === "success"
+                        ? "form-feedback form-feedback-success"
+                        : "form-feedback form-feedback-error"
+                    }
+                    role="status"
+                  >
+                    {submitMessage}
+                  </p>
+                ) : null}
               </form>
               <ContactLinks email={LEAP_EMAIL} />
             </div>
