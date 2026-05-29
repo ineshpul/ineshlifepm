@@ -2,6 +2,7 @@ import * as React from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { CameraView, type CameraType } from 'expo-camera';
 
+import { MIN_TASK_DURATION_SECONDS } from '../state/challenge';
 import { colors } from '../theme/colors';
 
 export type SingleCameraFacing = 'front' | 'back';
@@ -51,6 +52,7 @@ export function SingleCameraRecorder({
   onError,
   controllerRef,
 }: Props) {
+  const boundedMaxSec = Math.max(MIN_TASK_DURATION_SECONDS, Math.round(maxDurationSec));
   const [facing, setFacing] = React.useState<SingleCameraFacing>(initialFacing);
   const [isReady, setIsReady] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
@@ -93,10 +95,10 @@ export function SingleCameraRecorder({
     // Drive the seconds-left tick the same way DualCameraRecorder does, so
     // RecordScreen's UI updates work uniformly across modes.
     let elapsed = 0;
-    onRecordingTick?.(maxDurationSec);
+    onRecordingTick?.(boundedMaxSec);
     tickIntervalRef.current = setInterval(() => {
       elapsed += 1;
-      const left = Math.max(0, maxDurationSec - elapsed);
+      const left = Math.max(0, boundedMaxSec - elapsed);
       onRecordingTick?.(left);
       if (left <= 0 && tickIntervalRef.current) {
         clearInterval(tickIntervalRef.current);
@@ -111,7 +113,7 @@ export function SingleCameraRecorder({
     void (async () => {
       try {
         const result = await cameraRef.current?.recordAsync({
-          maxDuration: maxDurationSec,
+          maxDuration: boundedMaxSec,
         });
         const rawUri = result?.uri ?? null;
         const uri = rawUri
@@ -129,7 +131,7 @@ export function SingleCameraRecorder({
         stopTickInterval();
       }
     })();
-  }, [maxDurationSec, onCapture, onError, onRecordingTick, stopTickInterval]);
+  }, [boundedMaxSec, onCapture, onError, onRecordingTick, stopTickInterval]);
 
   const stop = React.useCallback(async () => {
     if (!isRecordingRef.current) return;

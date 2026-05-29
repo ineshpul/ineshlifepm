@@ -28,7 +28,12 @@ import {
 import { colors } from '../theme/colors';
 import { useAppState } from '../state/appState';
 import { useAuth } from '../state/auth';
-import { getPlayerFacingChallenge, useChallengeWindow, useTodayChallenge } from '../state/challenge';
+import {
+  getPlayerFacingChallenge,
+  normalizeTaskDurationSeconds,
+  useChallengeWindow,
+  useTodayChallenge,
+} from '../state/challenge';
 import { firestore, isFirebaseConfigured, storage } from '../firebase/firebase';
 import {
   ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES,
@@ -109,7 +114,7 @@ export function RecordScreen() {
   const { challenge, window } = useTodayChallenge();
   const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
   const playerFacing = getPlayerFacingChallenge(challenge, window);
-  const maxSec = challenge.maxDurationSeconds;
+  const maxSec = normalizeTaskDurationSeconds(challenge.maxDurationSeconds);
   const postedToday = useHasPostedToday(user?.uid, viewingChallengeDateKey);
   const attemptsRemaining = useAttemptsRemaining(
     user?.uid,
@@ -285,22 +290,6 @@ export function RecordScreen() {
     [nav, preferences.autoSavePosts]
   );
 
-  React.useEffect(() => {
-    if (!isRecording) return undefined;
-    const tick = setInterval(() => {
-      setRecordingSecondsLeft((prev) => {
-        if (prev == null) return null;
-        const next = prev - 1;
-        if (next <= 0 && isRecordingRef.current) {
-          void stopActiveRecording();
-          return 0;
-        }
-        return next;
-      });
-    }, 1000);
-    return () => clearInterval(tick);
-  }, [isRecording, stopActiveRecording]);
-
   const startDualRecordingSession = async () => {
     recordingAbortRef.current = false;
     setClipUri(null);
@@ -346,6 +335,15 @@ export function RecordScreen() {
     setPreRecordCountdown(null);
     if (recordingAbortRef.current) return;
 
+    if (controller.isRecording) {
+      try {
+        await controller.stop();
+      } catch {
+        /* stale native session */
+      }
+    }
+
+    setRecordingSecondsLeft(maxSec);
     setIsRecording(true);
     isRecordingRef.current = true;
     try {
@@ -396,6 +394,15 @@ export function RecordScreen() {
     setPreRecordCountdown(null);
     if (recordingAbortRef.current) return;
 
+    if (controller.isRecording) {
+      try {
+        await controller.stop();
+      } catch {
+        /* stale native session */
+      }
+    }
+
+    setRecordingSecondsLeft(maxSec);
     setIsRecording(true);
     isRecordingRef.current = true;
     try {

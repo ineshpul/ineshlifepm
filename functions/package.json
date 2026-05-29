@@ -15,7 +15,8 @@
     "heal:first-post": "npm run build && node lib/runHealGlobalFirstPostScript.js",
     "recompute:all": "npm run build && node lib/runRecomputeAllVerticalScoresScript.js",
     "dedupe:usernames": "npm run build && node lib/scripts/dedupeUsernames.js",
-    "dedupe:usernames:execute": "npm run build && node lib/scripts/dedupeUsernames.js --execute"
+    "dedupe:usernames:execute": "npm run build && node lib/scripts/dedupeUsernames.js --execute",
+    "reset:recording-attempts": "npm run build && node lib/runResetRecordingAttemptsForLeapDayScript.js"
   },
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.758.0",

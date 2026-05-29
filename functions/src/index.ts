@@ -25,6 +25,7 @@ import { backfillWeeklyLeaperWeekCallable } from './backfillWeeklyLeaperWeekCall
 import { backfillUserIdentityFromVideosCallable } from './backfillUserIdentityFromVideosCallable';
 import { backfillApprovedPostCountCallable } from './backfillApprovedPostCountCallable';
 import { healGlobalFirstPostForDayCallable } from './healGlobalFirstPostForDayCallable';
+import { resetRecordingAttemptsForLeapDayCallable } from './resetRecordingAttemptsForLeapDayCallable';
 
 admin.initializeApp();
 
@@ -50,6 +51,7 @@ export {
   backfillUserIdentityFromVideosCallable,
   backfillApprovedPostCountCallable,
   healGlobalFirstPostForDayCallable,
+  resetRecordingAttemptsForLeapDayCallable,
 };
 
 type ChatMessagePayload = {

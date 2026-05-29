@@ -20,6 +20,7 @@ import type {
   Recorder,
 } from 'react-native-vision-camera';
 
+import { MIN_TASK_DURATION_SECONDS } from '../state/challenge';
 import { colors } from '../theme/colors';
 
 export type DualCameraCapture = {
@@ -82,6 +83,7 @@ export function DualCameraRecorder({
   onError,
   controllerRef,
 }: Props) {
+  const boundedMaxSec = Math.max(MIN_TASK_DURATION_SECONDS, Math.round(maxDurationSec));
   const backDevice = useCameraDevice('back');
   const frontDevice = useCameraDevice('front');
 
@@ -281,8 +283,8 @@ export function DualCameraRecorder({
 
     try {
       [backRec, frontRec] = await Promise.all([
-        backVideo.createRecorder({ maxDuration: maxDurationSec }),
-        frontVideo.createRecorder({ maxDuration: maxDurationSec }),
+        backVideo.createRecorder({ maxDuration: boundedMaxSec }),
+        frontVideo.createRecorder({ maxDuration: boundedMaxSec }),
       ]);
       backRecorderRef.current = backRec;
       frontRecorderRef.current = frontRec;
@@ -317,10 +319,10 @@ export function DualCameraRecorder({
       isRecordingRef.current = true;
 
       let elapsed = 0;
-      onRecordingTick?.(maxDurationSec);
+      onRecordingTick?.(boundedMaxSec);
       tickIntervalRef.current = setInterval(() => {
         elapsed += 1;
-        const left = Math.max(0, maxDurationSec - elapsed);
+        const left = Math.max(0, boundedMaxSec - elapsed);
         onRecordingTick?.(left);
         if (left <= 0 && tickIntervalRef.current) {
           clearInterval(tickIntervalRef.current);
@@ -342,7 +344,7 @@ export function DualCameraRecorder({
     isReady,
     backVideo,
     frontVideo,
-    maxDurationSec,
+    boundedMaxSec,
     onCapture,
     onError,
     onRecordingTick,
