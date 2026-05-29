@@ -6,8 +6,7 @@ import { ContactLinks } from "../components/ContactLinks";
 import { FrogDecor } from "../components/FrogDecor";
 
 const TESTFLIGHT_URL = "https://testflight.apple.com/join/c8UddR7K";
-const SUGGEST_EMAIL = "inesh@taketheleap.app";
-const CONTACT_EMAIL = "taketheleap.app@gmail.com";
+const LEAP_EMAIL = "taketheleap.app@gmail.com";
 const CHALLENGE_TIME = "12:00PM ET";
 
 export default function Home() {
@@ -28,7 +27,7 @@ export default function Home() {
       from ? `From: ${from}` : "From: (anonymous)",
     ];
 
-    const mailto = new URL(`mailto:${SUGGEST_EMAIL}`);
+    const mailto = new URL(`mailto:${LEAP_EMAIL}`);
     mailto.searchParams.set("subject", "Leap suggestion");
     mailto.searchParams.set("body", bodyLines.join("\n"));
     window.location.href = mailto.toString();
@@ -273,7 +272,7 @@ export default function Home() {
                   </button>
                 </div>
               </form>
-              <ContactLinks email={CONTACT_EMAIL} />
+              <ContactLinks email={LEAP_EMAIL} />
             </div>
           </div>
         </section>

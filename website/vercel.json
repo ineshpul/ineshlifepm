@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "www.taketheleap.app" }],
+      "destination": "https://taketheleap.app/:path*",
+      "permanent": true
+    }
+  ]
+}
