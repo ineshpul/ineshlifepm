@@ -7,8 +7,5 @@ import { defineSecret } from 'firebase-functions/params';
  *   firebase functions:secrets:set RESEND_API_KEY
  *
  * Local emulator: put `RESEND_API_KEY=...` in `functions/.env` or your shell.
- *
- * Sender defaults to Leap <inesh@taketheleap.app> (see resendFrom.ts). Optional override:
- *   firebase functions:config:set (legacy) or set RESEND_FROM_EMAIL in the function env.
  */
 export const resendApiKey = defineSecret('RESEND_API_KEY');
