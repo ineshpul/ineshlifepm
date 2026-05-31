@@ -2,6 +2,7 @@ import * as logger from 'firebase-functions/logger';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
+import { resendFromAddress } from './resendFrom';
 import { resendApiKey } from './resendSecrets';
 
 const REGION = 'us-central1';
@@ -110,7 +111,7 @@ export const submitChallengeSuggestionCallable = onCall(
       );
     }
 
-    const from = process.env.RESEND_FROM_EMAIL || 'Leap <onboarding@resend.dev>';
+    const from = resendFromAddress();
     const to = String(process.env.CHALLENGE_SUGGESTION_TO_EMAIL ?? DEFAULT_INBOX)
       .trim()
       .toLowerCase();
