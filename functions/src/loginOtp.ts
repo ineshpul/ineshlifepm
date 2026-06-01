@@ -3,6 +3,7 @@ import * as logger from 'firebase-functions/logger';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
+import { resendFromAddress } from './resendFrom';
 import { resendApiKey } from './resendSecrets';
 
 const REGION = 'us-central1';
@@ -34,7 +35,7 @@ async function sendResend(to: string, code: string, apiKey: string) {
       'Sign-in email is not configured. Set the RESEND_API_KEY secret and redeploy.'
     );
   }
-  const from = process.env.RESEND_FROM_EMAIL || 'Leap <onboarding@resend.dev>';
+  const from = resendFromAddress();
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
