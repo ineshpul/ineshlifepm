@@ -5,7 +5,7 @@ import * as logger from 'firebase-functions/logger';
 import { getDayKey } from './leapDayKey';
 import {
   countApprovedVideosForDay,
-  syncApprovedPostCountForLeapDay,
+  reconcileApprovedPostCountForLeapDay,
 } from './dailyChallengeStatsPosts';
 
 const REGION = 'us-central1';
@@ -33,7 +33,7 @@ export const backfillApprovedPostCountCallable = onCall({ region: REGION }, asyn
   logger.info('backfillApprovedPostCount', { dayKey, count, dryRun });
 
   if (!dryRun) {
-    await syncApprovedPostCountForLeapDay(db, dayKey);
+    await reconcileApprovedPostCountForLeapDay(db, dayKey);
   }
 
   return { dayKey, count, dryRun };

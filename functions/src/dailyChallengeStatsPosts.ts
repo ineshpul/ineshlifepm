@@ -56,7 +56,7 @@ export async function countApprovedVideosForDay(
 }
 
 /** Rebuild `approvedPostCount` + `countedApprovedVideoIds` from live approved videos (source of truth). */
-export async function syncApprovedPostCountForLeapDay(
+export async function reconcileApprovedPostCountForLeapDay(
   db: admin.firestore.Firestore,
   dayKey: string
 ): Promise<number> {
@@ -114,7 +114,7 @@ export async function syncApprovedPostCountForVideoChallenge(
   const fallbackMs = toMillis(video.createdAt) || Date.now();
   const keys = statsDocKeysForStoredChallengeDate(challengeDate, fallbackMs);
   for (const k of keys) {
-    await syncApprovedPostCountForLeapDay(db, k);
+    await reconcileApprovedPostCountForLeapDay(db, k);
   }
 }
 
@@ -198,7 +198,8 @@ export async function decrementApprovedPostCountForLeap(
 }
 
 /** Signed-in clients may reconcile after delete; admins use backfill with dryRun. */
-export const syncApprovedPostCountForLeapDayCallable = onCall({ region: REGION }, async (request) => {
+/** Callable name matches client `httpsCallable(..., 'syncApprovedPostCountForLeapDay')`. */
+export const syncApprovedPostCountForLeapDay = onCall({ region: REGION }, async (request) => {
   if (!request.auth?.uid) {
     throw new HttpsError('unauthenticated', 'Sign in required.');
   }
@@ -206,6 +207,6 @@ export const syncApprovedPostCountForLeapDayCallable = onCall({ region: REGION }
   const rawDay = String(request.data?.dayKey ?? '').trim();
   const dayKey = rawDay || getDayKey('America/New_York');
   const db = admin.firestore();
-  const count = await syncApprovedPostCountForLeapDay(db, dayKey);
+  const count = await reconcileApprovedPostCountForLeapDay(db, dayKey);
   return { dayKey, count };
 });
