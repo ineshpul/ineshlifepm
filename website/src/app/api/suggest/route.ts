@@ -55,7 +55,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const from = process.env.RESEND_FROM_EMAIL ?? "Leap <inesh@taketheleap.app>";
+    const from = process.env.RESEND_FROM_EMAIL ?? "Leap <onboarding@resend.dev>";
     const safeBody = escapeHtml(challenge).replace(/\r\n|\n|\r/gu, "<br/>");
     const fromLine = name ? escapeHtml(name) : "Anonymous";
 
