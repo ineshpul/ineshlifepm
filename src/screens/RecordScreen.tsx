@@ -52,6 +52,7 @@ import { BONUS_ATTEMPT_BASE_REDUCTION_INCHES } from '../lib/verticalScore';
 import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { getExpoExtra } from '../config/expoExtra';
 import { purchaseRecordingAttemptWithScore } from '../services/recordingAttemptsPurchase';
+import { logEngagementMetric } from '../services/nativeAnalytics';
 import { computeFeedViewingFromNow } from '../utils/nyTime';
 import { navigateToFeedTab } from '../navigation/navigationHelpers';
 import { offerCameraRollSaveAfterPost } from '../state/pendingCameraRollSave';
@@ -703,6 +704,7 @@ export function RecordScreen() {
       const clipUriForOffer = recordedForSave ? clipUri : null;
 
       markPostedToday();
+      void logEngagementMetric('posting', { challenge_date: viewingChallengeDateKey });
       setClipUri(null);
       setClipSource(null);
       setSecondaryClipUri(null);

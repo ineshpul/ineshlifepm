@@ -24,6 +24,7 @@ import { getWeeklyLeaperboardCallable } from './getWeeklyLeaperboardCallable';
 import { backfillWeeklyLeaperWeekCallable } from './backfillWeeklyLeaperWeekCallable';
 import { backfillUserIdentityFromVideosCallable } from './backfillUserIdentityFromVideosCallable';
 import { backfillApprovedPostCountCallable } from './backfillApprovedPostCountCallable';
+import { syncApprovedPostCountForLeapDayCallable } from './dailyChallengeStatsPosts';
 import { healGlobalFirstPostForDayCallable } from './healGlobalFirstPostForDayCallable';
 import { resetRecordingAttemptsForLeapDayCallable } from './resetRecordingAttemptsForLeapDayCallable';
 
@@ -50,6 +51,7 @@ export {
   backfillWeeklyLeaperWeekCallable,
   backfillUserIdentityFromVideosCallable,
   backfillApprovedPostCountCallable,
+  syncApprovedPostCountForLeapDayCallable,
   healGlobalFirstPostForDayCallable,
   resetRecordingAttemptsForLeapDayCallable,
 };

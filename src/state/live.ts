@@ -69,6 +69,8 @@ export function useLiveCount(opts?: { enabled?: boolean; challengeDateKey?: stri
 
     let alive = true;
     let videoCount = 0;
+    /** After the videos query fires, use it as source of truth (stats can stay high after deletes). */
+    let videosSnapReady = false;
     const statsTotals = new Map<string, number>();
     let publishCount: (() => void) | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -86,6 +88,8 @@ export function useLiveCount(opts?: { enabled?: boolean; challengeDateKey?: stri
       const statsDocKeys = statsDocKeysForLeapDay(leapDayKey, nowMs);
       const cacheKey = countCacheKey(user.uid, leapDayKey);
 
+      videosSnapReady = false;
+
       publishCount = () => {
         let statsSum = 0;
         let hasStats = false;
@@ -95,7 +99,9 @@ export function useLiveCount(opts?: { enabled?: boolean; challengeDateKey?: stri
             hasStats = true;
           }
         }
-        const next = Math.max(hasStats ? statsSum : 0, videoCount);
+        const next = videosSnapReady
+          ? videoCount
+          : Math.max(hasStats ? statsSum : 0, videoCount);
         countCache.set(cacheKey, next);
         setCount(next);
       };
@@ -129,6 +135,7 @@ export function useLiveCount(opts?: { enabled?: boolean; challengeDateKey?: stri
           teardown();
           statsTotals.clear();
           videoCount = 0;
+          videosSnapReady = false;
           teardown = setup();
         }, LISTENER_RETRY_MS);
       };
@@ -148,6 +155,7 @@ export function useLiveCount(opts?: { enabled?: boolean; challengeDateKey?: stri
             clearTimeout(retryTimer);
             retryTimer = null;
           }
+          videosSnapReady = true;
           videoCount = countApprovedInSnapshot(snap.docs);
           console.log('[live] posted today videos snapshot', {
             leapDayKey,
@@ -216,6 +224,7 @@ export function useLiveCount(opts?: { enabled?: boolean; challengeDateKey?: stri
       teardown();
       statsTotals.clear();
       videoCount = 0;
+      videosSnapReady = false;
       teardown = setup();
     }, 60_000);
 

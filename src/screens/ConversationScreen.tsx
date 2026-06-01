@@ -33,6 +33,7 @@ import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
 import { useConversation } from '../chat/hooks/useConversation';
+import { logEngagementMetric } from '../services/nativeAnalytics';
 import { useMessages } from '../chat/hooks/useMessages';
 import { useAttachments } from '../chat/hooks/useAttachments';
 import { usePresence } from '../chat/hooks/usePresence';
@@ -404,6 +405,7 @@ export function ConversationScreen({ navigation, route }: Props) {
     setReplyTo(null);
     void send({ text, replyTo: reply ?? undefined })
       .then(() => {
+        void logEngagementMetric('chatting', { conversation_id: conversationId });
         void markRead();
       })
       .catch((e) => {

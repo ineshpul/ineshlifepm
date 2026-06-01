@@ -12,7 +12,11 @@ import {
   leapInchesFromVideo,
   updateStreakState,
 } from './verticalScoreEngine';
-import { decrementApprovedPostCountForLeap, incrementApprovedPostCountForLeap } from './dailyChallengeStatsPosts';
+import {
+  decrementApprovedPostCountForLeap,
+  incrementApprovedPostCountForLeap,
+  syncApprovedPostCountForVideoChallenge,
+} from './dailyChallengeStatsPosts';
 import {
   claimGlobalFirstPostOfDayInTransaction,
   handleGlobalFirstPostRemoved,
@@ -628,6 +632,11 @@ export const onVerticalScoreVideoDeleted = onDocumentDeleted(
           await decrementApprovedPostCountForLeap(db, data, videoId);
         } catch (e) {
           logger.warn('approvedPostCount decrement on delete failed', { videoId, e });
+        }
+        try {
+          await syncApprovedPostCountForVideoChallenge(db, data);
+        } catch (e) {
+          logger.warn('approvedPostCount sync on delete failed', { videoId, e });
         }
       }
 

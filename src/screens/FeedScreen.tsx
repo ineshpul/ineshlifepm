@@ -41,6 +41,7 @@ import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
 import { deleteOwnedVideo } from '../services/deleteVideo';
+import { logEngagementScrollingThrottled } from '../services/nativeAnalytics';
 import { staffNullVideo } from '../services/nullVideo';
 import { navigateToRecord } from '../navigation/navigationHelpers';
 import { useAppState } from '../state/appState';
@@ -282,6 +283,7 @@ export function FeedScreen() {
   const onFeedScroll = React.useCallback(
     (e: any) => {
       const y = Number(e?.nativeEvent?.contentOffset?.y ?? 0);
+      logEngagementScrollingThrottled();
       const on = y >= scrollTopThreshold;
       setShowScrollTop((prev) => (prev === on ? prev : on));
 

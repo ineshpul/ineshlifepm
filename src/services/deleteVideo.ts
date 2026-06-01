@@ -2,6 +2,7 @@ import { collection, deleteDoc, doc, getDoc, getDocs, limit, query } from 'fireb
 import { deleteObject, ref } from 'firebase/storage';
 
 import { firestore, storage } from '../firebase/firebase';
+import { syncApprovedPostCountForLeapDay } from './dailyChallengeStats';
 import { scheduleVerticalScoreRecompute } from './verticalScore';
 
 /**
@@ -50,6 +51,7 @@ async function deleteVideoByRef(
   const videoId = vref.id;
   const challengeDate = String(data.challengeDate ?? '');
   const storagePath = String(data.storagePath ?? '');
+  const wasApproved = String(data.moderationStatus ?? '') === 'approved';
 
   const likesSnap = await getDocs(
     query(collection(firestore(), 'videos', videoId, 'likes'), limit(500))
@@ -80,4 +82,8 @@ async function deleteVideoByRef(
   }
 
   scheduleVerticalScoreRecompute(ownerUidForLedger);
+
+  if (wasApproved && challengeDate) {
+    void syncApprovedPostCountForLeapDay(challengeDate);
+  }
 }

@@ -5,13 +5,17 @@ type FirebaseAnalytics = ReturnType<
   typeof import('@react-native-firebase/analytics').default
 >;
 
+export type EngagementMetric = 'posting' | 'scrolling' | 'chatting';
+
 let analyticsInstance: FirebaseAnalytics | null | undefined;
+let lastScrollingLogMs = 0;
+
+const SCROLLING_THROTTLE_MS = 30_000;
 
 /** Native Firebase Analytics (iOS EAS builds only; no-op in Expo Go / web). */
 function analytics(): FirebaseAnalytics | null {
   if (Platform.OS !== 'ios') return null;
   if (analyticsInstance !== undefined) return analyticsInstance;
-  // Expo Go cannot load React Native Firebase native modules.
   if (Constants.executionEnvironment === 'storeClient') {
     analyticsInstance = null;
     return null;
@@ -60,4 +64,31 @@ export async function logNativeScreenView(screenName: string): Promise<void> {
   } catch {
     // ignore
   }
+}
+
+/**
+ * Core engagement metrics for Firebase / GA4.
+ * Event `engagement` with param `engagement_type`, plus `engagement_<type>` for simple dashboards.
+ */
+export async function logEngagementMetric(
+  metric: EngagementMetric,
+  params?: Record<string, string | number>
+): Promise<void> {
+  const a = analytics();
+  if (!a) return;
+  try {
+    const safeParams: Record<string, string | number> = { engagement_type: metric, ...params };
+    await a.logEvent('engagement', safeParams);
+    await a.logEvent(`engagement_${metric}`, params ?? {});
+  } catch {
+    // ignore
+  }
+}
+
+/** Throttled feed scroll signal (at most once per 30s per session). */
+export function logEngagementScrollingThrottled(): void {
+  const now = Date.now();
+  if (now - lastScrollingLogMs < SCROLLING_THROTTLE_MS) return;
+  lastScrollingLogMs = now;
+  void logEngagementMetric('scrolling');
 }
