@@ -54,7 +54,14 @@ export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
 
     const videoSnap = await tx.get(videoRef);
     if (videoSnap.exists()) {
-      throw new Error('You already posted today.');
+      const existing = videoSnap.data() as { deleted?: boolean; uid?: string } | undefined;
+      const blocksRepost =
+        existing?.deleted !== true && String(existing?.uid ?? payload.uid) === payload.uid;
+      if (blocksRepost) {
+        throw new Error('You already posted today.');
+      }
+      // Soft-deleted or stale row — remove so create rules apply to the new post.
+      tx.delete(videoRef);
     }
 
     tx.set(videoRef, {

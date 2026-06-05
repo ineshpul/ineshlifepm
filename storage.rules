@@ -73,10 +73,16 @@ service firebase.storage {
       allow write, delete: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Chat media: path includes uploader uid so only they can write; reads require auth (URLs stay unguessable).
+    // Chat media: only conversation members may read; only the uploader may write their path.
     match /chat/{conversationId}/{uploaderUid}/{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write, delete: if request.auth != null && request.auth.uid == uploaderUid;
+      function isChatConvMember() {
+        return request.auth != null
+          && firestore.exists(/databases/(default)/documents/conversations/$(conversationId))
+          && request.auth.uid in firestore.get(/databases/(default)/documents/conversations/$(conversationId)).data.memberIds;
+      }
+
+      allow read: if isChatConvMember();
+      allow write, delete: if isChatConvMember() && request.auth.uid == uploaderUid;
     }
   }
 }

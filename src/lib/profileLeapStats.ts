@@ -21,7 +21,8 @@ export function dailyLeapInchesFromProfileVideos(
   const dayKey = normalizeNyDateKey(leapDayKey, '');
   let sum = 0;
   for (const v of videos) {
-    if (String(v.moderationStatus ?? '') !== 'approved') continue;
+    const status = String(v.moderationStatus ?? '');
+    if (status !== 'approved' && status !== 'pending') continue;
     if (normalizeNyDateKey(v.challengeDate, dayKey) !== dayKey) continue;
     sum += inchFromVideo(v);
   }
@@ -38,7 +39,8 @@ export function weeklyLeapInchesFromProfileVideos(
   const daySet = new Set(nyLeapWeekChallengeDateKeys(wk).map((k) => normalizeNyDateKey(k, k)));
   let sum = 0;
   for (const v of videos) {
-    if (String(v.moderationStatus ?? '') !== 'approved') continue;
+    const status = String(v.moderationStatus ?? '');
+    if (status !== 'approved' && status !== 'pending') continue;
     if (!daySet.has(normalizeNyDateKey(v.challengeDate, ''))) continue;
     sum += inchFromVideo(v);
   }

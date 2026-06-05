@@ -1,4 +1,5 @@
 import * as logger from 'firebase-functions/logger';
+import { CALLABLE_OPTIONS } from './callableOptions';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
@@ -199,7 +200,7 @@ export async function decrementApprovedPostCountForLeap(
 
 /** Signed-in clients may reconcile after delete; admins use backfill with dryRun. */
 /** Callable name matches client `httpsCallable(..., 'syncApprovedPostCountForLeapDay')`. */
-export const syncApprovedPostCountForLeapDay = onCall({ region: REGION }, async (request) => {
+export const syncApprovedPostCountForLeapDay = onCall(CALLABLE_OPTIONS, async (request) => {
   if (!request.auth?.uid) {
     throw new HttpsError('unauthenticated', 'Sign in required.');
   }

@@ -1,10 +1,10 @@
+import { CALLABLE_OPTIONS } from './callableOptions';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
 import { BONUS_ATTEMPT_BASE_REDUCTION_INCHES } from './verticalScoreEngine';
 import { leapChallengeDateKeyFromMs } from './timeKeys';
 
-const REGION = 'us-central1';
 
 function normalizeDateKey(raw: string): string {
   const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(raw ?? '').trim());
@@ -26,7 +26,7 @@ function maxAttemptsFromChallenge(data: admin.firestore.DocumentData | undefined
  * Restore one recording attempt when the daily ledger is exhausted.
  * Marks the leap so {@link BONUS_ATTEMPT_BASE_REDUCTION_INCHES} is deducted from post base at award time.
  */
-export const purchaseRecordingAttemptCallable = onCall({ region: REGION }, async (request) => {
+export const purchaseRecordingAttemptCallable = onCall(CALLABLE_OPTIONS, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in required.');
 

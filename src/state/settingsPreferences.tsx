@@ -1,7 +1,14 @@
 import * as React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { isFirebaseConfigured } from '../firebase/firebase';
 import { syncLeapScheduledNotifications } from '../services/notifications';
+import {
+  loadPrivacySettingsFromFirestore,
+  mergePrivacyIntoPreferences,
+  privacyPatchFromPreferences,
+  syncPrivacySettingsToFirestore,
+} from '../services/userPrivacySettings';
 import { useAuth } from './auth';
 import { useChallengeWindow } from './challenge';
 import { useHasPostedToday } from './posting';
@@ -11,8 +18,7 @@ const STORAGE_KEY = 'leap.settings.v4';
 
 export type FeedType = 'mixed' | 'friends';
 export type CommentAudience = 'everyone' | 'friends';
-// Beta: messaging is open (blocked users excluded) so this is fixed.
-export type MessageAudience = 'everyone';
+export type MessageAudience = 'everyone' | 'friends';
 
 export type SettingsPreferencesState = {
   notificationsEnabled: boolean;
@@ -88,7 +94,8 @@ function mergeLoaded(raw: unknown): SettingsPreferencesState {
     ...SETTINGS_DEFAULTS,
     ...rest,
     autoSavePosts: migratedAutoSave,
-    whoCanMessage: 'everyone',
+    whoCanMessage:
+      o.whoCanMessage === 'friends' ? 'friends' : SETTINGS_DEFAULTS.whoCanMessage,
     blockedUsernames: Array.isArray(o.blockedUsernames)
       ? o.blockedUsernames.map(String)
       : SETTINGS_DEFAULTS.blockedUsernames,
@@ -135,6 +142,22 @@ export function SettingsPreferencesProvider({ children }: { children: React.Reac
   }, []);
 
   React.useEffect(() => {
+    if (!ready || !user?.uid || !isFirebaseConfigured()) return;
+    let alive = true;
+    void loadPrivacySettingsFromFirestore(user.uid).then((server) => {
+      if (!alive || !server) return;
+      setPreferences((prev) => {
+        const next = mergePrivacyIntoPreferences(prev, server);
+        void persist(next);
+        return next;
+      });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [ready, user?.uid]);
+
+  React.useEffect(() => {
     if (!ready) return;
     void syncLeapScheduledNotifications({
       masterEnabled: preferences.notificationsEnabled,
@@ -143,13 +166,25 @@ export function SettingsPreferencesProvider({ children }: { children: React.Reac
     });
   }, [ready, preferences.notificationsEnabled, preferences.streakReminders, hasPostedToday]);
 
-  const patch = React.useCallback((partial: Partial<SettingsPreferencesState>) => {
-    setPreferences((prev) => {
-      const next = { ...prev, ...partial };
-      void persist(next);
-      return next;
-    });
-  }, []);
+  const patch = React.useCallback(
+    (partial: Partial<SettingsPreferencesState>) => {
+      setPreferences((prev) => {
+        const next = { ...prev, ...partial };
+        void persist(next);
+        const privacy = privacyPatchFromPreferences(partial);
+        if (user?.uid && privacy) {
+          void syncPrivacySettingsToFirestore(user.uid, {
+            ...privacy,
+            ...(privacy.whoCanMessage
+              ? { chatMessageAudience: privacy.whoCanMessage }
+              : {}),
+          });
+        }
+        return next;
+      });
+    },
+    [user?.uid]
+  );
 
   const replace = React.useCallback((next: SettingsPreferencesState) => {
     setPreferences(next);

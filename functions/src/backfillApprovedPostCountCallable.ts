@@ -1,3 +1,4 @@
+import { CALLABLE_OPTIONS } from './callableOptions';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import * as logger from 'firebase-functions/logger';
@@ -8,13 +9,11 @@ import {
   reconcileApprovedPostCountForLeapDay,
 } from './dailyChallengeStatsPosts';
 
-const REGION = 'us-central1';
-
 /**
  * Admin-only: set `dailyChallengeStats/{dayKey}.approvedPostCount` from approved `videos`
  * (and rebuild `countedApprovedVideoIds` for that day).
  */
-export const backfillApprovedPostCountCallable = onCall({ region: REGION }, async (request) => {
+export const backfillApprovedPostCountCallable = onCall(CALLABLE_OPTIONS, async (request) => {
   const callerUid = request.auth?.uid;
   if (!callerUid) throw new HttpsError('unauthenticated', 'Sign in required.');
 

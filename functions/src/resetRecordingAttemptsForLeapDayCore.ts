@@ -73,7 +73,9 @@ export async function runResetRecordingAttemptsForLeapDayPage(
       if (videoSnap.exists) {
         const vd = videoSnap.data() as { deleted?: boolean; uid?: string } | undefined;
         const owner = String(data.uid ?? doc.id.split('_')[0] ?? '');
-        if (vd?.deleted !== true && String(vd?.uid ?? owner) === owner) {
+        const isActivePost =
+          vd?.deleted !== true && String(vd?.uid ?? owner) === owner;
+        if (isActivePost) {
           skippedPosted += 1;
           continue;
         }

@@ -4,10 +4,10 @@ import * as admin from 'firebase-admin';
 import { cumulativeInchesFromUser } from './verticalScoreEngine';
 import { recomputeUserLeapStatsAdmin } from './verticalScoreRecompute';
 
-const REGION = 'us-central1';
+import { CALLABLE_OPTIONS } from './callableOptions';
 
 /** Authenticated users may recompute their own leap stats (admin SDK write). */
-export const recomputeVerticalScoreCallable = onCall({ region: REGION }, async (request) => {
+export const recomputeVerticalScoreCallable = onCall(CALLABLE_OPTIONS, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in required.');
 

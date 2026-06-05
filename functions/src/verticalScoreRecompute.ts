@@ -25,8 +25,13 @@ import {
 import { leapDayKeyFromStoredChallengeDate } from './leapDayKey';
 import { DAILY_CHALLENGE_STATS_COLLECTION } from './verticalXpBonuses';
 import { challengeDateKeysForFirestoreIn, leapChallengeDateKeyFromMs } from './timeKeys';
+import {
+  notifyModeratorsPendingReview,
+  notifyUserModerationRejected,
+} from './videoModerationNotifications';
 
 const REGION = 'us-central1';
+const DEFAULT_MAX_RECORDING_ATTEMPTS = 3;
 const POST_COLLECTION = 'videos';
 const PAGE = 500;
 
@@ -119,7 +124,128 @@ async function loadEngagementForLeap(
   };
 }
 
-async function awardLeapInchesFirstApproval(
+function videoCountsTowardLeapTotals(data: Record<string, unknown>): boolean {
+  if (data.deleted === true) return false;
+  const status = String(data.moderationStatus ?? '');
+  if (status === 'rejected' || status === 'nulled') return false;
+  if (!isAwardedLeapVideo(data)) return false;
+  return status === 'approved' || status === 'pending';
+}
+
+function normalizeMaxRecordingAttempts(raw: unknown): number {
+  const n = Math.round(Number(raw));
+  if (!Number.isFinite(n)) return DEFAULT_MAX_RECORDING_ATTEMPTS;
+  return Math.min(50, Math.max(1, n));
+}
+
+async function resetRecordingAttemptsAfterRejection(
+  db: admin.firestore.Firestore,
+  owner: string,
+  challengeDate: string
+): Promise<void> {
+  if (!owner || !challengeDate) return;
+  const challengeSnap = await db.doc(`challenges/${challengeDate}`).get();
+  const max = normalizeMaxRecordingAttempts(challengeSnap.data()?.maxRecordingAttempts);
+  const attemptRef = db.doc(`postAttempts/${owner}_${challengeDate}`);
+  await attemptRef.set(
+    {
+      uid: owner,
+      challengeDate,
+      used: 0,
+      max,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      bonusRecordingAttempts: admin.firestore.FieldValue.delete(),
+      leapBaseReductionInches: admin.firestore.FieldValue.delete(),
+    },
+    { merge: true }
+  );
+}
+
+/**
+ * Grant leap inches while `moderationStatus` stays `pending` (feed hidden until approved).
+ * Streak / hasApprovedLeapEver / global-first bonus finalize on approval.
+ */
+async function awardLeapInchesOnPending(
+  db: admin.firestore.Firestore,
+  videoRef: admin.firestore.DocumentReference,
+  videoId: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  const owner = String(data.uid ?? '').trim();
+  if (!owner) return;
+  const nowMs = Date.now();
+  const videoChallengeDate = String(data.challengeDate ?? '').trim();
+  const challengeDate = videoChallengeDate || leapChallengeDateKeyFromMs(nowMs);
+  const eng = await loadEngagementForLeap(videoRef, owner, data);
+  const userRef = db.doc(`users/${owner}`);
+  const attemptRef = db.doc(`postAttempts/${owner}_${challengeDate}`);
+
+  const br = await db.runTransaction(async (tx) => {
+    const vSnap = await tx.get(videoRef);
+    if (!vSnap.exists) return null;
+    const vd = vSnap.data() as Record<string, unknown>;
+    if (isAwardedLeapVideo(vd)) return null;
+    if (String(vd.moderationStatus ?? '') !== 'pending') return null;
+
+    const uSnap = await tx.get(userRef);
+    const ud = uSnap.data() ?? {};
+    const hasEver = ud.hasApprovedLeapEver === true;
+    const attSnap = await tx.get(attemptRef);
+    const baseReduction = Math.max(
+      0,
+      Number(vd.leapBaseReductionInches ?? attSnap.data()?.leapBaseReductionInches ?? 0)
+    );
+    const priorStreak = Math.max(0, Math.floor(Number(ud.activeLeapStreakDays ?? 0)));
+
+    const computed = computePostLeapInches({
+      streakDays: priorStreak,
+      isFirstEverLeap: !hasEver,
+      isFirstPostOfDay: false,
+      baseInchesReduction: baseReduction,
+      likes: eng.likes,
+      comments: eng.comments,
+      shares: eng.shares,
+      views: eng.views,
+    });
+
+    tx.set(
+      videoRef,
+      {
+        leapInches: computed.leapInches,
+        leapNominalBaseInches: computed.nominalBaseInches,
+        leapBaseReductionInches: computed.baseInchesReduction,
+        leapBaseInches: computed.baseInches,
+        leapStreakMultiplier: computed.streakMultiplier,
+        leapEngagementInches: computed.engagementInches,
+        leapInchesAwarded: true,
+        leapInchesAwardedAt: admin.firestore.FieldValue.serverTimestamp(),
+        leapStreakDaysBasis: priorStreak,
+        leapWasFirstEver: !hasEver,
+        leapWasGlobalFirstPostOfDay: false,
+        leapWasFirstPostOfDay: false,
+        leapInchesPendingApproval: true,
+        awardedVerticalXP: true,
+        verticalXP: 0,
+      },
+      { merge: true }
+    );
+
+    const leaperPatch = buildLeaperPointsPatch(ud, computed.leapInches, challengeDate, nowMs);
+    tx.set(userRef, leaperPatch, { merge: true });
+    return computed;
+  });
+
+  if (!br) return;
+
+  try {
+    await writeUserWeeklyLeaperFields(db, owner, nowMs);
+  } catch (e) {
+    logger.error('weekly leaper sync after pending award failed', { owner, videoId, e });
+  }
+}
+
+/** Full award when a video is created or approved without a prior pending award. */
+async function awardLeapInchesOnFullApproval(
   db: admin.firestore.Firestore,
   videoRef: admin.firestore.DocumentReference,
   videoId: string,
@@ -199,9 +325,8 @@ async function awardLeapInchesFirstApproval(
         leapStreakDaysBasis: priorStreak,
         leapWasFirstEver: !hasEver,
         leapWasGlobalFirstPostOfDay: isGlobalFirstOfDay,
-        /** @deprecated Use leapWasGlobalFirstPostOfDay — kept for legacy readers. */
         leapWasFirstPostOfDay: isGlobalFirstOfDay,
-        moderationStatus: 'approved',
+        leapInchesPendingApproval: false,
         approvedAt: admin.firestore.FieldValue.serverTimestamp(),
         awardedVerticalXP: true,
         verticalXP: 0,
@@ -223,10 +348,18 @@ async function awardLeapInchesFirstApproval(
       { merge: true }
     );
 
-    return computed;
+    return { computed, needsGlobalFirstRetotal: isGlobalFirstOfDay };
   });
 
   if (!br) return;
+
+  if (br.needsGlobalFirstRetotal) {
+    try {
+      await adminRetotalAwardedVideoLeapInches(db, videoId);
+    } catch (e) {
+      logger.warn('retotal after global-first full approval failed', { videoId, e });
+    }
+  }
 
   try {
     await writeUserWeeklyLeaperFields(db, owner, nowMs);
@@ -237,6 +370,136 @@ async function awardLeapInchesFirstApproval(
     await recomputeUserLeapStatsAdmin(owner);
   } catch (e) {
     logger.error('recompute after award failed', { owner, videoId, e });
+  }
+}
+
+/** After a pending-awarded leap is approved: streak, global-first bonus, clear pending flag. */
+async function finalizeLeapInchesOnApproval(
+  db: admin.firestore.Firestore,
+  videoRef: admin.firestore.DocumentReference,
+  videoId: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  const owner = String(data.uid ?? '').trim();
+  if (!owner) return;
+  const nowMs = Date.now();
+  const videoChallengeDate = String(data.challengeDate ?? '').trim();
+  const challengeDate = videoChallengeDate || leapChallengeDateKeyFromMs(nowMs);
+  const userRef = db.doc(`users/${owner}`);
+  const dayStatsKey = leapDayKeyFromStoredChallengeDate(videoChallengeDate, nowMs);
+  const dayStatsRef = db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayStatsKey}`);
+
+  let needsRetotal = false;
+
+  await db.runTransaction(async (tx) => {
+    const vSnap = await tx.get(videoRef);
+    if (!vSnap.exists) return;
+    const vd = vSnap.data() as Record<string, unknown>;
+    if (!isAwardedLeapVideo(vd)) return;
+    if (String(vd.moderationStatus ?? '') !== 'approved') return;
+
+    const uSnap = await tx.get(userRef);
+    const ud = uSnap.data() ?? {};
+    const hasEver = ud.hasApprovedLeapEver === true;
+    const priorStreak = Math.max(0, Math.floor(Number(ud.activeLeapStreakDays ?? 0)));
+    const priorLongest = Math.max(0, Math.floor(Number(ud.longestLeapStreakDays ?? 0)));
+    const lastKey = String(ud.lastApprovedLeapDateKey ?? '').trim();
+
+    const dayStatsSnap = await tx.get(dayStatsRef);
+    const isGlobalFirstOfDay = claimGlobalFirstPostOfDayInTransaction({
+      tx,
+      statsRef: dayStatsRef,
+      statsSnap: dayStatsSnap,
+      videoId,
+      ownerUid: owner,
+      challengeDate,
+    });
+
+    const streakNext = updateStreakState({
+      lastApprovedLeapDateKey: lastKey,
+      newApprovedLeapDayKey: challengeDate,
+      priorActiveStreak: priorStreak,
+      priorLongest: priorLongest,
+    });
+
+    const videoPatch: Record<string, unknown> = {
+      leapInchesPendingApproval: false,
+      approvedAt: admin.firestore.FieldValue.serverTimestamp(),
+      leapWasFirstEver: !hasEver,
+    };
+    if (isGlobalFirstOfDay) {
+      videoPatch.leapWasGlobalFirstPostOfDay = true;
+      videoPatch.leapWasFirstPostOfDay = true;
+      needsRetotal = true;
+    }
+
+    tx.set(videoRef, videoPatch, { merge: true });
+    tx.set(
+      userRef,
+      {
+        activeLeapStreakDays: streakNext.activeLeapStreakDays,
+        longestLeapStreakDays: streakNext.longestLeapStreakDays,
+        lastApprovedLeapDateKey: challengeDate,
+        hasApprovedLeapEver: true,
+      },
+      { merge: true }
+    );
+  });
+
+  if (needsRetotal) {
+    try {
+      await adminRetotalAwardedVideoLeapInches(db, videoId);
+    } catch (e) {
+      logger.warn('retotal after pending→approved finalize failed', { videoId, e });
+    }
+  }
+
+  try {
+    await writeUserWeeklyLeaperFields(db, owner, nowMs);
+  } catch (e) {
+    logger.error('weekly leaper sync after finalize failed', { owner, videoId, e });
+  }
+  try {
+    await recomputeUserLeapStatsAdmin(owner);
+  } catch (e) {
+    logger.error('recompute after finalize failed', { owner, videoId, e });
+  }
+}
+
+async function handleVideoModerationRejected(
+  db: admin.firestore.Firestore,
+  videoRef: admin.firestore.DocumentReference,
+  videoId: string,
+  beforeData: Record<string, unknown>
+): Promise<void> {
+  const owner = String(beforeData.uid ?? '').trim();
+  const challengeDate = String(beforeData.challengeDate ?? '').trim();
+  if (!owner) return;
+
+  if (isAwardedLeapVideo(beforeData)) {
+    try {
+      await revokeLeapInchesForVideo(db, videoRef, videoId, beforeData, false);
+    } catch (e) {
+      logger.warn('revoke leap inches on reject failed', { videoId, owner, e });
+    }
+  }
+
+  try {
+    await resetRecordingAttemptsAfterRejection(db, owner, challengeDate);
+  } catch (e) {
+    logger.warn('reset attempts after reject failed', { videoId, owner, e });
+  }
+
+  try {
+    await notifyUserModerationRejected({ ownerUid: owner, videoId });
+  } catch (e) {
+    logger.warn('reject notification failed', { videoId, owner, e });
+  }
+
+  try {
+    await videoRef.delete();
+  } catch (e) {
+    logger.warn('delete video after reject failed', { videoId, owner, e });
   }
 }
 
@@ -297,7 +560,7 @@ export async function adminRetotalAwardedVideoLeapInches(
   const snap = await videoRef.get();
   if (!snap.exists) return { delta: 0 };
   const data = snap.data() as Record<string, unknown>;
-  if (String(data.moderationStatus ?? '') !== 'approved' || !isAwardedLeapVideo(data)) {
+  if (!videoCountsTowardLeapTotals(data)) {
     return { delta: 0 };
   }
   const owner = String(data.uid ?? '').trim();
@@ -365,8 +628,23 @@ export async function adminRetotalAwardedVideoLeapInches(
   return { delta };
 }
 
+const ENGAGEMENT_RETOTAL_COOLDOWN_MS = 5 * 60 * 1000;
+
 export async function maybeRefreshVideoLeapInchesAfterEngagement(videoId: string): Promise<void> {
+  const ref = admin.firestore().doc(`${POST_COLLECTION}/${videoId}`);
+  const snap = await ref.get();
+  if (!snap.exists) return;
+  const data = snap.data() as Record<string, unknown>;
+  if (!isAwardedLeapVideo(data)) return;
+
+  const lastMs = toMillis(data.leapEngagementRetotalAt);
+  if (lastMs && Date.now() - lastMs < ENGAGEMENT_RETOTAL_COOLDOWN_MS) return;
+
   try {
+    await ref.set(
+      { leapEngagementRetotalAt: admin.firestore.FieldValue.serverTimestamp() },
+      { merge: true }
+    );
     await adminRetotalAwardedVideoLeapInches(admin.firestore(), videoId);
   } catch (e) {
     logger.error('leap inches engagement refresh failed', { videoId, e });
@@ -392,8 +670,7 @@ async function sumLeapInchesForOwner(
     for (const d of snap.docs) {
       const data = d.data() as Record<string, unknown>;
       if (data.deleted === true) continue;
-      if (String(data.moderationStatus ?? '') !== 'approved') continue;
-      if (!isAwardedLeapVideo(data)) continue;
+      if (!videoCountsTowardLeapTotals(data)) continue;
       if (filter && !filter(data)) continue;
       total += leapInchesFromVideo(data);
     }
@@ -597,15 +874,46 @@ export const onVerticalScoreVideoCreated = onDocumentCreated(
   { document: `${POST_COLLECTION}/{videoId}`, region: REGION },
   async (event) => {
     const data = event.data?.data() as Record<string, unknown> | undefined;
+    const videoId = String(event.params.videoId ?? '');
     const uid = String(data?.uid ?? '');
-    if (!uid) return;
-    if (data) {
-      try {
-        await syncUserIdentityFromVideo(admin.firestore(), uid, data);
-      } catch (e) {
-        logger.warn('sync user identity from video failed (create)', { uid, e });
-      }
+    if (!uid || !data) return;
+    const db = admin.firestore();
+    const videoRef = db.doc(`${POST_COLLECTION}/${videoId}`);
+    const status = String(data.moderationStatus ?? '');
+
+    try {
+      await syncUserIdentityFromVideo(db, uid, data);
+    } catch (e) {
+      logger.warn('sync user identity from video failed (create)', { uid, e });
     }
+
+    if (status === 'pending') {
+      try {
+        await awardLeapInchesOnPending(db, videoRef, videoId, data);
+      } catch (e) {
+        logger.warn('pending leap inches award failed', { videoId, uid, e });
+      }
+      try {
+        await notifyModeratorsPendingReview({
+          videoId,
+          ownerUid: uid,
+          ownerUsername: String(data.username ?? 'user'),
+        });
+      } catch (e) {
+        logger.warn('moderator pending notify failed', { videoId, uid, e });
+      }
+      return;
+    }
+
+    if (status === 'approved') {
+      try {
+        await awardLeapInchesOnFullApproval(db, videoRef, videoId, data);
+      } catch (e) {
+        logger.warn('full approval leap inches award failed', { videoId, uid, e });
+      }
+      return;
+    }
+
     try {
       await recomputeUserLeapStatsAdmin(uid);
     } catch (e) {
@@ -623,8 +931,27 @@ export const onVerticalScoreVideoDeleted = onDocumentDeleted(
     if (!uid || !data) return;
 
     const db = admin.firestore();
+    const videoRef = db.doc(`${POST_COLLECTION}/${videoId}`);
     const challengeDate = String(data.challengeDate ?? '').trim();
     const wasApproved = String(data.moderationStatus ?? '') === 'approved';
+
+    // Restore today's recording attempts when the daily video doc is removed (client delete or staff).
+    if (videoId === `${uid}_${challengeDate}` || videoId.startsWith(`${uid}_`)) {
+      const ledgerDate = challengeDate || videoId.slice(uid.length + 1);
+      try {
+        await resetRecordingAttemptsAfterRejection(db, uid, ledgerDate);
+      } catch (e) {
+        logger.warn('reset recording attempts after video delete failed', { videoId, uid, e });
+      }
+    }
+
+    if (isAwardedLeapVideo(data)) {
+      try {
+        await revokeLeapInchesForVideo(db, videoRef, videoId, data, false);
+      } catch (e) {
+        logger.warn('revoke leap inches on delete failed', { videoId, uid, e });
+      }
+    }
 
     try {
       if (wasApproved) {
@@ -705,11 +1032,21 @@ export const onVerticalScoreVideoApprovedLeaper = onDocumentWritten(
       return;
     }
 
+    if (afterStatus === 'rejected' && beforeStatus !== 'rejected' && before) {
+      try {
+        await handleVideoModerationRejected(admin.firestore(), videoRef, videoId, before);
+      } catch (e) {
+        logger.warn('handle moderation rejected failed', { videoId, owner, e });
+      }
+      return;
+    }
+
     if (
       before &&
       beforeStatus === 'approved' &&
       afterStatus !== 'approved' &&
       afterStatus !== 'nulled' &&
+      afterStatus !== 'rejected' &&
       isAwardedLeapVideo(before as Record<string, unknown>)
     ) {
       try {
@@ -726,11 +1063,18 @@ export const onVerticalScoreVideoApprovedLeaper = onDocumentWritten(
       } catch (e) {
         logger.warn('approvedPostCount increment failed', { videoId, owner, e });
       }
+      const db = admin.firestore();
       if (!isAwardedLeapVideo(after)) {
         try {
-          await awardLeapInchesFirstApproval(admin.firestore(), videoRef, videoId, after);
+          await awardLeapInchesOnFullApproval(db, videoRef, videoId, after);
         } catch (e) {
           logger.warn('award leap inches failed', { videoId, owner, e });
+        }
+      } else {
+        try {
+          await finalizeLeapInchesOnApproval(db, videoRef, videoId, after);
+        } catch (e) {
+          logger.warn('finalize leap inches on approval failed', { videoId, owner, e });
         }
       }
       return;
@@ -762,15 +1106,6 @@ export const onVerticalScoreLikeWrite = onDocumentWritten(
       } catch (e) {
         logger.warn('likesCount sync failed', { videoId, e });
       }
-    } else {
-      return;
-    }
-    const owner = await ownerUidFromVideoId(videoId);
-    if (!owner || (likerId && likerId === owner)) return;
-    try {
-      await maybeRefreshVideoLeapInchesAfterEngagement(videoId);
-    } catch (e) {
-      logger.warn('leap inches refresh failed (like)', { videoId, e });
     }
   }
 );

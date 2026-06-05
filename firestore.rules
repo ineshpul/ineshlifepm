@@ -23,6 +23,48 @@ service cloud.firestore {
       return isAdmin() || isModerator();
     }
 
+    function viewerFollowsUser(userId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid)/following/$(userId));
+    }
+
+    /** Owner, staff, public profile, or follower when `privateAccount` is true. */
+    function canViewUserProfile(userId) {
+      return isOwner(userId)
+        || isStaff()
+        || get(/databases/$(database)/documents/users/$(userId)).data.get('privateAccount', false) != true
+        || viewerFollowsUser(userId);
+    }
+
+    function profileMessageAudience(userId) {
+      let data = get(/databases/$(database)/documents/users/$(userId)).data;
+      return data.keys().hasAny(['whoCanMessage']) && data.whoCanMessage == 'friends'
+        ? 'friends'
+        : (
+          data.keys().hasAny(['chatMessageAudience']) && data.chatMessageAudience == 'friends'
+            ? 'friends'
+            : 'everyone'
+        );
+    }
+
+    function canMessageUser(targetUid) {
+      return request.auth.uid == targetUid
+        || isStaff()
+        || profileMessageAudience(targetUid) != 'friends'
+        || viewerFollowsUser(targetUid);
+    }
+
+    function videoOwnerUid(videoId) {
+      return videoDoc(videoId).uid;
+    }
+
+    function canCommentOnVideo(videoId) {
+      let owner = videoOwnerUid(videoId);
+      return request.auth.uid == owner
+        || get(/databases/$(database)/documents/users/$(owner)).data.get('whoCanComment', 'everyone') != 'friends'
+        || viewerFollowsUser(owner);
+    }
+
     /** Doc id in `usernameClaims` — normalized client-side; max 40 (allows `_` and `-` for legacy rows). */
     function validUsernameClaimKey(k) {
       return k is string
@@ -101,9 +143,11 @@ service cloud.firestore {
     }
 
     function canDm() {
-      // Beta behavior: anyone can DM anyone unless blocked.
-      // Block enforcement happens in `isBlockedPair()` inside conversation create.
       return signedIn();
+    }
+
+    function dmOtherMemberId(memberIds) {
+      return memberIds[0] == request.auth.uid ? memberIds[1] : memberIds[0];
     }
 
     function isBlockedPair(a, b) {
@@ -146,6 +190,7 @@ service cloud.firestore {
             && request.resource.data.memberIds.size() == 2
             && request.resource.data.dmPairKey is string
             && canDm()
+            && canMessageUser(dmOtherMemberId(request.resource.data.memberIds))
             && !isBlockedPair(
               request.resource.data.memberIds[0],
               request.resource.data.memberIds[1]
@@ -326,6 +371,8 @@ service cloud.firestore {
     }
 
     // Daily post is unique per user per challenge day (doc id `${uid}_${challengeDate}`).
+    // `pending` posts: owner + staff read; others only after `approved`. Leap inches while pending
+    // are written by Cloud Functions (not client-writable fields on create).
     match /videos/{videoId} {
       // Allow read when the doc is missing so `onSnapshot` (e.g. “posted today?”) does not throw
       // permission-denied — `resource.data` is not valid if the document does not exist.
@@ -492,6 +539,7 @@ service cloud.firestore {
         allow read: if canReadVideoDoc(videoId);
         allow create: if canReadVideoDoc(videoId)
           && signedIn()
+          && canCommentOnVideo(videoId)
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.username is string
           && request.resource.data.text is string
@@ -659,7 +707,12 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if signedIn();
+      // Single-profile fetch: respect private account / followers.
+      allow get: if canViewUserProfile(userId);
+      // Collection queries (leaperboard, search, batch lookups) — Firestore cannot prove
+      // per-doc `canViewUserProfile` for every row in an orderBy query; staff-only get would
+      // break TopScreen for normal users.
+      allow list: if signedIn();
       allow create: if isOwner(userId)
         && !request.resource.data.keys().hasAny([
           'isAdmin',
@@ -733,7 +786,8 @@ service cloud.firestore {
         allow read, create, update, delete: if isOwner(userId);
       }
 
-      // In-app inbox (likes / comments / follows). Only recipient reads; actors create docs.
+      // In-app inbox (likes / comments / follows / moderation). Recipient reads; actors create social
+      // rows only — moderation types are created by Cloud Functions (Admin SDK).
       match /notifications/{notifId} {
         allow read: if isOwner(userId);
         allow create: if signedIn()
@@ -838,6 +892,14 @@ service cloud.firestore {
     }
 
     match /loginOtpRate/{id} {
+      allow read, write: if false;
+    }
+
+    match /challengeSuggestionRate/{id} {
+      allow read, write: if false;
+    }
+
+    match /videoModerationJobs/{id} {
       allow read, write: if false;
     }
 

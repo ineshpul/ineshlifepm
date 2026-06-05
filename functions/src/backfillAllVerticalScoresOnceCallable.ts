@@ -1,3 +1,4 @@
+import { CALLABLE_OPTIONS } from './callableOptions';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
@@ -19,7 +20,7 @@ async function assertAdmin(callerUid: string): Promise<void> {
  * Runs all pages in one invocation (up to ~9 min). Prefer for one-tap backfill from the app.
  */
 export const backfillAllVerticalScoresOnceCallable = onCall(
-  { region: REGION, timeoutSeconds: 540, memory: '1GiB' },
+  { ...CALLABLE_OPTIONS, timeoutSeconds: 540, memory: '1GiB' },
   async (request) => {
     const callerUid = request.auth?.uid;
     if (!callerUid) throw new HttpsError('unauthenticated', 'Sign in required.');

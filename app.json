@@ -1,9 +1,9 @@
 ﻿{
   "expo": {
-    "name": "Leap_MVP",
+    "name": "Leap",
     "slug": "Leap_MVP",
     "scheme": "leapmvp",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/brandmark.png",
     "userInterfaceStyle": "light",
@@ -94,7 +94,9 @@
         "appId": "1:1047286135542:web:d5a184e16b3f9ee8b20ad7"
       },
       "requireLoginEmailOtp": false,
-      "requirePostModeration": true
+      "requirePostModeration": true,
+      "appCheckDebugToken": "",
+      "recaptchaSiteKey": ""
     }
   }
 }

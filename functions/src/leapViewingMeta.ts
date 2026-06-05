@@ -16,9 +16,11 @@ const REGION = 'us-central1';
  */
 export const scheduledLeapViewingMeta = onSchedule(
   {
-    schedule: '* * * * *',
+    /** Every 5 min is enough for noon ET day rollover; avoids ~43k runs/month at * * * * *. */
+    schedule: '*/5 * * * *',
     region: REGION,
     timeZone: 'America/New_York',
+    memory: '256MiB',
   },
   async () => {
     const db = admin.firestore();
@@ -28,8 +30,20 @@ export const scheduledLeapViewingMeta = onSchedule(
     const nyCalendarDateKey = nyDateKeyFromMs(now);
     const leapWeekStartKey = getCurrentWeekKey(new Date(now));
     const leapWeekChallengeDateKeys = nyLeapWeekChallengeDateKeys(leapWeekStartKey);
+
+    const ref = db.doc('config/leapViewing');
+    const prev = await ref.get();
+    const p = prev.data() ?? {};
+    const unchanged =
+      prev.exists &&
+      String(p.viewingChallengeDateKey ?? '') === viewingChallengeDateKey &&
+      String(p.nyCalendarDateKey ?? '') === nyCalendarDateKey &&
+      String(p.leapWeekStartKey ?? '') === leapWeekStartKey &&
+      JSON.stringify(p.leapWeekChallengeDateKeys ?? []) === JSON.stringify(leapWeekChallengeDateKeys);
+    if (unchanged) return;
+
     try {
-      await db.doc('config/leapViewing').set(
+      await ref.set(
         {
           viewingChallengeDateKey,
           nyCalendarDateKey,

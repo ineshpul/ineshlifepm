@@ -1,3 +1,4 @@
+import { CALLABLE_OPTIONS } from './callableOptions';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
@@ -10,7 +11,7 @@ const REGION = 'us-central1';
  * when the profile row would show as Anonymous on the leaperboard.
  */
 export const backfillUserIdentityFromVideosCallable = onCall(
-  { region: REGION, timeoutSeconds: 120 },
+  { ...CALLABLE_OPTIONS, timeoutSeconds: 120 },
   async (request) => {
     const callerUid = request.auth?.uid;
     if (!callerUid) throw new HttpsError('unauthenticated', 'Sign in required.');

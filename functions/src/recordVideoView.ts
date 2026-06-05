@@ -2,7 +2,7 @@ import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import * as logger from 'firebase-functions/logger';
 
-const REGION = 'us-central1';
+import { CALLABLE_OPTIONS } from './callableOptions';
 
 const VIEW_THROTTLE_MS = 6 * 60 * 60 * 1000;
 const ADMIN_NOTIFY_EVERY = 25;
@@ -11,7 +11,7 @@ const ADMIN_NOTIFY_EVERY = 25;
  * Counts a single authenticated view per viewer per video, throttled server-side.
  * Writes a milestone row to each admin inbox (server-side) on coarse view counts.
  */
-export const recordVideoViewCallable = onCall({ region: REGION }, async (request) => {
+export const recordVideoViewCallable = onCall(CALLABLE_OPTIONS, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in required.');
 

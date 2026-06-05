@@ -75,6 +75,12 @@ function buildBody(data: NotifPayload): string {
   const u = String(data.fromUsername ?? 'Someone');
   if (data.type === 'like') return `@${u} liked your leap`;
   if (data.type === 'follow') return `@${u} started following you`;
+  if (data.type === 'mod_queue') {
+    return data.snippet ? String(data.snippet) : 'A leap is waiting for moderation';
+  }
+  if (data.type === 'moderation_rejected') {
+    return data.snippet ? String(data.snippet) : 'Your leap was not approved. You can post again today.';
+  }
   const snip = data.snippet ? `: ${String(data.snippet)}` : '';
   return `@${u} commented${snip}`;
 }
@@ -117,7 +123,12 @@ export const onInboxNotificationCreated = onDocumentCreated(
       sound: 'default',
       priority: 'high' as const,
       data: {
-        kind: 'social',
+        kind:
+          data.type === 'mod_queue'
+            ? 'mod_queue'
+            : data.type === 'moderation_rejected'
+              ? 'moderation_rejected'
+              : 'social',
         type: String(data.type ?? ''),
         fromUid: String(data.fromUid ?? ''),
         fromUsername: String(data.fromUsername ?? ''),
@@ -292,3 +303,4 @@ export const onVideoReportCreated = onDocumentCreated(
 );
 
 export { onLeapVideoUploadedModerate } from './videoUploadModeration';
+export { pollVideoModerationJobs } from './videoModerationPoll';

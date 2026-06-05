@@ -1,16 +1,16 @@
+import { CALLABLE_OPTIONS } from './callableOptions';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
 import { recomputeVerticalScoreAdmin } from './verticalScoreRecompute';
 
-const REGION = 'us-central1';
 
 /**
  * Admin-only: pages through `users` by document id and runs `recomputeVerticalScoreAdmin` per uid.
  * Call repeatedly with `cursorUid` from the previous response until `done` is true.
  * Safe for old users (missing fields are derived inside recompute).
  */
-export const backfillVerticalScoresCallable = onCall({ region: REGION }, async (request) => {
+export const backfillVerticalScoresCallable = onCall(CALLABLE_OPTIONS, async (request) => {
   const callerUid = request.auth?.uid;
   if (!callerUid) throw new HttpsError('unauthenticated', 'Sign in required.');
 

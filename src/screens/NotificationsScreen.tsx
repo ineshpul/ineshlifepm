@@ -18,6 +18,10 @@ import { navigateToUserProfile } from '../navigation/navigationHelpers';
 
 function bodyFor(n: InAppNotification) {
   if (n.type === 'admin_alert') return n.snippet ? String(n.snippet) : 'Admin alert';
+  if (n.type === 'mod_queue') return n.snippet ? String(n.snippet) : 'Leap awaiting moderation';
+  if (n.type === 'moderation_rejected') {
+    return n.snippet ? String(n.snippet) : 'Your leap was not approved. You can post again today.';
+  }
   if (n.type === 'like') return 'liked your leap';
   if (n.type === 'follow') return 'started following you';
   return n.snippet ? `commented: ${n.snippet}` : 'commented on your leap';
@@ -51,6 +55,14 @@ export function NotificationsScreen() {
       }
     }
     if (n.type === 'admin_alert') return;
+    if (n.type === 'mod_queue') {
+      nav.navigate('AdminVideoModeration');
+      return;
+    }
+    if (n.type === 'moderation_rejected') {
+      nav.navigate('Tabs', { screen: 'Today' });
+      return;
+    }
     if (n.type === 'follow') {
       navigateToUserProfile(nav, { uid: n.fromUid, username: n.fromUsername });
       return;
@@ -84,7 +96,9 @@ export function NotificationsScreen() {
                 <View style={styles.dotWrap}>{!item.read ? <View style={styles.dot} /> : null}</View>
               </TouchableOpacity>
               <View style={styles.rowBody}>
-                {item.type === 'admin_alert' ? (
+                {item.type === 'admin_alert' ||
+                item.type === 'mod_queue' ||
+                item.type === 'moderation_rejected' ? (
                   <TouchableOpacity onPress={() => void openNotification(item)} activeOpacity={0.85}>
                     <Text style={styles.line}>
                       <Text style={styles.name}>Leap</Text> · {bodyFor(item)}

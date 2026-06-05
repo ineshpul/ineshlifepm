@@ -1,3 +1,4 @@
+import { CALLABLE_OPTIONS } from './callableOptions';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import * as logger from 'firebase-functions/logger';
@@ -7,7 +8,6 @@ import {
   runResetRecordingAttemptsForLeapDayPage,
 } from './resetRecordingAttemptsForLeapDayCore';
 
-const REGION = 'us-central1';
 
 function normalizeDateKey(raw: string): string {
   const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(raw ?? '').trim());
@@ -22,7 +22,7 @@ function normalizeDateKey(raw: string): string {
 /**
  * Admin-only: reset today's recording attempt ledger for users who have not posted for the leap day.
  */
-export const resetRecordingAttemptsForLeapDayCallable = onCall({ region: REGION }, async (request) => {
+export const resetRecordingAttemptsForLeapDayCallable = onCall(CALLABLE_OPTIONS, async (request) => {
   const callerUid = request.auth?.uid;
   if (!callerUid) throw new HttpsError('unauthenticated', 'Sign in required.');
 

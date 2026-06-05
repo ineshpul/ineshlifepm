@@ -47,6 +47,18 @@ npm run build
 npm run dev
 ```
 
+## Environment variables (Vercel)
+
+Set in **Project → Settings → Environment Variables** (never commit values):
+
+| Name | Required | Purpose |
+|------|----------|---------|
+| `RESEND_API_KEY` | Yes | Sends website challenge suggestions |
+| `RESEND_FROM_EMAIL` | No | Verified sender (defaults to Resend onboarding address) |
+| `SUGGESTION_TO_EMAIL` | No | Inbox for suggestions (defaults to team Gmail) |
+
+See [../docs/SECURITY.md](../docs/SECURITY.md) for App Check, AWS secrets, and API key restrictions.
+
 ## What does *not* redeploy the site
 
-Changes only under `src/` (React Native app) do not affect the marketing site unless you also change files under `website/`. The app ships via TestFlight separately.
+Changes only under `src/` (React Native app) do not affect the marketing site unless you also change files under `website/`. The app ships via the App Store separately.

@@ -41,7 +41,6 @@ import {
   normalizeWeekKey,
 } from '../lib/getCurrentWeekKey';
 import { logWeeklyLeaperboardWeekKeyDebug } from '../lib/weekKeyDebug';
-import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { UsernameLink } from '../components/UsernameLink';
 import { navigateToUserProfile } from '../navigation/navigationHelpers';
 import {
@@ -151,13 +150,6 @@ export function TopScreen() {
       // eslint-disable-next-line no-console
       console.log('[weekly leaperboard] getCurrentWeekKey() =>', key);
     }, [timeframe])
-  );
-
-  useFocusEffect(
-    React.useCallback(() => {
-      if (!user?.uid || timeframe !== 'weekly') return;
-      void recomputeVerticalScoreForUser(user.uid);
-    }, [user?.uid, timeframe])
   );
 
   React.useEffect(() => {

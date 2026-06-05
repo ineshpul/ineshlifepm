@@ -1,15 +1,15 @@
+import { CALLABLE_OPTIONS } from './callableOptions';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
 import { runBackfillLeapLeaperPointsPage } from './backfillLeapLeaperPointsCore';
 
-const REGION = 'us-central1';
 
 /**
  * Admin-only: one-time per video via `videos.leapLeaperPointsBackfilled !== true`.
  * Run repeatedly with `cursorVideoId` until `done` is true.
  */
-export const backfillLeapLeaperPointsCallable = onCall({ region: REGION }, async (request) => {
+export const backfillLeapLeaperPointsCallable = onCall(CALLABLE_OPTIONS, async (request) => {
   const callerUid = request.auth?.uid;
   if (!callerUid) throw new HttpsError('unauthenticated', 'Sign in required.');
 

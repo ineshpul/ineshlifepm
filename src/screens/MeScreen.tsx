@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { collection, doc, limit, onSnapshot, query, where } from 'firebase/firestore';
@@ -29,7 +29,6 @@ import { setAppBadgeCount } from '../services/pushNotifications';
 import { formatLeapGainTodayBanner, formatLeapInchesDisplay } from '../lib/verticalScore';
 import { HighestLeapSheet } from '../components/profile/HighestLeapSheet';
 import { useProfileStats } from '../components/profile/useProfileStats';
-import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { saveUserPublicProfile } from '../services/userProfile';
 import { UsernameTakenError } from '../services/usernameClaim';
 import { useChallengeWindow } from '../state/challenge';
@@ -114,13 +113,6 @@ export function MeScreen() {
   const initials =
     (username.split(/[\s_]+/).filter(Boolean)[0]?.[0] ?? 'U').toUpperCase() +
     (username.split(/[\s_]+/).filter(Boolean)[1]?.[0] ?? '').toUpperCase();
-
-  useFocusEffect(
-    React.useCallback(() => {
-      if (!user?.uid) return;
-      void recomputeVerticalScoreForUser(user.uid);
-    }, [user?.uid])
-  );
 
   const openEditProfile = () => {
     setDraftUsername(username);

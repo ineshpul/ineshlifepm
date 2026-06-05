@@ -2,9 +2,8 @@ import * as logger from 'firebase-functions/logger';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
+import { CALLABLE_OPTIONS } from './callableOptions';
 import { resendApiKey } from './resendSecrets';
-
-const REGION = 'us-central1';
 const MAX_LEN = 1200;
 const RATE_WINDOW_MS = 60 * 60 * 1000;
 const MAX_SUBMITS_PER_HOUR = 12;
@@ -90,7 +89,7 @@ function resendFailureUserHint(status: number, bodyText: string): string {
  * Authenticated users submit a challenge idea; delivered to the team inbox via Resend (no mail client).
  */
 export const submitChallengeSuggestionCallable = onCall(
-  { region: REGION, invoker: 'public', secrets: [resendApiKey] },
+  { ...CALLABLE_OPTIONS, invoker: 'public', secrets: [resendApiKey] },
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Sign in required.');

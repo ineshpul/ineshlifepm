@@ -11,7 +11,12 @@ import { AuthProvider, useAuth } from './src/state/auth';
 import { AppStateProvider } from './src/state/appState';
 import { SettingsPreferencesProvider, useSettingsPreferences } from './src/state/settingsPreferences';
 import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { initAppCheck } from './src/firebase/appCheck';
 import { firestore, isFirebaseConfigured } from './src/firebase/firebase';
+import {
+  privacyPatchFromPreferences,
+  syncPrivacySettingsToFirestore,
+} from './src/services/userPrivacySettings';
 import { registerAndSavePushToken, unregisterPushDevice } from './src/services/pushNotifications';
 import { getForegroundChatConversationId } from './src/chat/activeConversationRef';
 
@@ -47,12 +52,27 @@ function UserNotificationPrefSync() {
     // `updateDoc` throws if the public profile doc does not exist yet (races right after sign-in).
     void updateDoc(doc(firestore(), 'users', user.uid), {
       notificationsEnabled: preferences.notificationsEnabled,
-      chatMessageAudience: preferences.whoCanMessage,
       updatedAt: serverTimestamp(),
     }).catch(() => {
       // ignore — profile doc may still be creating from auth `syncUserProfileDocs`
     });
-  }, [ready, user?.uid, preferences.notificationsEnabled, preferences.whoCanMessage]);
+  }, [ready, user?.uid, preferences.notificationsEnabled]);
+
+  React.useEffect(() => {
+    if (!ready || !user?.uid || !isFirebaseConfigured()) return;
+    const privacy = privacyPatchFromPreferences(preferences);
+    if (!privacy) return;
+    void syncPrivacySettingsToFirestore(user.uid, privacy);
+  }, [
+    ready,
+    user?.uid,
+    preferences.privateAccount,
+    preferences.whoCanComment,
+    preferences.whoCanMessage,
+    preferences.activityStatus,
+    preferences.showStreakPublic,
+    preferences.showScorePublic,
+  ]);
 
   return null;
 }
@@ -76,6 +96,10 @@ function PushTokenRegistrar() {
 }
 
 export default function App() {
+  React.useEffect(() => {
+    void initAppCheck();
+  }, []);
+
   React.useEffect(() => {
     void Audio.setAudioModeAsync({
       playsInSilentModeIOS: true,

@@ -1,3 +1,4 @@
+import { CALLABLE_OPTIONS } from './callableOptions';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
@@ -7,7 +8,6 @@ import {
   runBackfillFirstPostOfDayForDayKeys,
 } from './backfillVerticalXpBonusesCore';
 
-const REGION = 'us-central1';
 
 /**
  * Admin-only: idempotent backfill for `firstLeapBonusXP` (per user) and/or `firstPostOfDayBonusXP` (per day).
@@ -15,7 +15,7 @@ const REGION = 'us-central1';
  * - `firstLeap`: pass `cursorUid` / `limit` and repeat until `done`
  * - `firstPost`: pass `dayKeys` (string[]) or omit to use generated keys; `overwriteStats` default false
  */
-export const backfillVerticalXpBonusesCallable = onCall({ region: REGION }, async (request) => {
+export const backfillVerticalXpBonusesCallable = onCall(CALLABLE_OPTIONS, async (request) => {
   const callerUid = request.auth?.uid;
   if (!callerUid) throw new HttpsError('unauthenticated', 'Sign in required.');
 

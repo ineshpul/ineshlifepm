@@ -1,3 +1,4 @@
+import { CALLABLE_OPTIONS } from './callableOptions';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import * as logger from 'firebase-functions/logger';
@@ -5,7 +6,6 @@ import * as logger from 'firebase-functions/logger';
 import { runBackfillWeeklyLeaperWeekPage } from './backfillWeeklyLeaperWeekCore';
 import { getCurrentWeekKey, normalizeWeekKey } from './getCurrentWeekKey';
 
-const REGION = 'us-central1';
 
 async function sampleUserWeekKeys(
   db: admin.firestore.Firestore,
@@ -33,7 +33,7 @@ async function sampleUserWeekKeys(
  * Admin-only: align all users' weekly leaper fields with Sunday noon ET boundaries.
  * Paginate with `cursorUserId` until `done` is true.
  */
-export const backfillWeeklyLeaperWeekCallable = onCall({ region: REGION }, async (request) => {
+export const backfillWeeklyLeaperWeekCallable = onCall(CALLABLE_OPTIONS, async (request) => {
   const callerUid = request.auth?.uid;
   if (!callerUid) throw new HttpsError('unauthenticated', 'Sign in required.');
 

@@ -49,7 +49,6 @@ import { showError, showInfo } from '../utils/ui';
 import { CHALLENGE_INSTRUCTIONS } from '../content/challengeCopy';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import { BONUS_ATTEMPT_BASE_REDUCTION_INCHES } from '../lib/verticalScore';
-import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { getExpoExtra } from '../config/expoExtra';
 import { purchaseRecordingAttemptWithScore } from '../services/recordingAttemptsPurchase';
 import { logEngagementMetric } from '../services/nativeAnalytics';
@@ -718,8 +717,6 @@ export function RecordScreen() {
         challengesCompleted: increment(1),
         updatedAt: serverTimestamp(),
       }).catch(() => {});
-      void recomputeVerticalScoreForUser(user.uid);
-
       if (recordedForSave && autoSaveClip && clipUriForOffer) {
         void saveVideoToCameraRoll(clipUriForOffer).catch(() => {});
       }

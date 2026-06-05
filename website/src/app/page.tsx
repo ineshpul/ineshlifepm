@@ -5,7 +5,8 @@ import { FormEvent, useState } from "react";
 import { ContactLinks } from "../components/ContactLinks";
 import { FrogDecor } from "../components/FrogDecor";
 
-const TESTFLIGHT_URL = "https://testflight.apple.com/join/c8UddR7K";
+const APP_STORE_URL =
+  "https://apps.apple.com/us/app/leap-one-day-one-leap/id6764062329";
 const LEAP_EMAIL = "taketheleap.app@gmail.com";
 const CHALLENGE_TIME = "12:00PM ET";
 
@@ -69,12 +70,12 @@ export default function Home() {
             <span className="wordmark">Leap</span>
           </a>
           <a
-            href={TESTFLIGHT_URL}
+            href={APP_STORE_URL}
             className="btn-primary top-cta"
             target="_blank"
             rel="noreferrer"
           >
-            Join the beta
+            Get the app
           </a>
         </div>
       </header>
@@ -120,12 +121,12 @@ export default function Home() {
 
               <div className="hero-actions">
                 <a
-                  href={TESTFLIGHT_URL}
+                  href={APP_STORE_URL}
                   className="btn-primary"
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Join the beta
+                  Get the app
                 </a>
               </div>
             </div>
@@ -226,16 +227,16 @@ export default function Home() {
               <div className="cta-panel-copy">
                 <h2 className="headline-md">Ready for today&apos;s leap?</h2>
                 <p className="body-text">
-                  Download the iOS beta and take the leap with the community.
+                  Download Leap on the App Store and take the leap with the community.
                 </p>
               </div>
               <a
-                href={TESTFLIGHT_URL}
+                href={APP_STORE_URL}
                 className="btn-primary"
                 target="_blank"
                 rel="noreferrer"
               >
-                Join the beta
+                Get the app
               </a>
             </div>
           </div>
@@ -326,8 +327,8 @@ export default function Home() {
               <span className="footer-sep" aria-hidden>
                 ·
               </span>
-              <a href={TESTFLIGHT_URL} target="_blank" rel="noreferrer">
-                Join the beta
+              <a href={APP_STORE_URL} target="_blank" rel="noreferrer">
+                Get the app
               </a>
             </nav>
           </div>

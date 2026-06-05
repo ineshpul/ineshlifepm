@@ -936,17 +936,22 @@ export function FeedScreen() {
                       ) : null
                     ) : null}
                     {user?.uid && item.ownerUid === user.uid ? (
-                      <TouchableOpacity
-                        onPress={() => confirmDelete(item)}
-                        disabled={deletingId === item.id}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Delete video"
-                      >
-                        <Text style={styles.deleteLink}>
-                          {deletingId === item.id ? '…' : 'Delete'}
-                        </Text>
-                      </TouchableOpacity>
+                      <>
+                        {item.moderationStatus === 'pending' ? (
+                          <Text style={styles.pendingBadge}>Pending review</Text>
+                        ) : null}
+                        <TouchableOpacity
+                          onPress={() => confirmDelete(item)}
+                          disabled={deletingId === item.id}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel="Delete video"
+                        >
+                          <Text style={styles.deleteLink}>
+                            {deletingId === item.id ? '…' : 'Delete'}
+                          </Text>
+                        </TouchableOpacity>
+                      </>
                     ) : null}
                   </View>
                 </View>
@@ -1327,6 +1332,12 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: colors.muted,
     letterSpacing: 0.4,
+  },
+  pendingBadge: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: colors.moss,
+    letterSpacing: 0.3,
   },
   deleteLink: {
     fontSize: 13,

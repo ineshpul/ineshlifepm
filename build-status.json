@@ -1,0 +1,51 @@
+﻿{
+  "id": "7136d01c-63e9-4b11-ac20-5a597aa2e1a4",
+  "status": "FINISHED",
+  "platform": "IOS",
+  "artifacts": {
+    "buildUrl": "https://expo.dev/artifacts/eas/eYRgeNVw1FUbvboHBuLAsY.ipa",
+    "xcodeBuildLogsUrl": "https://job-logs.eascdn.net/production-xcode-logs/7136d01c-63e9-4b11-ac20-5a597aa2e1a4?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260519%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260519T213535Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=882dd66992f8070997d247e9742bb875bb858e190471880a7f25530d4b5ef0a467d1a4d33125afa1f01e129741c322f0c5ece490d37f13bb0d2763183d2036348916cc80c916bf40954456afa01a56c02191653f57d3404c1977cdaeeb471e83c765aa2ec91ae447f7099db019ee7924ead6b388c565493d65c30b248862356f22efaa4a1b6e330dc66976b457a09af46de20f5daade59839f14d0f81e1001affe00f163e68ba6f844f4881e267d182416f205ed9974692f8c3b7ecc78780b7ecf5f4293b293affabcea7c0dc6d7256b2d8c8ed96e554053ba3a407de675faef074d11b8cba6c951cd03a590b12beab5de186faa0fd8b7b6caaffd1ae654d9ef",
+    "applicationArchiveUrl": "https://expo.dev/artifacts/eas/eYRgeNVw1FUbvboHBuLAsY.ipa"
+  },
+  "fingerprint": {
+    "id": "019e4228-0f4b-7062-8f7c-35ae403b08f0",
+    "hash": "bd0f8d83589e9f87026fd532c5f4b85709a3018e"
+  },
+  "initiatingActor": {
+    "id": "a97e2ba5-138f-448a-b21c-4af9a6ed796d",
+    "displayName": "inpulu"
+  },
+  "logFiles": [
+    "https://job-logs.eascdn.net/production/7136d01c-63e9-4b11-ac20-5a597aa2e1a4/1779226382393-57ad353d-d6c4-4b70-9f7d-83795f5047a4.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260519%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260519T213535Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=46e7658b3f4de8b31c464ca7c1bae8e0b90e467280b9ee9e9523cb21d320175d427f55e8d0e5f612b989223d741d409e84a90bca2cd4655786a34066a4db4e70e116628b40edbce26486afbbfd3fdf3e75649727c47e3c1330fd2e7b11eec53fbc5193a4e195f391b21af22d71b252ae0562666e662913e8b06c45b0abbcd5d35173017f09db7f26d2a38ad8f2cb76e975cd70df609ccb67de055faa0730c15782882fe6e45b09ac2b1db2642a68fda986f0f0ee4011eab7e13e14f3f3c9a2d5a180cd0a6903f12e94091c85906024b113acb3fb87952e2c9afbdcfded780ea7e8fc16abc7159d9a145ba5db2be684e5e35c49ceac21fa3b2d2aa6edcda8fa96",
+    "https://job-logs.eascdn.net/production/7136d01c-63e9-4b11-ac20-5a597aa2e1a4/1779226392287-c67a0f63-9274-4e5a-9365-962998fc2b97.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260519%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260519T213535Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=aae4464939188f4180dd77d98cdd5b72783a50543c8d8d60f1980b66865faac661e681b7cea97dbdd9df4f128429349c1a993df3d18b57c6fbffec8007aa8353dbcd9783e74e47a03f5e8096ad3609b6652304b14709cf719d872a47a02d129b16867fa6daa6aeb9eef32fbd1228ad452b45d9cd077955481f4f0ee4b9e06cc3ae4a3fccc1fe286b0d8401be976f18f40b1dd56300849ce681e5bf58b05f0162a8071a96a4fd72c19372b65cb19ca17c89b3eeafe0ef82ca5f386f78f1c7ef747a22530da51322b4c010703c126ff0acf9b3e0f918cd6dc73fec01698d4109a1b6744f4f80f236dcec009baa4028508105a8614d272ccc6d1f7e68a3119b6280",
+    "https://job-logs.eascdn.net/production/7136d01c-63e9-4b11-ac20-5a597aa2e1a4/1779226392558-a827df45-362a-4731-aaf0-39835834e997.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260519%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260519T213535Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=08e1dd8b3ead31300dcab818681efbe92b2bbc5e79849306ab7a95e41fefccecd0b26600c8e727cca038413a18dd68bc6dcd31331bdd07d8bcbed01ec69ea2ef6db0ae323dbe8a19abe648dbe92b42d0546e5962379e668ff03aa5d9a42f6999ab7bc161ed6b9e3084e1347d85add74080a64724d7c66cd49ac76fe63820549ea10d27ed2ce32af420ee721b094a01ea2ca1cd44ec6918ea566998a400c44f1f93e51010aa760582b1f779cced68a91b0741bd94c2aa83b568caac53c88e8378d9ab89afbaae324cd5c5639d5d0810ae72ef20b0bc96316853a40645f056be6b82988345ac8d3c9fdfbf75524ff7b38375cb7e7cf92cd849a1112d5f6ff30a32",
+    "https://job-logs.eascdn.net/production/7136d01c-63e9-4b11-ac20-5a597aa2e1a4/1779226392802-f3b581d6-284b-4da5-83a9-1622a528ba19.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260519%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260519T213535Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=05427dcff22ffa2138162602591411e5e60265378c2845906e18c4fa9164f5e085dffdab9d81cacdf0ac74ad4454ab42319a2111f8e8a5690904fca98e2a7d6824a9dcd16a8a461a83d4a2566097a9d73efc19aec866827b008748910e9097fa3939b4e8c4c069fc6e584954de652d1d0e5dbe7ae79a1ebd9b8f0d9c18ab5cb6556f67a8ffbeb3df4c5ad5c8bfd890cce1e924e3ee9082999b06880bb4b334c0750ee59406d94d88787e20439ae55a48ac07555385022f4c23d52de902dd753e652a39c631705aa612a076a3485911c12c78e2116ce00dfced0140ae2ce65d22de910b0414524eecc467dbeda8611549f31c7246cf574a6935a86c06a9958886"
+  ],
+  "project": {
+    "id": "a9f05aed-d919-4d1f-a611-7686ff777fe8",
+    "name": "Leap_MVP",
+    "slug": "Leap_MVP",
+    "ownerAccount": {
+      "id": "b1fd1853-dc20-49b6-8056-b7b3748694c3",
+      "name": "inpulu"
+    }
+  },
+  "distribution": "STORE",
+  "buildProfile": "production",
+  "sdkVersion": "54.0.0",
+  "appVersion": "1.0.0",
+  "appBuildVersion": "42",
+  "gitCommitHash": "6f48dcfa60e21fcb006b14139d74caa0d70db1aa",
+  "gitCommitMessage": "Fix dual camera native linking for TestFlight (iOS 16, expo-dual-camera 55).\n\nSet deploymentTarget 16.0 for MultiCam, upgrade expo-dual-camera to 55.2.3 with separate front/back views, and detect support via isSupported() instead of a false-negative module peek.\n\nCo-authored-by: Cursor <cursoragent@cursor.com>",
+  "priority": "HIGH",
+  "createdAt": "2026-05-19T21:33:02.120Z",
+  "updatedAt": "2026-05-19T21:39:14.093Z",
+  "completedAt": "2026-05-19T21:39:05.882Z",
+  "expirationDate": "2026-06-18T21:33:02.144Z",
+  "isForIosSimulator": false,
+  "metrics": {
+    "buildWaitTime": 113,
+    "buildQueueTime": 56269,
+    "buildDuration": 303196
+  }
+}

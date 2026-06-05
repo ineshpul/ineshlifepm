@@ -23,7 +23,18 @@ export async function handleNotificationNavigation(
   const notificationId = str(raw, 'notificationId');
   const kind = str(raw, 'kind');
   const type = str(raw, 'type');
-  if (uid && notificationId && (kind === 'social' || type === 'like' || type === 'comment' || type === 'follow')) {
+  if (
+    uid &&
+    notificationId &&
+    (kind === 'social' ||
+      kind === 'mod_queue' ||
+      kind === 'moderation_rejected' ||
+      type === 'like' ||
+      type === 'comment' ||
+      type === 'follow' ||
+      type === 'mod_queue' ||
+      type === 'moderation_rejected')
+  ) {
     try {
       await markNotificationRead(uid, notificationId);
       const unread = await countUnreadNotifications(uid);
@@ -31,6 +42,16 @@ export async function handleNotificationNavigation(
     } catch {
       // ignore
     }
+  }
+
+  if (kind === 'mod_queue' || type === 'mod_queue') {
+    ref.navigate('AdminVideoModeration');
+    return;
+  }
+
+  if (kind === 'moderation_rejected' || type === 'moderation_rejected') {
+    ref.navigate('Tabs', { screen: 'Today' });
+    return;
   }
 
   const conversationId = str(raw, 'conversationId');

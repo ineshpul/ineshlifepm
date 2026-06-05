@@ -3,9 +3,8 @@ import * as logger from 'firebase-functions/logger';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
+import { CALLABLE_OPTIONS } from './callableOptions';
 import { resendApiKey } from './resendSecrets';
-
-const REGION = 'us-central1';
 const OTP_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 8;
 const RATE_WINDOW_MS = 60 * 60 * 1000;
@@ -56,7 +55,7 @@ async function sendResend(to: string, code: string, apiKey: string) {
 }
 
 /** Email/password sign-in: sends a 6-digit code (Apple / Google flows do not use this). */
-export const sendLoginOtp = onCall({ region: REGION, secrets: [resendApiKey] }, async (request) => {
+export const sendLoginOtp = onCall({ ...CALLABLE_OPTIONS, secrets: [resendApiKey] }, async (request) => {
   const email = normEmail(request.data?.email);
 
   const apiKey = resendApiKey.value() || process.env.RESEND_API_KEY || '';
@@ -128,7 +127,7 @@ export const sendLoginOtp = onCall({ region: REGION, secrets: [resendApiKey] }, 
   return { otpId };
 });
 
-export const verifyLoginOtp = onCall({ region: REGION }, async (request) => {
+export const verifyLoginOtp = onCall(CALLABLE_OPTIONS, async (request) => {
   const otpId = String(request.data?.otpId ?? '').trim();
   const code = String(request.data?.code ?? '')
     .trim()

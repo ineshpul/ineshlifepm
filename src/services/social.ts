@@ -17,7 +17,13 @@ import {
 
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 
-export type NotificationType = 'like' | 'comment' | 'follow' | 'admin_alert';
+export type NotificationType =
+  | 'like'
+  | 'comment'
+  | 'follow'
+  | 'admin_alert'
+  | 'mod_queue'
+  | 'moderation_rejected';
 
 export type InAppNotification = {
   id: string;

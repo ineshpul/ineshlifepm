@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 
+import { checkSuggestRateLimit, clientIp } from "@/lib/suggestRateLimit";
+
 const MAX_LEN = 1200;
 const DEFAULT_TO = "taketheleap.app@gmail.com";
 
@@ -14,6 +16,18 @@ function escapeHtml(s: string): string {
 
 export async function POST(request: Request) {
   try {
+    const ip = clientIp(request);
+    const rate = checkSuggestRateLimit(ip);
+    if (!rate.ok) {
+      return NextResponse.json(
+        { error: "Too many suggestions. Try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rate.retryAfterSec) },
+        },
+      );
+    }
+
     const body = (await request.json()) as {
       name?: string;
       challenge?: string;
