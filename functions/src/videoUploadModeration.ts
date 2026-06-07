@@ -6,6 +6,7 @@ import { StartContentModerationCommand } from '@aws-sdk/client-rekognition';
 
 import { awsModerationSecrets } from './awsSecrets';
 import {
+  CONFIDENCE_THRESHOLD_PCT,
   MODERATION_JOBS_COLLECTION,
   awsClients,
   deleteModerationS3Object,
@@ -14,8 +15,8 @@ import {
 const VIDEO_PATH_RE = /^videos\/([^/]+)\/([^/]+)\/[^/]+$/;
 
 /**
- * On upload: copy video to S3, start Rekognition, exit. Polling runs on a lightweight schedule
- * (`pollVideoModerationJobs`) so we do not bill 1 GiB for the full Rekognition wait.
+ * On upload: copy primary video to S3, start Rekognition, exit. Fast polling runs on job create;
+ * scheduler is backup.
  */
 export const onLeapVideoUploadedModerate = onObjectFinalized(
   {
@@ -35,8 +36,15 @@ export const onLeapVideoUploadedModerate = onObjectFinalized(
     const uid = m[1];
     const challengeDate = m[2];
     const videoDocId = `${uid}_${challengeDate}`;
+    const fileName = objectPath.split('/').pop() ?? '';
 
-    const isVideoMime = contentType.startsWith('video/') || /\.mp4$/i.test(objectPath);
+    // Dual-camera PIP is a secondary upload — moderating it would overwrite the primary job.
+    if (/_pip\.(mp4|mov)$/i.test(fileName)) {
+      logger.info('Skip moderation: PIP secondary upload', { objectPath });
+      return;
+    }
+
+    const isVideoMime = contentType.startsWith('video/') || /\.(mp4|mov)$/i.test(objectPath);
     if (!isVideoMime) {
       logger.info('Skip moderation: not a video object', { objectPath, contentType });
       return;
@@ -48,8 +56,15 @@ export const onLeapVideoUploadedModerate = onObjectFinalized(
       return;
     }
 
+    const jobRef = admin.firestore().doc(`${MODERATION_JOBS_COLLECTION}/${videoDocId}`);
+    const existingJob = await jobRef.get();
+    if (existingJob.exists && String(existingJob.data()?.status ?? '') === 'running') {
+      logger.info('Skip moderation: job already running for video', { videoDocId, objectPath });
+      return;
+    }
+
     const { s3, rekognition, bucket: moderationBucket } = clients;
-    const s3Key = `firebase-moderation/${videoDocId}/${event.data.generation ?? Date.now()}-${objectPath.split('/').pop() ?? 'video.mp4'}`;
+    const s3Key = `firebase-moderation/${videoDocId}/${event.data.generation ?? Date.now()}-${fileName || 'video.mp4'}`;
 
     const gcsFile = admin.storage().bucket(bucketName).file(objectPath);
 
@@ -69,7 +84,7 @@ export const onLeapVideoUploadedModerate = onObjectFinalized(
       const startOut = await rekognition.send(
         new StartContentModerationCommand({
           Video: { S3Object: { Bucket: moderationBucket, Name: s3Key } },
-          MinConfidence: 80,
+          MinConfidence: CONFIDENCE_THRESHOLD_PCT,
         })
       );
 
@@ -78,7 +93,7 @@ export const onLeapVideoUploadedModerate = onObjectFinalized(
         throw new Error('Rekognition StartContentModeration returned no JobId');
       }
 
-      await admin.firestore().doc(`${MODERATION_JOBS_COLLECTION}/${videoDocId}`).set({
+      await jobRef.set({
         videoDocId,
         jobId,
         s3Key,

@@ -11,6 +11,9 @@ import { awsAccessKeyId, awsSecretAccessKey } from './awsSecrets';
 export const MODERATION_JOBS_COLLECTION = 'videoModerationJobs';
 export const CONFIDENCE_THRESHOLD_PCT = 80;
 const JOB_MAX_AGE_MS = 45 * 60 * 1000;
+const TERMINAL_MODERATION_STATUSES = new Set(['approved', 'rejected', 'nulled']);
+
+export type ModerationApplyResult = 'applied' | 'already_decided' | 'not_ready';
 
 export function env(name: string): string | undefined {
   const v = process.env[name];
@@ -31,18 +34,69 @@ export function awsClients(): { s3: S3Client; rekognition: RekognitionClient; bu
   };
 }
 
-export async function applyModerationResult(videoDocId: string, flagged: boolean): Promise<void> {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Manual staff decision or Rekognition — first terminal status wins; stale jobs are ignored. */
+export async function applyModerationResult(
+  videoDocId: string,
+  flagged: boolean
+): Promise<ModerationApplyResult> {
+  const db = admin.firestore();
+  const videoRef = db.doc(`videos/${videoDocId}`);
   const moderationStatus = flagged ? 'rejected' : 'approved';
   const status = flagged ? 'flagged' : 'live';
-  await admin.firestore().doc(`videos/${videoDocId}`).set(
-    {
-      status,
-      moderationStatus,
-      moderationUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
-  logger.info('Video moderation complete', { videoDocId, status, moderationStatus });
+
+  return db.runTransaction(async (tx) => {
+    const videoSnap = await tx.get(videoRef);
+    if (!videoSnap.exists) {
+      logger.info('Moderation deferred: video doc not created yet', { videoDocId });
+      return 'not_ready';
+    }
+
+    const data = videoSnap.data() as Record<string, unknown> | undefined;
+    const current = String(data?.moderationStatus ?? 'pending');
+    if (TERMINAL_MODERATION_STATUSES.has(current)) {
+      logger.info('Moderation skipped: already decided', { videoDocId, current });
+      return 'already_decided';
+    }
+
+    tx.set(
+      videoRef,
+      {
+        status,
+        moderationStatus,
+        moderationUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        moderationSource: 'rekognition',
+      },
+      { merge: true }
+    );
+    return 'applied';
+  }).then((result) => {
+    if (result === 'applied') {
+      logger.info('Video moderation complete (Rekognition)', { videoDocId, moderationStatus });
+    }
+    return result;
+  });
+}
+
+/** Stop polling Rekognition when staff (or an earlier decision) has already settled the video. */
+export async function cancelModerationJob(videoDocId: string): Promise<void> {
+  const clients = awsClients();
+  const db = admin.firestore();
+  const jobRef = db.doc(`${MODERATION_JOBS_COLLECTION}/${videoDocId}`);
+  const jobSnap = await jobRef.get();
+  if (!jobSnap.exists) return;
+
+  const data = jobSnap.data() as Record<string, unknown>;
+  const s3Key = String(data.s3Key ?? '');
+  const bucket = String(data.s3Bucket ?? clients?.bucket ?? '');
+  if (clients && s3Key && bucket) {
+    await deleteModerationS3Object(clients.s3, bucket, s3Key);
+  }
+  await jobRef.delete().catch(() => {});
+  logger.info('Moderation job cancelled', { videoDocId });
 }
 
 export async function deleteModerationS3Object(
@@ -98,14 +152,99 @@ function jobCreatedMs(data: Record<string, unknown>): number {
   return at?.toMillis?.() ?? 0;
 }
 
-/** Polls pending Rekognition jobs (short-lived scheduler; upload function no longer blocks on polls). */
+async function finishModerationJobDoc(
+  jobRef: admin.firestore.DocumentReference,
+  data: Record<string, unknown>,
+  s3: S3Client,
+  bucket: string
+): Promise<void> {
+  const s3Key = String(data.s3Key ?? '');
+  await jobRef.delete().catch(() => {});
+  if (s3Key) await deleteModerationS3Object(s3, bucket, s3Key);
+}
+
+/** Poll one Firestore moderation job doc; returns true when the job doc was removed or failed out. */
+export async function processOneModerationJobDoc(
+  jobRef: admin.firestore.DocumentReference,
+  data: Record<string, unknown>,
+  clients: { s3: S3Client; rekognition: RekognitionClient; bucket: string }
+): Promise<boolean> {
+  const { s3, rekognition, bucket } = clients;
+  const videoDocId = String(data.videoDocId ?? jobRef.id);
+  const jobId = String(data.jobId ?? '');
+  const s3Key = String(data.s3Key ?? '');
+  if (!jobId || !s3Key) {
+    await jobRef.delete().catch(() => {});
+    return true;
+  }
+
+  const createdMs = jobCreatedMs(data);
+  if (createdMs && Date.now() - createdMs > JOB_MAX_AGE_MS) {
+    logger.error('Moderation job timed out', { videoDocId, jobId });
+    await jobRef.set(
+      { status: 'timeout', updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+    await deleteModerationS3Object(s3, bucket, s3Key);
+    return true;
+  }
+
+  const result = await pollRekognitionJob(rekognition, jobId);
+  if (result.state === 'pending') return false;
+
+  if (result.state === 'failed') {
+    logger.error('Rekognition job FAILED', { videoDocId, message: result.message });
+    await jobRef.set(
+      { status: 'failed', updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+    await deleteModerationS3Object(s3, bucket, s3Key);
+    return true;
+  }
+
+  const applyResult = await applyModerationResult(videoDocId, result.flagged);
+  if (applyResult === 'not_ready') return false;
+  await finishModerationJobDoc(jobRef, data, s3, bucket);
+  return true;
+}
+
+/** Actively poll a single job (used right after upload) until Rekognition finishes or attempts exhaust. */
+export async function pollModerationJobWithRetries(
+  videoDocId: string,
+  opts?: { maxAttempts?: number; intervalMs?: number }
+): Promise<void> {
+  const clients = awsClients();
+  if (!clients) return;
+
+  const maxAttempts = opts?.maxAttempts ?? 18;
+  const intervalMs = opts?.intervalMs ?? 10_000;
+  const db = admin.firestore();
+  const jobRef = db.doc(`${MODERATION_JOBS_COLLECTION}/${videoDocId}`);
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const snap = await jobRef.get();
+    if (!snap.exists) return;
+    const data = snap.data() as Record<string, unknown>;
+    if (String(data.status ?? '') !== 'running') return;
+
+    try {
+      const done = await processOneModerationJobDoc(jobRef, data, clients);
+      if (done) return;
+    } catch (e) {
+      logger.error('poll moderation job error', { videoDocId, attempt, e });
+    }
+
+    await sleep(intervalMs);
+  }
+}
+
+/** Polls pending Rekognition jobs (scheduler backup; upload trigger does the fast path). */
 export async function processPendingModerationJobs(limit = 15): Promise<void> {
   const clients = awsClients();
   if (!clients) {
     logger.error('pollVideoModerationJobs: missing AWS config');
     return;
   }
-  const { s3, rekognition, bucket } = clients;
   const db = admin.firestore();
   const snap = await db
     .collection(MODERATION_JOBS_COLLECTION)
@@ -113,39 +252,11 @@ export async function processPendingModerationJobs(limit = 15): Promise<void> {
     .limit(limit)
     .get();
 
-  const now = Date.now();
   for (const doc of snap.docs) {
-    const data = doc.data() as Record<string, unknown>;
-    const videoDocId = String(data.videoDocId ?? doc.id);
-    const jobId = String(data.jobId ?? '');
-    const s3Key = String(data.s3Key ?? '');
-    if (!jobId || !s3Key) {
-      await doc.ref.delete().catch(() => {});
-      continue;
-    }
-
-    const createdMs = jobCreatedMs(data);
-    if (createdMs && now - createdMs > JOB_MAX_AGE_MS) {
-      logger.error('Moderation job timed out', { videoDocId, jobId });
-      await doc.ref.set({ status: 'timeout', updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-      await deleteModerationS3Object(s3, bucket, s3Key);
-      continue;
-    }
-
     try {
-      const result = await pollRekognitionJob(rekognition, jobId);
-      if (result.state === 'pending') continue;
-      if (result.state === 'failed') {
-        logger.error('Rekognition job FAILED', { videoDocId, message: result.message });
-        await doc.ref.set({ status: 'failed', updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-        await deleteModerationS3Object(s3, bucket, s3Key);
-        continue;
-      }
-      await applyModerationResult(videoDocId, result.flagged);
-      await doc.ref.delete().catch(() => {});
-      await deleteModerationS3Object(s3, bucket, s3Key);
+      await processOneModerationJobDoc(doc.ref, doc.data() as Record<string, unknown>, clients);
     } catch (e) {
-      logger.error('poll moderation job error', { videoDocId, e });
+      logger.error('poll moderation job error', { videoDocId: doc.id, e });
     }
   }
 }

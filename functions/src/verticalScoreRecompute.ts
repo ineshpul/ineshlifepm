@@ -29,6 +29,7 @@ import {
   notifyModeratorsPendingReview,
   notifyUserModerationRejected,
 } from './videoModerationNotifications';
+import { cancelModerationJob } from './videoModerationCore';
 import { processReferralRewardsOnApproval } from './referralRewards';
 
 const REGION = 'us-central1';
@@ -1059,6 +1060,14 @@ export const onVerticalScoreVideoApprovedLeaper = onDocumentWritten(
 
     const afterStatus = String(after.moderationStatus ?? '');
     const beforeStatus = before ? String(before.moderationStatus ?? '') : '';
+
+    if (beforeStatus === 'pending' && afterStatus !== 'pending') {
+      try {
+        await cancelModerationJob(videoId);
+      } catch (e) {
+        logger.warn('cancel moderation job failed', { videoId, e });
+      }
+    }
 
     if (beforeStatus === 'approved' && afterStatus === 'nulled' && before && isAwardedLeapVideo(before)) {
       try {

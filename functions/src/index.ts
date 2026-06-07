@@ -324,4 +324,4 @@ export const onVideoReportCreated = onDocumentCreated(
 );
 
 export { onLeapVideoUploadedModerate } from './videoUploadModeration';
-export { pollVideoModerationJobs } from './videoModerationPoll';
+export { onModerationJobCreated, pollVideoModerationJobs } from './videoModerationPoll';
