@@ -29,6 +29,7 @@ import {
   notifyModeratorsPendingReview,
   notifyUserModerationRejected,
 } from './videoModerationNotifications';
+import { processReferralRewardsOnApproval } from './referralRewards';
 
 const REGION = 'us-central1';
 const DEFAULT_MAX_RECORDING_ATTEMPTS = 3;
@@ -348,7 +349,11 @@ async function awardLeapInchesOnFullApproval(
       { merge: true }
     );
 
-    return { computed, needsGlobalFirstRetotal: isGlobalFirstOfDay };
+    return {
+      computed,
+      needsGlobalFirstRetotal: isGlobalFirstOfDay,
+      isFirstApprovedLeap: !hasEver,
+    };
   });
 
   if (!br) return;
@@ -359,6 +364,19 @@ async function awardLeapInchesOnFullApproval(
     } catch (e) {
       logger.warn('retotal after global-first full approval failed', { videoId, e });
     }
+  }
+
+  try {
+    await processReferralRewardsOnApproval({
+      db,
+      refereeUid: owner,
+      refereeUsername: String(data.username ?? 'user'),
+      challengeDate,
+      organicInchesGranted: br.computed.leapInches,
+      isFirstApprovedLeap: br.isFirstApprovedLeap,
+    });
+  } catch (e) {
+    logger.error('referral rewards after full approval failed', { owner, videoId, e });
   }
 
   try {
@@ -390,6 +408,8 @@ async function finalizeLeapInchesOnApproval(
   const dayStatsRef = db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayStatsKey}`);
 
   let needsRetotal = false;
+  let isFirstApprovedLeap = false;
+  let organicInchesGranted = 0;
 
   await db.runTransaction(async (tx) => {
     const vSnap = await tx.get(videoRef);
@@ -401,6 +421,8 @@ async function finalizeLeapInchesOnApproval(
     const uSnap = await tx.get(userRef);
     const ud = uSnap.data() ?? {};
     const hasEver = ud.hasApprovedLeapEver === true;
+    isFirstApprovedLeap = !hasEver;
+    organicInchesGranted = leapInchesFromVideo(vd);
     const priorStreak = Math.max(0, Math.floor(Number(ud.activeLeapStreakDays ?? 0)));
     const priorLongest = Math.max(0, Math.floor(Number(ud.longestLeapStreakDays ?? 0)));
     const lastKey = String(ud.lastApprovedLeapDateKey ?? '').trim();
@@ -451,6 +473,21 @@ async function finalizeLeapInchesOnApproval(
       await adminRetotalAwardedVideoLeapInches(db, videoId);
     } catch (e) {
       logger.warn('retotal after pending→approved finalize failed', { videoId, e });
+    }
+  }
+
+  if (organicInchesGranted > 0) {
+    try {
+      await processReferralRewardsOnApproval({
+        db,
+        refereeUid: owner,
+        refereeUsername: String(data.username ?? 'user'),
+        challengeDate,
+        organicInchesGranted,
+        isFirstApprovedLeap,
+      });
+    } catch (e) {
+      logger.error('referral rewards after finalize failed', { owner, videoId, e });
     }
   }
 

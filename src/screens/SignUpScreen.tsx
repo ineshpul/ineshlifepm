@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
 import { AuthHero } from '../components/AuthHero';
@@ -10,6 +10,7 @@ import { colors } from '../theme/colors';
 import { useAuth } from '../state/auth';
 import { friendlySignInError } from '../utils/authErrors';
 import { isValidEmail, isValidPassword, PASSWORD_MIN_LENGTH } from '../utils/authValidation';
+import { resolveReferrerUsername } from '../services/referral';
 
 export function SignUpScreen() {
   const nav = useNavigation<any>();
@@ -18,17 +19,49 @@ export function SignUpScreen() {
   const [username, setUsername] = React.useState('');
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const [inviteOpen, setInviteOpen] = React.useState(false);
+  const [invitedBy, setInvitedBy] = React.useState('');
+  const [inviteStatus, setInviteStatus] = React.useState<'idle' | 'checking' | 'found' | 'missing'>(
+    'idle'
+  );
   const [busy, setBusy] = React.useState(false);
 
   const emailOk = isValidEmail(email);
   const pwOk = isValidPassword(password);
   const canSubmit = username.trim().length > 0 && emailOk && pwOk && !busy;
 
+  const checkInvite = React.useCallback(async (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      setInviteStatus('idle');
+      return;
+    }
+    setInviteStatus('checking');
+    try {
+      const res = await resolveReferrerUsername(trimmed);
+      if (res.found) {
+        setInviteStatus('found');
+        if (res.username !== invitedBy.trim()) {
+          setInvitedBy(res.username);
+        }
+      } else {
+        setInviteStatus('missing');
+      }
+    } catch {
+      setInviteStatus('missing');
+    }
+  }, [invitedBy]);
+
   const onContinue = async () => {
     if (!canSubmit) return;
     setBusy(true);
     try {
-      await signUp({ username: username.trim(), email: email.trim(), password });
+      await signUp({
+        username: username.trim(),
+        email: email.trim(),
+        password,
+        invitedByUsername: inviteOpen && invitedBy.trim() ? invitedBy.trim() : undefined,
+      });
       Alert.alert(
         'Check your email',
         'We sent a verification link. If you do not see it in a few minutes, check your spam or junk folder. You can use the app now; finish verifying when you are ready.'
@@ -48,8 +81,6 @@ export function SignUpScreen() {
       setBusy(false);
     }
   };
-
-  // Apple sign-in removed for now (email/password only).
 
   return (
     <KeyboardScreen contentContainerStyle={styles.screen}>
@@ -98,6 +129,43 @@ export function SignUpScreen() {
           <Text style={styles.error}>Password must be at least {PASSWORD_MIN_LENGTH} characters.</Text>
         ) : null}
 
+        {!inviteOpen ? (
+          <TouchableOpacity
+            onPress={() => setInviteOpen(true)}
+            style={styles.inviteToggle}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.inviteToggleText}>Got an invite? Add who invited you</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.inviteBlock}>
+            <TextField
+              label="INVITED BY (OPTIONAL)"
+              inputProps={{
+                placeholder: 'username',
+                autoCapitalize: 'none',
+                autoCorrect: false,
+                value: invitedBy,
+                onChangeText: (t) => {
+                  setInvitedBy(t);
+                  setInviteStatus('idle');
+                },
+                onBlur: () => void checkInvite(invitedBy),
+                returnKeyType: 'done',
+              }}
+            />
+            {inviteStatus === 'checking' ? (
+              <Text style={styles.inviteHint}>Checking…</Text>
+            ) : null}
+            {inviteStatus === 'found' ? (
+              <Text style={styles.inviteOk}>✓ {invitedBy.trim()} found</Text>
+            ) : null}
+            {inviteStatus === 'missing' && invitedBy.trim().length > 0 ? (
+              <Text style={styles.error}>Could not find that username — you can still sign up.</Text>
+            ) : null}
+          </View>
+        )}
+
         <PrimaryButton
           title={busy ? 'PLEASE WAIT' : 'CONTINUE'}
           onPress={onContinue}
@@ -137,18 +205,32 @@ const styles = StyleSheet.create({
     color: colors.coral,
     marginTop: -6,
   },
+  inviteToggle: {
+    paddingVertical: 4,
+  },
+  inviteToggleText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.moss,
+  },
+  inviteBlock: {
+    gap: 6,
+  },
+  inviteHint: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+    marginTop: -4,
+  },
+  inviteOk: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.moss,
+    marginTop: -4,
+  },
   cta: {
     marginTop: 4,
   },
-  appleBtn: {
-    height: 48,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#000',
-  },
-  appleText: { fontSize: 14, fontWeight: '800', color: '#fff' },
-  disabled: { opacity: 0.5 },
   bottomLink: {
     paddingVertical: 10,
     alignItems: 'center',

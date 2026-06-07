@@ -739,6 +739,8 @@ service cloud.firestore {
           'leaperWeekKey',
           'leaperWeekPoints',
           'leaperLifetimePoints',
+          'referredByUid',
+          'referredAt',
         ])
         && (
           !request.resource.data.keys().hasAny(['usernameLower'])
@@ -770,6 +772,8 @@ service cloud.firestore {
           'leaperWeekKey',
           'leaperWeekPoints',
           'leaperLifetimePoints',
+          'referredByUid',
+          'referredAt',
         ])
         && (
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['username', 'usernameLower'])
@@ -900,6 +904,14 @@ service cloud.firestore {
     }
 
     match /videoModerationJobs/{id} {
+      allow read, write: if false;
+    }
+
+    match /referrals/{id} {
+      allow read, write: if false;
+    }
+
+    match /referralGrants/{id} {
       allow read, write: if false;
     }
 

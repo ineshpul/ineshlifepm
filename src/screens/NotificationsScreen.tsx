@@ -24,6 +24,15 @@ function bodyFor(n: InAppNotification) {
   }
   if (n.type === 'like') return 'liked your leap';
   if (n.type === 'follow') return 'started following you';
+  if (n.type === 'referral_activation') {
+    return n.snippet ? `completed their first leap — ${n.snippet}` : 'completed their first leap — you earned bonus inches';
+  }
+  if (n.type === 'referral_override') {
+    return n.snippet ? `you both leaped — ${n.snippet}` : 'you both leaped — you earned bonus inches';
+  }
+  if (n.type === 'referral_launch') {
+    return n.snippet ?? 'Invite friends and earn bonus inches';
+  }
   return n.snippet ? `commented: ${n.snippet}` : 'commented on your leap';
 }
 
@@ -55,6 +64,10 @@ export function NotificationsScreen() {
       }
     }
     if (n.type === 'admin_alert') return;
+    if (n.type === 'referral_launch' || n.type === 'referral_activation' || n.type === 'referral_override') {
+      nav.navigate('Settings');
+      return;
+    }
     if (n.type === 'mod_queue') {
       nav.navigate('AdminVideoModeration');
       return;

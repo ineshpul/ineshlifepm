@@ -1,6 +1,9 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 
+import { applyChallengeWatermarkToVideo } from './applyChallengeWatermarkToVideo';
+import type { ChallengeWatermarkInfo } from './challengeWatermarkCapture';
+
 const VIDEO_EXT = /\.(mp4|mov|m4v)$/i;
 
 /** Stable copy for the post-save banner (survives cache cleanup). */
@@ -31,7 +34,20 @@ async function uriReadyForPhotoLibrary(uri: string): Promise<string> {
   return dest;
 }
 
-export async function saveVideoToCameraRoll(uri: string): Promise<void> {
+async function cleanupTempFile(uri: string | undefined): Promise<void> {
+  if (!uri || uri.includes('leap-camera-roll-pending')) return;
+  try {
+    await FileSystem.deleteAsync(uri, { idempotent: true });
+  } catch {
+    /* noop */
+  }
+}
+
+/** Camera-roll only — posted/uploaded feed videos never pass through watermarking. */
+export async function saveVideoToCameraRoll(
+  uri: string,
+  challenge?: ChallengeWatermarkInfo
+): Promise<void> {
   if (!uri || uri.startsWith('demo://')) {
     throw new Error('No video to save.');
   }
@@ -41,8 +57,21 @@ export async function saveVideoToCameraRoll(uri: string): Promise<void> {
     throw new Error('Photo library access was not granted. You can allow it in Settings.');
   }
 
-  const localUri = await uriReadyForPhotoLibrary(uri);
-  await MediaLibrary.saveToLibraryAsync(localUri);
+  let localUri = await uriReadyForPhotoLibrary(uri);
+  let watermarkedUri: string | undefined;
+
+  if (challenge?.title?.trim()) {
+    watermarkedUri = await applyChallengeWatermarkToVideo(localUri, {
+      title: challenge.title.trim(),
+    });
+    localUri = watermarkedUri;
+  }
+
+  try {
+    await MediaLibrary.saveToLibraryAsync(localUri);
+  } finally {
+    await cleanupTempFile(watermarkedUri);
+  }
 }
 
 /** Remove app-staged copy after save/dismiss (best-effort). */

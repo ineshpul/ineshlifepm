@@ -27,6 +27,11 @@ import { backfillApprovedPostCountCallable } from './backfillApprovedPostCountCa
 import { syncApprovedPostCountForLeapDay } from './dailyChallengeStatsPosts';
 import { healGlobalFirstPostForDayCallable } from './healGlobalFirstPostForDayCallable';
 import { resetRecordingAttemptsForLeapDayCallable } from './resetRecordingAttemptsForLeapDayCallable';
+import {
+  adminAnnounceReferralProgramCallable,
+  claimReferralCallable,
+  resolveReferrerUsernameCallable,
+} from './claimReferral';
 
 admin.initializeApp();
 
@@ -54,6 +59,9 @@ export {
   syncApprovedPostCountForLeapDay,
   healGlobalFirstPostForDayCallable,
   resetRecordingAttemptsForLeapDayCallable,
+  resolveReferrerUsernameCallable,
+  claimReferralCallable,
+  adminAnnounceReferralProgramCallable,
 };
 
 type ChatMessagePayload = {
@@ -80,6 +88,19 @@ function buildBody(data: NotifPayload): string {
   }
   if (data.type === 'moderation_rejected') {
     return data.snippet ? String(data.snippet) : 'Your leap was not approved. You can post again today.';
+  }
+  if (data.type === 'referral_activation') {
+    return data.snippet
+      ? `@${u} completed their first leap — ${String(data.snippet)}`
+      : `@${u} completed their first leap — you earned bonus inches`;
+  }
+  if (data.type === 'referral_override') {
+    return data.snippet
+      ? `You and @${u} both leaped — ${String(data.snippet)}`
+      : `You and @${u} both leaped — you earned bonus inches`;
+  }
+  if (data.type === 'referral_launch') {
+    return data.snippet ? String(data.snippet) : 'Invite friends and earn bonus inches';
   }
   const snip = data.snippet ? `: ${String(data.snippet)}` : '';
   return `@${u} commented${snip}`;

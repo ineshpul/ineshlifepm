@@ -55,6 +55,14 @@ export type PlayerFacingChallenge = {
   canRecord: boolean;
 };
 
+export function getChallengeWatermarkInfo(
+  challenge: Challenge,
+  window: ChallengeWindow
+): { title: string } {
+  const facing = getPlayerFacingChallenge(challenge, window);
+  return { title: facing.title };
+}
+
 export function getPlayerFacingChallenge(challenge: Challenge, window: ChallengeWindow): PlayerFacingChallenge {
   if (window.isLive) {
     const title = challenge.title.trim();

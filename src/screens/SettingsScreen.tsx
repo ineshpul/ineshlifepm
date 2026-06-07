@@ -41,6 +41,8 @@ import { recomputeVerticalScoreForUser } from '../services/verticalScore';
 import { saveUserPublicProfile } from '../services/userProfile';
 import { setShowFollowingListToOthers } from '../services/profilePrivacy';
 import { showFollowingListToOthers } from '../lib/profileVisibility';
+import { ReferralInviteCard } from '../components/ReferralInviteCard';
+import { adminAnnounceReferralProgram } from '../services/referral';
 
 function SectionHeader({ title }: { title: string }) {
   return (
@@ -239,6 +241,34 @@ export function SettingsScreen() {
                 );
               } catch (e) {
                 showError('Weekly recompute failed', e);
+              } finally {
+                setBackfillBusy(false);
+                setBackfillProgress('');
+              }
+            })(),
+        },
+      ]
+    );
+  };
+
+  const runAnnounceReferralProgram = () => {
+    if (!user?.isAdmin || backfillBusy) return;
+    Alert.alert(
+      'Announce referral program?',
+      'Sends one in-app notification to every user (and push if enabled). Run once at launch.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Send',
+          onPress: () =>
+            void (async () => {
+              setBackfillBusy(true);
+              setBackfillProgress('Sending referral announcement…');
+              try {
+                const r = await adminAnnounceReferralProgram();
+                showInfo('Announcement sent', `Notified ${r.announced} users.`);
+              } catch (e) {
+                showError('Announcement failed', e);
               } finally {
                 setBackfillBusy(false);
                 setBackfillProgress('');
@@ -454,6 +484,11 @@ export function SettingsScreen() {
           />
         </Card>
 
+        <SectionHeader title="Invite" />
+        <Card>
+          <ReferralInviteCard username={preferences.profileUsername || user?.username || ''} />
+        </Card>
+
         <SectionHeader title="Account" />
         <Card>
           <RowChevron label="Email / phone" value={user?.email || '—'} />
@@ -651,6 +686,19 @@ export function SettingsScreen() {
                 ) : (
                   <Ionicons name="chevron-forward" size={18} color={colors.muted2} />
                 )}
+              </TouchableOpacity>
+              <Separator />
+              <TouchableOpacity
+                style={styles.row}
+                onPress={() => runAnnounceReferralProgram()}
+                disabled={backfillBusy}
+                activeOpacity={0.65}
+              >
+                <View style={styles.rowTextCol}>
+                  <Text style={styles.rowLabel}>Announce referral program</Text>
+                  <Text style={styles.rowSub}>One-time launch notification to all users.</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.muted2} />
               </TouchableOpacity>
               <Separator />
               <TouchableOpacity

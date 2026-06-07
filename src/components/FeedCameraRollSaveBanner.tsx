@@ -3,15 +3,17 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '../theme/colors';
+import type { ChallengeWatermarkInfo } from '../services/challengeWatermarkCapture';
 import { cleanupStagedCameraRollFile, saveVideoToCameraRoll } from '../services/saveVideoToCameraRoll';
 import { showError, showInfo } from '../utils/ui';
 
 type Props = {
   clipUri: string;
+  challenge: ChallengeWatermarkInfo;
   onDismiss: () => void;
 };
 
-export function FeedCameraRollSaveBanner({ clipUri, onDismiss }: Props) {
+export function FeedCameraRollSaveBanner({ clipUri, challenge, onDismiss }: Props) {
   const [busy, setBusy] = React.useState(false);
 
   const dismissAndCleanup = () => {
@@ -24,7 +26,7 @@ export function FeedCameraRollSaveBanner({ clipUri, onDismiss }: Props) {
     setBusy(true);
     void (async () => {
       try {
-        await saveVideoToCameraRoll(clipUri);
+        await saveVideoToCameraRoll(clipUri, challenge);
         showInfo('Saved', 'Saved to camera roll.');
         dismissAndCleanup();
       } catch (e) {
@@ -42,7 +44,7 @@ export function FeedCameraRollSaveBanner({ clipUri, onDismiss }: Props) {
       </View>
       <View style={styles.body}>
         <Text style={styles.title}>Save to camera roll?</Text>
-        <Text style={styles.sub}>Save this post to your camera roll?</Text>
+        <Text style={styles.sub}>Includes today&apos;s leap as a watermark.</Text>
         <View style={styles.actions}>
           <TouchableOpacity
             accessibilityRole="button"

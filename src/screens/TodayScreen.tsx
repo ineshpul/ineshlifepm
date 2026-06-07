@@ -295,6 +295,17 @@ export function TodayScreen() {
         >
           <Text style={styles.suggestBtnTextStrong}>Suggest a leap</Text>
         </TouchableOpacity>
+        {user?.uid ? (
+          <TouchableOpacity
+            onPress={() => nav.navigate('Settings')}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Invite a friend for 5 inches"
+            style={styles.inviteBtn}
+          >
+            <Text style={styles.inviteBtnText}>Invite a friend for 5″</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       <Modal
@@ -672,6 +683,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
     color: colors.coral,
+    textAlign: 'center',
+  },
+  inviteBtn: {
+    marginTop: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+  },
+  inviteBtnText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: colors.moss,
     textAlign: 'center',
   },
   modalKavRoot: {

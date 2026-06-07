@@ -11,6 +11,7 @@ import { TopScreen } from '../screens/TopScreen';
 import { MeScreen } from '../screens/MeScreen';
 import { ChatStackNavigator } from './ChatStack';
 import type { ChatStackParamList } from './ChatStack';
+import { FloatingTabBar } from './FloatingTabBar';
 
 export type TabsParamList = {
   Today: undefined;
@@ -23,106 +24,111 @@ export type TabsParamList = {
 
 const Tab = createMaterialTopTabNavigator<TabsParamList>();
 
-const TAB_ICON_SIZE = 21;
-const TAB_ICON_WRAP = 32;
+const TAB_ICON_SIZE = 22;
 
 function TabIcon({
   name,
   focused,
+  color,
 }: {
   name: keyof typeof Ionicons.glyphMap;
   focused: boolean;
+  color: string;
 }) {
-  return (
-    <View style={[styles.iconWrap, focused && styles.iconWrapFocused]}>
-      <Ionicons name={name} size={TAB_ICON_SIZE} color={focused ? colors.coral : colors.muted} />
-    </View>
-  );
+  return <Ionicons name={name} size={TAB_ICON_SIZE} color={focused ? colors.coral : color} />;
 }
 
 export function AppTabs() {
   return (
     <View style={styles.tabsRoot}>
-      <View style={styles.tabsFill}>
-        <Tab.Navigator
-          initialRouteName="Today"
-          tabBarPosition="bottom"
-          screenOptions={{
-            tabBarShowLabel: false,
-            tabBarShowIcon: true,
-            swipeEnabled: true,
-            /** Tab bar / programmatic switches jump instantly; swipes still animate (smoother after posting). */
-            animationEnabled: false,
-            tabBarStyle: styles.tabBar,
-            tabBarActiveTintColor: colors.text,
-            tabBarInactiveTintColor: colors.muted,
-            tabBarIndicatorStyle: styles.tabBarIndicator,
-            tabBarPressColor: 'transparent',
-            tabBarPressOpacity: 0.85,
-            tabBarItemStyle: styles.tabBarItem,
-            tabBarContentContainerStyle: styles.tabBarContent,
+      <Tab.Navigator
+        initialRouteName="Today"
+        tabBarPosition="bottom"
+        tabBar={(props) => <FloatingTabBar {...props} />}
+        screenOptions={{
+          tabBarShowLabel: false,
+          tabBarShowIcon: true,
+          swipeEnabled: true,
+          animationEnabled: true,
+          lazy: true,
+          lazyPreloadDistance: 1,
+          tabBarStyle: styles.tabBarHidden,
+          tabBarIndicatorStyle: styles.tabBarIndicator,
+          tabBarPressColor: 'transparent',
+          tabBarPressOpacity: 0.85,
+          sceneStyle: styles.scene,
+        }}
+      >
+        <Tab.Screen
+          name="Today"
+          component={TodayScreen}
+          options={{
+            title: 'Today',
+            tabBarAccessibilityLabel: 'Today',
+            tabBarIcon: ({ focused, color }) => (
+              <TabIcon name="today-outline" focused={focused} color={color} />
+            ),
           }}
-        >
-          <Tab.Screen
-            name="Today"
-            component={TodayScreen}
-            options={{
-              title: 'Today',
-              tabBarAccessibilityLabel: 'Today',
-              tabBarIcon: ({ focused }) => <TabIcon name="today-outline" focused={focused} />,
-            }}
-          />
-          <Tab.Screen
-            name="Feed"
-            component={FeedScreen}
-            options={{
-              title: 'Feed',
-              tabBarAccessibilityLabel: "Everyone's leaps",
-              tabBarIcon: ({ focused }) => <TabIcon name="play-circle-outline" focused={focused} />,
-            }}
-          />
-          <Tab.Screen
-            name="Top"
-            component={TopScreen}
-            options={{
-              title: 'How high can you jump?',
-              tabBarAccessibilityLabel: 'How high can you jump? Leaperboard',
-              tabBarIcon: ({ focused }) => <TabIcon name="trending-up-outline" focused={focused} />,
-            }}
-          />
-          <Tab.Screen
-            name="Chat"
-            component={ChatStackNavigator}
-            options={{
-              title: 'Chat',
-              tabBarAccessibilityLabel: 'Chat',
-              tabBarIcon: ({ focused }) => <TabIcon name="chatbubbles-outline" focused={focused} />,
-            }}
-          />
-          <Tab.Screen
-            name="Me"
-            component={MeScreen}
-            options={{
-              title: 'Me',
-              tabBarAccessibilityLabel: 'Me',
-              tabBarIcon: ({ focused }) => <TabIcon name="person-circle-outline" focused={focused} />,
-            }}
-          />
-        </Tab.Navigator>
-      </View>
+        />
+        <Tab.Screen
+          name="Feed"
+          component={FeedScreen}
+          options={{
+            title: 'Feed',
+            tabBarAccessibilityLabel: "Everyone's leaps",
+            tabBarIcon: ({ focused, color }) => (
+              <TabIcon name="play-circle-outline" focused={focused} color={color} />
+            ),
+          }}
+        />
+        <Tab.Screen
+          name="Top"
+          component={TopScreen}
+          options={{
+            title: 'How high can you jump?',
+            tabBarAccessibilityLabel: 'How high can you jump? Leaperboard',
+            tabBarIcon: ({ focused, color }) => (
+              <TabIcon name="trending-up-outline" focused={focused} color={color} />
+            ),
+          }}
+        />
+        <Tab.Screen
+          name="Chat"
+          component={ChatStackNavigator}
+          options={{
+            title: 'Chat',
+            tabBarAccessibilityLabel: 'Chat',
+            tabBarIcon: ({ focused, color }) => (
+              <TabIcon name="chatbubbles-outline" focused={focused} color={color} />
+            ),
+          }}
+        />
+        <Tab.Screen
+          name="Me"
+          component={MeScreen}
+          options={{
+            title: 'Me',
+            tabBarAccessibilityLabel: 'Me',
+            tabBarIcon: ({ focused, color }) => (
+              <TabIcon name="person-circle-outline" focused={focused} color={color} />
+            ),
+          }}
+        />
+      </Tab.Navigator>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  tabsRoot: { flex: 1 },
-  tabsFill: { flex: 1 },
-  tabBar: {
-    height: 58,
-    paddingTop: 6,
-    paddingBottom: 10,
-    borderTopColor: colors.border,
-    borderTopWidth: StyleSheet.hairlineWidth,
+  tabsRoot: { flex: 1, backgroundColor: colors.bg },
+  tabBarHidden: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderTopWidth: 0,
     elevation: 0,
     shadowOpacity: 0,
   },
@@ -130,22 +136,7 @@ const styles = StyleSheet.create({
     height: 0,
     backgroundColor: 'transparent',
   },
-  tabBarItem: {
-    flex: 1,
-  },
-  tabBarContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-  },
-  iconWrap: {
-    width: TAB_ICON_WRAP,
-    height: TAB_ICON_WRAP,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconWrapFocused: {
-    backgroundColor: 'rgba(255, 107, 84, 0.12)',
+  scene: {
+    backgroundColor: colors.bg,
   },
 });

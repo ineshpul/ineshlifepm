@@ -29,6 +29,7 @@ import { colors } from '../theme/colors';
 import { useAppState } from '../state/appState';
 import { useAuth } from '../state/auth';
 import {
+  getChallengeWatermarkInfo,
   getPlayerFacingChallenge,
   normalizeTaskDurationSeconds,
   useChallengeWindow,
@@ -275,15 +276,19 @@ export function RecordScreen() {
   }, [isFocused, postedToday, clipUri, canUseCamera]);
 
   const navigateAfterPost = React.useCallback(
-    async (opts: { recordedForSave: boolean; clipUriForOffer: string | null }) => {
-      const { recordedForSave, clipUriForOffer } = opts;
+    async (opts: {
+      recordedForSave: boolean;
+      clipUriForOffer: string | null;
+      watermarkInfo: { title: string };
+    }) => {
+      const { recordedForSave, clipUriForOffer, watermarkInfo } = opts;
       if (
         recordedForSave &&
         !preferences.autoSavePosts &&
         clipUriForOffer &&
         !clipUriForOffer.startsWith('demo://')
       ) {
-        await offerCameraRollSaveAfterPost(clipUriForOffer);
+        await offerCameraRollSaveAfterPost(clipUriForOffer, watermarkInfo);
       }
       navigateToFeedTab(nav);
     },
@@ -549,6 +554,7 @@ export function RecordScreen() {
         await navigateAfterPost({
           recordedForSave: clipSource === 'recorded',
           clipUriForOffer,
+          watermarkInfo: getChallengeWatermarkInfo(challenge, window),
         });
         return;
       }
@@ -701,13 +707,14 @@ export function RecordScreen() {
       const recordedForSave = clipSource === 'recorded';
       const autoSaveClip = preferences.autoSavePosts;
       const clipUriForOffer = recordedForSave ? clipUri : null;
+      const watermarkInfo = getChallengeWatermarkInfo(challenge, window);
 
       markPostedToday();
       void logEngagementMetric('posting', { challenge_date: viewingChallengeDateKey });
       setClipUri(null);
       setClipSource(null);
       setSecondaryClipUri(null);
-      await navigateAfterPost({ recordedForSave, clipUriForOffer });
+      await navigateAfterPost({ recordedForSave, clipUriForOffer, watermarkInfo });
 
       void syncAttemptLedgerAfterSuccessfulPost({
         uid: user.uid,
@@ -718,7 +725,7 @@ export function RecordScreen() {
         updatedAt: serverTimestamp(),
       }).catch(() => {});
       if (recordedForSave && autoSaveClip && clipUriForOffer) {
-        void saveVideoToCameraRoll(clipUriForOffer).catch(() => {});
+        void saveVideoToCameraRoll(clipUriForOffer, watermarkInfo).catch(() => {});
       }
     } catch (e) {
       if (user?.uid && isFirebaseConfigured()) {

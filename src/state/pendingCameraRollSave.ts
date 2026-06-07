@@ -1,22 +1,32 @@
+import type { ChallengeWatermarkInfo } from '../services/challengeWatermarkCapture';
 import { stageVideoForCameraRollOffer } from '../services/saveVideoToCameraRoll';
 
-/** Local clip URI to offer saving after post — consumed when Feed tab focuses. */
-let pendingUri: string | undefined;
+export type CameraRollSaveOffer = {
+  uri: string;
+  challenge: ChallengeWatermarkInfo;
+};
+
+/** Local clip + challenge metadata to offer saving after post — consumed when Feed tab focuses. */
+let pendingOffer: CameraRollSaveOffer | undefined;
 
 /**
  * Copy the recording to app storage before navigating away from Record.
  * Avoids iOS failing to save when the camera temp file is gone or has no extension.
  */
-export async function offerCameraRollSaveAfterPost(uri: string): Promise<void> {
+export async function offerCameraRollSaveAfterPost(
+  uri: string,
+  challenge: ChallengeWatermarkInfo
+): Promise<void> {
   try {
-    pendingUri = await stageVideoForCameraRollOffer(uri);
+    const stagedUri = await stageVideoForCameraRollOffer(uri);
+    pendingOffer = { uri: stagedUri, challenge };
   } catch {
-    pendingUri = uri;
+    pendingOffer = { uri, challenge };
   }
 }
 
-export function takeCameraRollSaveOffer(): string | undefined {
-  const uri = pendingUri;
-  pendingUri = undefined;
-  return uri;
+export function takeCameraRollSaveOffer(): CameraRollSaveOffer | undefined {
+  const offer = pendingOffer;
+  pendingOffer = undefined;
+  return offer;
 }

@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { NativeAnalyticsSync } from './src/components/NativeAnalyticsSync';
+import { ChallengeWatermarkCaptureHost } from './src/services/challengeWatermarkCapture';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { AuthProvider, useAuth } from './src/state/auth';
 import { AppStateProvider } from './src/state/appState';
@@ -119,6 +120,7 @@ export default function App() {
             <PushTokenRegistrar />
             <AppStateProvider>
               <RootNavigator />
+              <ChallengeWatermarkCaptureHost />
               <StatusBar style="dark" />
             </AppStateProvider>
           </SettingsPreferencesProvider>

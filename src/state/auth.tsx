@@ -18,6 +18,7 @@ import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/fireb
 import { isAdminUid, parseProfileIsAdmin, parseProfileIsModerator } from '../config/admin';
 import { unregisterPushDevice } from '../services/pushNotifications';
 import { bootstrapUserDocWithUsername, syncAuthDisplayNameIfNeeded } from '../services/usernameClaim';
+import { claimReferral } from '../services/referral';
 
 export type AuthUser = {
   uid: string;
@@ -39,7 +40,12 @@ type AuthContextValue = {
   /** False until Firebase `authStateReady()` resolves — avoids a one-frame signed-out flash on cold start. */
   authReady: boolean;
   user: AuthUser | null;
-  signUp: (args: { email: string; password: string; username: string }) => Promise<void>;
+  signUp: (args: {
+    email: string;
+    password: string;
+    username: string;
+    invitedByUsername?: string;
+  }) => Promise<void>;
   signInWithEmailPassword: (args: { email: string; password: string }) => Promise<EmailPasswordSignInResult>;
   signOut: () => Promise<void>;
   resendEmailVerification: () => Promise<void>;
@@ -325,7 +331,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user?.uid]);
 
   const signUp = React.useCallback(
-    async ({ email, password, username }: { email: string; password: string; username: string }) => {
+    async ({
+      email,
+      password,
+      username,
+      invitedByUsername,
+    }: {
+      email: string;
+      password: string;
+      username: string;
+      invitedByUsername?: string;
+    }) => {
       if (!isFirebaseConfigured()) {
         setUser({
           uid: `local_${Date.now()}`,
@@ -349,6 +365,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         })
       );
       void applyFirebaseSession(u).catch(() => {});
+
+      const invite = invitedByUsername?.trim();
+      if (invite && isFirebaseConfigured()) {
+        try {
+          await auth.authStateReady();
+          if (auth.currentUser?.uid === u.uid) {
+            await claimReferral(invite);
+          }
+        } catch {
+          // Signup still succeeds if referral claim fails (invalid username, etc.).
+        }
+      }
     },
     [applyFirebaseSession]
   );

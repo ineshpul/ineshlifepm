@@ -34,6 +34,7 @@ import { VerifyEmailScreen } from '../screens/VerifyEmailScreen';
 import { TermsGateScreen } from '../screens/TermsGateScreen';
 import { logNativeScreenView } from '../services/nativeAnalytics';
 import { hasAcceptedTerms, subscribeTermsAcceptance } from '../state/termsAcceptance';
+import { ReferralIntroHost } from '../components/ReferralIntroHost';
 
 const MainStack = createNativeStackNavigator<MainStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -238,7 +239,10 @@ export function RootNavigator() {
       ) : authed && termsReady && !termsOk ? (
         <TermsGateScreen />
       ) : authed ? (
-        <LoggedInStack />
+        <>
+          <LoggedInStack />
+          {termsOk ? <ReferralIntroHost /> : null}
+        </>
       ) : (
         <LoggedOutStack />
       )}

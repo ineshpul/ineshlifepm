@@ -23,7 +23,10 @@ export type NotificationType =
   | 'follow'
   | 'admin_alert'
   | 'mod_queue'
-  | 'moderation_rejected';
+  | 'moderation_rejected'
+  | 'referral_activation'
+  | 'referral_override'
+  | 'referral_launch';
 
 export type InAppNotification = {
   id: string;

@@ -44,8 +44,9 @@ import { deleteOwnedVideo } from '../services/deleteVideo';
 import { logEngagementScrollingThrottled } from '../services/nativeAnalytics';
 import { staffNullVideo } from '../services/nullVideo';
 import { navigateToRecord } from '../navigation/navigationHelpers';
+import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 import { useAppState } from '../state/appState';
-import { takeCameraRollSaveOffer } from '../state/pendingCameraRollSave';
+import { takeCameraRollSaveOffer, type CameraRollSaveOffer } from '../state/pendingCameraRollSave';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
@@ -75,6 +76,7 @@ import {
   nyLeapDayChainBackward,
   prevNyDateKey,
 } from '../utils/nyTime';
+import { markReferralWeeklyNudgeShown, shouldShowReferralWeeklyNudge } from '../state/referralNudge';
 
 type FeedVideo = {
   id: string;
@@ -93,7 +95,6 @@ type FeedVideo = {
 
 /** Bottom sheet height (instructions + engagement) per reel page — matches Tabs tab bar feel. */
 const REEL_BOTTOM_SHEET = 232;
-const TAB_BAR_HEIGHT = 58;
 /** Prior days use {@link nyLeapDayChainBackward} → {@link prevNyDateKey} — **same stepping as streaks** (one NY calendar day per step). */
 const FEED_DAY_WINDOW = 14;
 /** Per batched query (several days) — newest first via `orderBy('createdAt')`. */
@@ -143,6 +144,7 @@ export function FeedScreen() {
   const [feedPreviewSessionActive, setFeedPreviewSessionActive] = React.useState(false);
   /** False until AsyncStorage is read so we do not flash the feed after a prior consume. */
   const [feedPreviewLockHydrated, setFeedPreviewLockHydrated] = React.useState(!feedPreviewMode);
+  const [showReferralNudge, setShowReferralNudge] = React.useState(false);
 
   /**
    * NY calendar day for queries — not `useChallengeWindow()` (that ticked 250ms and re-rendered this whole screen constantly).
@@ -172,6 +174,25 @@ export function FeedScreen() {
     tick();
     const id = setInterval(tick, 5000);
     return () => clearInterval(id);
+  }, []);
+
+  React.useEffect(() => {
+    if (!canViewEveryoneFeed || !user?.uid) {
+      setShowReferralNudge(false);
+      return;
+    }
+    let cancelled = false;
+    void shouldShowReferralWeeklyNudge().then((show) => {
+      if (!cancelled) setShowReferralNudge(show);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [canViewEveryoneFeed, user?.uid, viewingChallengeDateKey]);
+
+  const dismissReferralNudge = React.useCallback(() => {
+    setShowReferralNudge(false);
+    void markReferralWeeklyNudgeShown();
   }, []);
 
   const persistPreviewConsumedForDay = React.useCallback(() => {
@@ -245,12 +266,14 @@ export function FeedScreen() {
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [nullingId, setNullingId] = React.useState<string | null>(null);
   const [unreadNotifications, setUnreadNotifications] = React.useState(0);
-  const [cameraRollSaveUri, setCameraRollSaveUri] = React.useState<string | null>(null);
+  const [cameraRollSaveOffer, setCameraRollSaveOffer] = React.useState<CameraRollSaveOffer | null>(
+    null
+  );
 
   useFocusEffect(
     React.useCallback(() => {
-      const uri = takeCameraRollSaveOffer();
-      if (uri) setCameraRollSaveUri(uri);
+      const offer = takeCameraRollSaveOffer();
+      if (offer) setCameraRollSaveOffer(offer);
     }, [])
   );
   const [showScrollTop, setShowScrollTop] = React.useState(false);
@@ -269,10 +292,11 @@ export function FeedScreen() {
     const h = Math.floor(e.nativeEvent.layout.height);
     if (h > 0) setSlotHeight((prev) => (Math.abs(prev - h) > 2 ? h : prev));
   }, []);
+  const tabBarClearance = floatingTabContentClearance(insets.bottom);
   const pageHeight = React.useMemo(() => {
     if (slotHeight > 0) return slotHeight;
-    return Math.max(380, windowHeight - insets.top - insets.bottom - TAB_BAR_HEIGHT - 52);
-  }, [slotHeight, windowHeight, insets.top, insets.bottom]);
+    return Math.max(380, windowHeight - insets.top - 52);
+  }, [slotHeight, windowHeight, insets.top]);
 
   const scrollTopThreshold = Math.max(800, pageHeight * 2.2);
   const maxFeedPreviewOffset = React.useMemo(
@@ -795,10 +819,11 @@ export function FeedScreen() {
         </View>
       </View>
 
-      {cameraRollSaveUri ? (
+      {cameraRollSaveOffer ? (
         <FeedCameraRollSaveBanner
-          clipUri={cameraRollSaveUri}
-          onDismiss={() => setCameraRollSaveUri(null)}
+          clipUri={cameraRollSaveOffer.uri}
+          challenge={cameraRollSaveOffer.challenge}
+          onDismiss={() => setCameraRollSaveOffer(null)}
         />
       ) : null}
 
@@ -807,6 +832,24 @@ export function FeedScreen() {
           <Text style={styles.previewBannerText}>
             Preview — swipe up to {FEED_PREVIEW_SCROLL_LIMIT} leaps, then take yours to unlock the feed
           </Text>
+        </View>
+      ) : null}
+
+      {showReferralNudge ? (
+        <View style={styles.referralNudge}>
+          <Text style={styles.referralNudgeText}>
+            Know someone who&apos;d leap with you?{' '}
+            <Text style={styles.referralNudgeLink} onPress={() => nav.navigate('Settings')}>
+              Invite
+            </Text>
+          </Text>
+          <TouchableOpacity
+            onPress={dismissReferralNudge}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Dismiss"
+          >
+            <Ionicons name="close" size={18} color={colors.muted} />
+          </TouchableOpacity>
         </View>
       ) : null}
 
@@ -888,6 +931,7 @@ export function FeedScreen() {
               <View
                 style={[
                   styles.reelSheet,
+                  { paddingBottom: tabBarClearance },
                   keyboardSheetBottom > 0 ? { bottom: keyboardSheetBottom } : undefined,
                 ]}
                 onLayout={onReelSheetLayoutFor(item.id)}
@@ -989,7 +1033,7 @@ export function FeedScreen() {
         />
         {showScrollTop ? (
           <TouchableOpacity
-            style={styles.scrollTopFab}
+            style={[styles.scrollTopFab, { bottom: tabBarClearance + 8 }]}
             onPress={scrollToTop}
             activeOpacity={0.85}
             accessibilityRole="button"
@@ -1028,6 +1072,31 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardTint,
     borderWidth: 1,
     borderColor: '#E6F4D7',
+  },
+  referralNudge: {
+    marginHorizontal: 12,
+    marginBottom: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: colors.cardTint,
+    borderWidth: 1,
+    borderColor: colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  referralNudgeText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+    lineHeight: 18,
+  },
+  referralNudgeLink: {
+    fontWeight: '800',
+    color: colors.moss,
   },
   previewBannerText: {
     fontSize: 12,
