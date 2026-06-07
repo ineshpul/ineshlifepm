@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   collection,
   limit,
@@ -23,6 +24,7 @@ import { Screen } from '../components/Screen';
 import { colors } from '../theme/colors';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
+import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 import {
   initialsFromDisplayName,
   leaderboardAvatarUrl,
@@ -100,6 +102,8 @@ function pickMostImproved(acc: AccRow[]): {
 
 export function TopScreen() {
   const nav = useNavigation<any>();
+  const insets = useSafeAreaInsets();
+  const tabBarClearance = floatingTabContentClearance(insets.bottom);
   const { user } = useAuth();
   const [timeframe, setTimeframe] = React.useState<LeaderboardTimeframe>('daily');
   const [rows, setRows] = React.useState<LeaderboardWireRow[]>([]);
@@ -437,7 +441,7 @@ export function TopScreen() {
         data={rows}
         keyExtractor={(x) => x.userId}
         extraData={{ timeframe, weekKey }}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingBottom: tabBarClearance }]}
         ListEmptyComponent={
           !leaderboardHydrated ? (
             <View style={styles.emptyLoading}>

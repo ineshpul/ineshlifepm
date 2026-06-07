@@ -30,6 +30,7 @@ import { LEAP_BOTTOM_TAGLINE } from '../content/challengeCopy';
 import { useAuth } from '../state/auth';
 import { showInfo } from '../utils/ui';
 import { navigateToRecord, navigateToUserProfile } from '../navigation/navigationHelpers';
+import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { subscribeUsersByUsernamePrefix, type UserSearchHit } from '../services/userSearch';
 import { submitChallengeSuggestion } from '../services/challengeSuggestion';
@@ -268,7 +269,7 @@ export function TodayScreen() {
         </View>
       </View>
 
-      <View style={styles.bottom}>
+      <View style={[styles.bottom, { paddingBottom: floatingTabContentClearance(insets.bottom) }]}>
         <PrimaryButton
           title="Leap"
           variant="green"

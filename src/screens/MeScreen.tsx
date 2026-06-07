@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { collection, doc, limit, onSnapshot, query, where } from 'firebase/firestore';
@@ -32,6 +33,7 @@ import { useProfileStats } from '../components/profile/useProfileStats';
 import { saveUserPublicProfile } from '../services/userProfile';
 import { UsernameTakenError } from '../services/usernameClaim';
 import { useChallengeWindow } from '../state/challenge';
+import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 
 type MyVideo = {
   id: string;
@@ -47,6 +49,8 @@ type MyVideo = {
 
 export function MeScreen() {
   const nav = useNavigation<any>();
+  const insets = useSafeAreaInsets();
+  const tabBarClearance = floatingTabContentClearance(insets.bottom);
   const { user, signOut } = useAuth();
   const [profile, setProfile] = React.useState<any>(null);
   const [myVideos, setMyVideos] = React.useState<MyVideo[]>([]);
@@ -168,7 +172,10 @@ export function MeScreen() {
 
   return (
     <Screen style={styles.screen}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scroll, { paddingBottom: tabBarClearance }]}
+      >
         <View style={styles.headerRow}>
           <View style={styles.brandRow}>
             <Brandmark size={36} />

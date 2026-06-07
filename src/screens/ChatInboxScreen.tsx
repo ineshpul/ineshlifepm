@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 
@@ -20,6 +21,7 @@ import { isFirebaseConfigured } from '../firebase/firebase';
 import type { ChatStackParamList } from '../navigation/ChatStack';
 import { useConversations } from '../chat/hooks/useConversations';
 import { useChatNotifications } from '../chat/hooks/useChatNotifications';
+import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 
 type Props = NativeStackScreenProps<ChatStackParamList, 'ChatInbox'>;
 
@@ -35,6 +37,8 @@ function formatTime(ts: { toMillis?: () => number } | null | undefined) {
 }
 
 export function ChatInboxScreen({ navigation }: Props) {
+  const insets = useSafeAreaInsets();
+  const tabBarClearance = floatingTabContentClearance(insets.bottom);
   const { user } = useAuth();
   const { rows, loading, totalUnread } = useConversations(user?.uid);
   useChatNotifications();
@@ -92,7 +96,7 @@ export function ChatInboxScreen({ navigation }: Props) {
           keyExtractor={(r) => r.conversationId}
           extraData={rows.map((r) => `${r.conversationId}:${r.member.convAvatarUrl ?? ''}`).join('|')}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={() => {}} />}
-          contentContainerStyle={{ paddingBottom: 24 }}
+          contentContainerStyle={{ paddingBottom: tabBarClearance }}
           renderItem={({ item }) => {
             const title =
               (item.member.convTitle || item.member.displayNameSnap || 'Chat').trim() || 'Chat';
