@@ -64,7 +64,9 @@ import { FEED_PREVIEW_SCROLL_LIMIT } from '../constants/feedPreview';
 import {
   clearFeedPreviewConsumed,
   loadFeedPreviewConsumed,
+  loadFeedPreviewStarted,
   persistFeedPreviewConsumed,
+  persistFeedPreviewStarted,
 } from '../state/feedPreviewLock';
 import {
   challengeDateKeysForFirestoreIn,
@@ -136,10 +138,13 @@ export function FeedScreen() {
   const { preferences, patch } = useSettingsPreferences();
   const { clearPostedOverride, hasPostedToday: canViewEveryoneFeed } = useAppState();
   const { user } = useAuth();
+  const isStaffUser = Boolean(user?.isAdmin || user?.isModerator);
   const feedPreviewMode = Boolean(user?.uid && !canViewEveryoneFeed);
-  /** Preview used or skipped for this challenge day — gate only, persisted across restarts. */
+  /** Preview skipped or finished for this challenge day — gate only, persisted across restarts. */
   const [feedPreviewConsumed, setFeedPreviewConsumed] = React.useState(false);
-  /** User chose "Preview 3 leaps" this visit (resets when leaving feed until consumed). */
+  /** User tapped Preview — can resume reels until they skip or finish swiping. */
+  const [feedPreviewStarted, setFeedPreviewStarted] = React.useState(false);
+  /** Reels are playing on screen (paused when leaving the feed tab). */
   const [feedPreviewSessionActive, setFeedPreviewSessionActive] = React.useState(false);
   /** False until AsyncStorage is read so we do not flash the feed after a prior consume. */
   const [feedPreviewLockHydrated, setFeedPreviewLockHydrated] = React.useState(!feedPreviewMode);
@@ -190,63 +195,84 @@ export function FeedScreen() {
   }, []);
 
   const persistPreviewConsumedForDay = React.useCallback(() => {
-    if (user?.uid) {
-      void persistFeedPreviewConsumed(user.uid, viewingChallengeDateKey);
-    }
-  }, [user?.uid, viewingChallengeDateKey]);
+    if (!user?.uid || isStaffUser) return;
+    void persistFeedPreviewConsumed(user.uid, viewingChallengeDateKey);
+  }, [user?.uid, viewingChallengeDateKey, isStaffUser]);
 
   /** Skip for the day — gate only from here on. */
   const markFeedPreviewConsumed = React.useCallback(() => {
     setFeedPreviewConsumed(true);
+    setFeedPreviewStarted(false);
     setFeedPreviewSessionActive(false);
     persistPreviewConsumedForDay();
   }, [persistPreviewConsumedForDay]);
 
-  /** Tap "Preview" — burns the one daily preview immediately; reels only for this visit. */
+  /** Tap "Preview" — start (or resume) the one daily preview session. */
   const startFeedPreviewSession = React.useCallback(() => {
-    setFeedPreviewConsumed(true);
+    setFeedPreviewStarted(true);
     setFeedPreviewSessionActive(true);
-    persistPreviewConsumedForDay();
-  }, [persistPreviewConsumedForDay]);
+    if (user?.uid && !isStaffUser) {
+      void persistFeedPreviewStarted(user.uid, viewingChallengeDateKey);
+    }
+  }, [user?.uid, viewingChallengeDateKey, isStaffUser]);
 
   const endFeedPreviewSession = React.useCallback(() => {
+    setFeedPreviewConsumed(true);
+    setFeedPreviewStarted(false);
     setFeedPreviewSessionActive(false);
-  }, []);
+    persistPreviewConsumedForDay();
+  }, [persistPreviewConsumedForDay]);
 
   React.useEffect(() => {
     if (!feedPreviewMode || !user?.uid) {
       setFeedPreviewConsumed(false);
+      setFeedPreviewStarted(false);
+      setFeedPreviewSessionActive(false);
+      setFeedPreviewLockHydrated(true);
+      return;
+    }
+    if (isStaffUser) {
+      setFeedPreviewConsumed(false);
+      setFeedPreviewStarted(false);
       setFeedPreviewSessionActive(false);
       setFeedPreviewLockHydrated(true);
       return;
     }
     let cancelled = false;
     setFeedPreviewLockHydrated(false);
-    void loadFeedPreviewConsumed(user.uid, viewingChallengeDateKey).then((consumed) => {
+    void Promise.all([
+      loadFeedPreviewConsumed(user.uid, viewingChallengeDateKey),
+      loadFeedPreviewStarted(user.uid, viewingChallengeDateKey),
+    ]).then(([consumed, started]) => {
       if (cancelled) return;
       setFeedPreviewConsumed(consumed);
+      setFeedPreviewStarted(consumed ? false : started);
       setFeedPreviewSessionActive(false);
       setFeedPreviewLockHydrated(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [feedPreviewMode, user?.uid, viewingChallengeDateKey]);
+  }, [feedPreviewMode, user?.uid, viewingChallengeDateKey, isStaffUser]);
 
   React.useEffect(() => {
     if (!canViewEveryoneFeed || !user?.uid) return;
     setFeedPreviewConsumed(false);
+    setFeedPreviewStarted(false);
     setFeedPreviewSessionActive(false);
     void clearFeedPreviewConsumed(user.uid, viewingChallengeDateKey);
   }, [canViewEveryoneFeed, user?.uid, viewingChallengeDateKey]);
 
   useFocusEffect(
     React.useCallback(() => {
+      if (feedPreviewMode && feedPreviewStarted && !feedPreviewConsumed) {
+        setFeedPreviewSessionActive(true);
+      }
       return () => {
         if (!feedPreviewMode) return;
         setFeedPreviewSessionActive(false);
       };
-    }, [feedPreviewMode])
+    }, [feedPreviewMode, feedPreviewStarted, feedPreviewConsumed])
   );
 
   React.useEffect(() => {
@@ -750,6 +776,7 @@ export function FeedScreen() {
     feedPreviewMode &&
     feedPreviewLockHydrated &&
     !feedPreviewConsumed &&
+    !feedPreviewStarted &&
     !feedPreviewSessionActive;
 
   const previewVideosReady = feedHydrated && displayVideos.length > 0;
@@ -778,7 +805,13 @@ export function FeedScreen() {
     );
   }
 
-  if (feedPreviewMode && feedPreviewSessionActive && feedHydrated && displayVideos.length === 0) {
+  if (
+    feedPreviewMode &&
+    feedPreviewStarted &&
+    feedHydrated &&
+    displayVideos.length === 0 &&
+    !feedPreviewConsumed
+  ) {
     return <TakeTheLeapGate variant="feed" />;
   }
 
@@ -838,7 +871,7 @@ export function FeedScreen() {
         />
       ) : null}
 
-      {feedPreviewMode ? (
+      {feedPreviewMode && feedPreviewStarted && !feedPreviewConsumed ? (
         <View style={styles.previewBanner} pointerEvents="none">
           <Text style={styles.previewBannerText}>
             Preview — swipe up to {FEED_PREVIEW_SCROLL_LIMIT} leaps, then take yours to unlock the feed

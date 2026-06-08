@@ -1,8 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-/** User finished preview (3 swipes) or skipped — no more watching until they post. */
-const keyFor = (uid: string, challengeDate: string) =>
-  `leap.feedPreviewLocked.v1.${uid}.${challengeDate}`;
+/** User skipped preview or finished swiping — no more watching until they post. */
+const consumedKeyFor = (uid: string, challengeDate: string) =>
+  `leap.feedPreviewLocked.v2.${uid}.${challengeDate}`;
+
+/** User tapped Preview but has not skipped or finished swiping yet. */
+const startedKeyFor = (uid: string, challengeDate: string) =>
+  `leap.feedPreviewStarted.v2.${uid}.${challengeDate}`;
 
 export async function loadFeedPreviewConsumed(
   uid: string,
@@ -10,7 +14,19 @@ export async function loadFeedPreviewConsumed(
 ): Promise<boolean> {
   if (!uid || !challengeDate) return false;
   try {
-    return (await AsyncStorage.getItem(keyFor(uid, challengeDate))) === '1';
+    return (await AsyncStorage.getItem(consumedKeyFor(uid, challengeDate))) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export async function loadFeedPreviewStarted(
+  uid: string,
+  challengeDate: string
+): Promise<boolean> {
+  if (!uid || !challengeDate) return false;
+  try {
+    return (await AsyncStorage.getItem(startedKeyFor(uid, challengeDate))) === '1';
   } catch {
     return false;
   }
@@ -22,9 +38,22 @@ export async function persistFeedPreviewConsumed(
 ): Promise<void> {
   if (!uid || !challengeDate) return;
   try {
-    await AsyncStorage.setItem(keyFor(uid, challengeDate), '1');
+    await AsyncStorage.setItem(consumedKeyFor(uid, challengeDate), '1');
+    await AsyncStorage.removeItem(startedKeyFor(uid, challengeDate));
   } catch {
     // ignore — in-memory state still applies this session
+  }
+}
+
+export async function persistFeedPreviewStarted(
+  uid: string,
+  challengeDate: string
+): Promise<void> {
+  if (!uid || !challengeDate) return;
+  try {
+    await AsyncStorage.setItem(startedKeyFor(uid, challengeDate), '1');
+  } catch {
+    // ignore
   }
 }
 
@@ -34,7 +63,10 @@ export async function clearFeedPreviewConsumed(
 ): Promise<void> {
   if (!uid || !challengeDate) return;
   try {
-    await AsyncStorage.removeItem(keyFor(uid, challengeDate));
+    await AsyncStorage.multiRemove([
+      consumedKeyFor(uid, challengeDate),
+      startedKeyFor(uid, challengeDate),
+    ]);
   } catch {
     // ignore
   }
