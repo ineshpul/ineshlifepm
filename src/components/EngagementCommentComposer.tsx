@@ -10,7 +10,6 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '../theme/colors';
 import type { ReplyTargetPayload } from './EngagementCommentRow';
@@ -43,11 +42,6 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
   onComposerFocus,
 }: Props) {
   const inputRef = React.useRef<TextInput>(null);
-  const insets = useSafeAreaInsets();
-  const modalBottomPadRef = React.useRef<number | null>(null);
-  if (forModal && modalBottomPadRef.current === null) {
-    modalBottomPadRef.current = Math.max(insets.bottom, 8);
-  }
   const [inputHeight, setInputHeight] = React.useState(MIN_INPUT_HEIGHT);
 
   React.useEffect(() => {
@@ -68,7 +62,7 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
       style={[
         styles.compose,
         reelLayout && !forModal && styles.composeReel,
-        forModal && [styles.composeModal, { paddingBottom: modalBottomPadRef.current ?? 8 }],
+        forModal && styles.composeModal,
       ]}
     >
       {replyTarget ? (
