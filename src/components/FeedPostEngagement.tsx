@@ -13,9 +13,11 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
   type KeyboardEvent,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
@@ -53,6 +55,8 @@ import { EngagementThreadCollapseRow } from './EngagementThreadCollapseRow';
 
 export type { VideoComment };
 
+const COMMENTS_SHEET_HEIGHT_RATIO = 0.62;
+
 type Props = {
   videoId: string;
   videoOwnerUid: string;
@@ -77,6 +81,9 @@ export function FeedPostEngagement({
   reelLayout = false,
 }: Props) {
   const navigation = useNavigation<any>();
+  const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const commentsSheetHeight = Math.round(windowHeight * COMMENTS_SHEET_HEIGHT_RATIO);
   const { preferences, patch } = useSettingsPreferences();
   const [likeCount, setLikeCount] = React.useState(0);
   const [liked, setLiked] = React.useState(false);
@@ -473,24 +480,6 @@ export function FeedPostEngagement({
     setCommentsModalOpen(true);
   };
 
-  const modalListFooter = React.useMemo(
-    () =>
-      viewerUid ? (
-        <EngagementCommentComposer
-          draft={draft}
-          onChangeText={setDraft}
-          replyTarget={replyTarget}
-          onClearReply={() => setReplyTarget(null)}
-          sending={sending}
-          onSend={() => void onSendComment()}
-          forModal
-          reelLayout={reelLayout}
-          onComposerFocus={onCommentComposerFocus}
-        />
-      ) : null,
-    [viewerUid, draft, replyTarget, sending, reelLayout, onCommentComposerFocus, videoId]
-  );
-
   return (
     <View style={[styles.wrap, reelLayout && styles.wrapReelCompact]}>
       <View style={styles.actions}>
@@ -574,8 +563,9 @@ export function FeedPostEngagement({
               style={[
                 styles.modalSheet,
                 {
-                  paddingBottom:
-                    (Platform.OS === 'ios' ? 10 : 12) + modalKeyboardInset,
+                  height: commentsSheetHeight,
+                  paddingBottom: modalKeyboardInset > 0 ? 0 : Math.max(insets.bottom, 8),
+                  transform: [{ translateY: -modalKeyboardInset }],
                 },
               ]}
             >
@@ -600,43 +590,53 @@ export function FeedPostEngagement({
                 </View>
               </PanGestureHandler>
               <View style={styles.modalKeyboardArea}>
-                <View style={styles.modalBody}>
-                  <FlatList
-                    data={commentDisplayList}
-                    extraData={expandedThreads}
-                    keyExtractor={(row) =>
-                      row.kind === 'comment' ? row.entry.comment.id : `collapsed-${row.threadRootId}`
-                    }
-                    renderItem={renderModalRow}
-                    ListEmptyComponent={
-                      comments.length === 0 ? (
-                        commentsQueryReady ? (
-                          <View style={styles.modalEmptyWrap}>
-                            <Text style={styles.modalEmpty}>No comments yet.</Text>
-                            <Text style={styles.modalHint}>Be the first to say something.</Text>
-                          </View>
-                        ) : (
-                          <View style={styles.modalLoadingWrap}>
-                            <ActivityIndicator size="large" color={colors.moss} />
-                          </View>
-                        )
-                      ) : null
-                    }
-                    ListFooterComponent={modalListFooter}
-                    style={styles.modalList}
-                    contentContainerStyle={[
-                      styles.modalListContent,
-                      comments.length === 0 ? styles.modalListContentEmpty : null,
-                    ]}
-                    keyboardShouldPersistTaps="always"
-                    keyboardDismissMode="none"
-                    showsVerticalScrollIndicator={false}
-                    removeClippedSubviews={false}
-                    scrollEventThrottle={16}
-                    onScroll={onModalListScroll}
-                    windowSize={10}
+                <FlatList
+                  data={commentDisplayList}
+                  extraData={expandedThreads}
+                  keyExtractor={(row) =>
+                    row.kind === 'comment' ? row.entry.comment.id : `collapsed-${row.threadRootId}`
+                  }
+                  renderItem={renderModalRow}
+                  ListEmptyComponent={
+                    comments.length === 0 ? (
+                      commentsQueryReady ? (
+                        <View style={styles.modalEmptyWrap}>
+                          <Text style={styles.modalEmpty}>No comments yet.</Text>
+                          <Text style={styles.modalHint}>Be the first to say something.</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.modalLoadingWrap}>
+                          <ActivityIndicator size="large" color={colors.moss} />
+                        </View>
+                      )
+                    ) : null
+                  }
+                  style={styles.modalList}
+                  contentContainerStyle={[
+                    styles.modalListContent,
+                    comments.length === 0 ? styles.modalListContentEmpty : null,
+                  ]}
+                  keyboardShouldPersistTaps="always"
+                  keyboardDismissMode="none"
+                  showsVerticalScrollIndicator={false}
+                  removeClippedSubviews={false}
+                  scrollEventThrottle={16}
+                  onScroll={onModalListScroll}
+                  windowSize={10}
+                />
+                {viewerUid ? (
+                  <EngagementCommentComposer
+                    draft={draft}
+                    onChangeText={setDraft}
+                    replyTarget={replyTarget}
+                    onClearReply={() => setReplyTarget(null)}
+                    sending={sending}
+                    onSend={() => void onSendComment()}
+                    forModal
+                    reelLayout={reelLayout}
+                    onComposerFocus={onCommentComposerFocus}
                   />
-                </View>
+                ) : null}
               </View>
             </View>
           </View>
@@ -731,14 +731,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   modalSheet: {
-    flex: 1,
-    maxHeight: '88%',
-    minHeight: 320,
     backgroundColor: colors.white,
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
     paddingHorizontal: 14,
-    paddingBottom: 0,
     shadowColor: '#000',
     shadowOpacity: 0.12,
     shadowRadius: 16,
@@ -768,11 +764,10 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
   },
-  modalBody: {
+  modalList: {
     flex: 1,
     minHeight: 0,
   },
-  modalList: { flex: 1 },
   modalListContent: { paddingBottom: 8 },
   modalListContentEmpty: {
     flexGrow: 1,
