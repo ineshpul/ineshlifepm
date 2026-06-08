@@ -863,40 +863,6 @@ export function FeedScreen() {
         </View>
       </View>
 
-      {cameraRollSaveOffer ? (
-        <FeedCameraRollSaveBanner
-          clipUri={cameraRollSaveOffer.uri}
-          challenge={cameraRollSaveOffer.challenge}
-          onDismiss={() => setCameraRollSaveOffer(null)}
-        />
-      ) : null}
-
-      {feedPreviewMode && feedPreviewStarted && !feedPreviewConsumed ? (
-        <View style={styles.previewBanner} pointerEvents="none">
-          <Text style={styles.previewBannerText}>
-            Preview — swipe up to {FEED_PREVIEW_SCROLL_LIMIT} leaps, then take yours to unlock the feed
-          </Text>
-        </View>
-      ) : null}
-
-      {showReferralNudge ? (
-        <View style={styles.referralNudge}>
-          <Text style={styles.referralNudgeText}>
-            Know someone who&apos;d leap with you?{' '}
-            <Text style={styles.referralNudgeLink} onPress={() => void shareReferralInvite(inviteUsername)}>
-              Invite
-            </Text>
-          </Text>
-          <TouchableOpacity
-            onPress={dismissReferralNudge}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityLabel="Dismiss"
-          >
-            <Ionicons name="close" size={18} color={colors.muted} />
-          </TouchableOpacity>
-        </View>
-      ) : null}
-
       <View ref={feedSlotRef} style={styles.feedSlot} onLayout={onSlotLayout} collapsable={false}>
         <FlatList
           ref={flatListRef}
@@ -1098,6 +1064,46 @@ export function FeedScreen() {
             </View>
           </TouchableOpacity>
         ) : null}
+        {cameraRollSaveOffer ||
+        (feedPreviewMode && feedPreviewStarted && !feedPreviewConsumed) ||
+        showReferralNudge ? (
+          <View style={styles.feedBannerStack} pointerEvents="box-none">
+            {cameraRollSaveOffer ? (
+              <FeedCameraRollSaveBanner
+                clipUri={cameraRollSaveOffer.uri}
+                challenge={cameraRollSaveOffer.challenge}
+                onDismiss={() => setCameraRollSaveOffer(null)}
+              />
+            ) : null}
+            {feedPreviewMode && feedPreviewStarted && !feedPreviewConsumed ? (
+              <View style={styles.previewBanner} pointerEvents="none">
+                <Text style={styles.previewBannerText}>
+                  Preview — swipe up to {FEED_PREVIEW_SCROLL_LIMIT} leaps, then take yours to unlock the feed
+                </Text>
+              </View>
+            ) : null}
+            {showReferralNudge ? (
+              <View style={styles.referralNudge}>
+                <Text style={styles.referralNudgeText}>
+                  Know someone who&apos;d leap with you?{' '}
+                  <Text
+                    style={styles.referralNudgeLink}
+                    onPress={() => void shareReferralInvite(inviteUsername)}
+                  >
+                    Invite
+                  </Text>
+                </Text>
+                <TouchableOpacity
+                  onPress={dismissReferralNudge}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel="Dismiss"
+                >
+                  <Ionicons name="close" size={18} color={colors.muted} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
       </View>
     </Screen>
   );
@@ -1107,9 +1113,17 @@ const styles = StyleSheet.create({
   screen: {
     paddingHorizontal: 12,
   },
+  feedBannerStack: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    paddingTop: 6,
+    gap: 6,
+  },
   previewBanner: {
     marginHorizontal: 12,
-    marginBottom: 6,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 12,
@@ -1119,7 +1133,6 @@ const styles = StyleSheet.create({
   },
   referralNudge: {
     marginHorizontal: 12,
-    marginBottom: 6,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 12,
