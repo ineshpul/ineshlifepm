@@ -137,6 +137,8 @@ export function RecordScreen() {
   const [clipSource, setClipSource] = React.useState<'recorded' | 'demo' | null>(null);
   /** PIP companion video captured at the same time as `clipUri` when dual mode is on. */
   const [secondaryClipUri, setSecondaryClipUri] = React.useState<string | null>(null);
+  /** Whether the front camera was the big view when a dual take finished. */
+  const [dualFrontIsPrimary, setDualFrontIsPrimary] = React.useState(false);
   /** Current direction of the single-camera recorder; the dual recorder owns its own facing state. */
   const [cameraFacing, setCameraFacing] = React.useState<'front' | 'back'>('front');
   /** Both modes use vision-camera. Single is one device + persistent recorder; dual is multi-cam. */
@@ -208,6 +210,7 @@ export function RecordScreen() {
     setClipUri(null);
     setClipSource(null);
     setSecondaryClipUri(null);
+    setDualFrontIsPrimary(false);
     setPreRecordCountdown(null);
     setRecordingSecondsLeft(null);
     setIsRecording(false);
@@ -223,6 +226,7 @@ export function RecordScreen() {
     setClipUri(null);
     setClipSource(null);
     setSecondaryClipUri(null);
+    setDualFrontIsPrimary(false);
     setPreRecordCountdown(null);
     setRecordingSecondsLeft(null);
     setIsRecording(false);
@@ -234,6 +238,7 @@ export function RecordScreen() {
     setClipUri(null);
     setClipSource(null);
     setSecondaryClipUri(null);
+    setDualFrontIsPrimary(false);
     setPreRecordCountdown(null);
     setRecordingSecondsLeft(null);
     setIsRecording(false);
@@ -249,8 +254,6 @@ export function RecordScreen() {
   /** Screen focus only — do not tie to permission changes (that paused camera right after grant). */
   useFocusEffect(
     React.useCallback(() => {
-      void setAudioSessionForRecording().catch(() => {});
-
       return () => {
         recordingAbortRef.current = true;
         recordingSessionRef.current += 1;
@@ -265,6 +268,17 @@ export function RecordScreen() {
       };
     }, [stopActiveRecording])
   );
+
+  React.useEffect(() => {
+    if (!isFocused || clipUri) return;
+    if (cameraMode === 'dual') {
+      // vision-camera owns the AVAudioSession during multi-cam capture; expo-av's
+      // recording mode races the mic and causes intermittent silent clips.
+      void setAudioSessionForPlayback().catch(() => {});
+      return;
+    }
+    void setAudioSessionForRecording().catch(() => {});
+  }, [isFocused, cameraMode, clipUri]);
 
   React.useEffect(() => {
     const sub = AppState.addEventListener('change', (_next: AppStateStatus) => {
@@ -300,6 +314,7 @@ export function RecordScreen() {
     setClipUri(null);
     setClipSource(null);
     setSecondaryClipUri(null);
+    setDualFrontIsPrimary(false);
     setPreRecordCountdown(null);
     setRecordingSecondsLeft(null);
 
@@ -366,6 +381,7 @@ export function RecordScreen() {
     setClipUri(null);
     setClipSource(null);
     setSecondaryClipUri(null);
+    setDualFrontIsPrimary(false);
     setPreRecordCountdown(null);
     setRecordingSecondsLeft(null);
 
@@ -518,11 +534,11 @@ export function RecordScreen() {
         return;
       }
 
-      await setAudioSessionForRecording().catch(() => {});
-      if (cameraMode === 'dual') {
-        await startDualRecordingSession();
-      } else {
+      if (cameraMode === 'single') {
+        await setAudioSessionForRecording().catch(() => {});
         await startRecordingSession();
+      } else {
+        await startDualRecordingSession();
       }
     } finally {
       recordTapBusyRef.current = false;
@@ -551,6 +567,7 @@ export function RecordScreen() {
         setClipUri(null);
         setClipSource(null);
         setSecondaryClipUri(null);
+        setDualFrontIsPrimary(false);
         await navigateAfterPost({
           recordedForSave: clipSource === 'recorded',
           clipUriForOffer,
@@ -683,7 +700,11 @@ export function RecordScreen() {
             url: downloadUrl,
             storagePath: primaryPath,
             ...(secondaryDownloadUrl && secondaryPath
-              ? { secondaryUrl: secondaryDownloadUrl, secondaryStoragePath: secondaryPath }
+              ? {
+                  secondaryUrl: secondaryDownloadUrl,
+                  secondaryStoragePath: secondaryPath,
+                  ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
+                }
               : {}),
             moderationStatus: requireMod ? 'pending' : 'approved',
           },
@@ -714,6 +735,7 @@ export function RecordScreen() {
       setClipUri(null);
       setClipSource(null);
       setSecondaryClipUri(null);
+      setDualFrontIsPrimary(false);
       await navigateAfterPost({ recordedForSave, clipUriForOffer, watermarkInfo });
 
       void syncAttemptLedgerAfterSuccessfulPost({
@@ -766,7 +788,7 @@ export function RecordScreen() {
     cameraMode === 'dual' && isFocused && canUseCamera && !clipUri && !postedToday;
 
   const handleDualCapture = React.useCallback(
-    (clip: { primaryUri: string; secondaryUri: string }) => {
+    (clip: { primaryUri: string; secondaryUri: string; frontIsPrimary: boolean }) => {
       const sessionId = recordingSessionRef.current + 1;
       recordingSessionRef.current = sessionId;
       setIsRecording(false);
@@ -774,6 +796,7 @@ export function RecordScreen() {
       setRecordingSecondsLeft(null);
       setClipUri(clip.primaryUri);
       setSecondaryClipUri(clip.secondaryUri);
+      setDualFrontIsPrimary(clip.frontIsPrimary);
       setClipSource('recorded');
       if (user?.uid && isFirebaseConfigured()) {
         void consumeRecordingAttempt({
@@ -800,8 +823,16 @@ export function RecordScreen() {
     if (isRecordingRef.current || preRecordCountdown != null || clipUri || postedToday) {
       return;
     }
-    setCameraMode((m) => (m === 'single' ? 'dual' : 'single'));
-  }, [preRecordCountdown, clipUri, postedToday]);
+    setCameraMode((m) => {
+      const next = m === 'single' ? 'dual' : 'single';
+      if (next === 'dual') {
+        void setAudioSessionForPlayback().catch(() => {});
+      } else if (isFocused && !clipUri) {
+        void setAudioSessionForRecording().catch(() => {});
+      }
+      return next;
+    });
+  }, [preRecordCountdown, clipUri, postedToday, isFocused]);
 
   const onPurchaseAttemptPress = React.useCallback(() => {
     if (!user?.uid || !isFirebaseConfigured()) return;
@@ -865,7 +896,12 @@ export function RecordScreen() {
 
       <View style={styles.cameraWrap}>
         {clipUri && !clipUri.startsWith('demo://') ? (
-          <RecordClipPreview key={clipUri} uri={clipUri} secondaryUri={secondaryClipUri} />
+          <RecordClipPreview
+            key={clipUri}
+            uri={clipUri}
+            secondaryUri={secondaryClipUri}
+            dualFrontIsPrimary={dualFrontIsPrimary}
+          />
         ) : clipUri?.startsWith('demo://') ? (
           <View style={styles.demo}>
             <Text style={styles.demoTitle}>Demo take ready</Text>

@@ -43,6 +43,11 @@ export type PostedVideoPayload = {
    */
   secondaryUrl?: string;
   secondaryStoragePath?: string;
+  /**
+   * When true on a dual-camera post, the front camera was the big view at capture
+   * time and the back camera (PIP) carries the sole audio track.
+   */
+  dualFrontIsPrimary?: boolean;
   moderationStatus: 'pending' | 'approved' | 'rejected';
 };
 

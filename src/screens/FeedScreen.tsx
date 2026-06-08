@@ -86,6 +86,8 @@ type FeedVideo = {
   url: string;
   /** Companion PIP clip for BeReal-style dual-camera posts (absent on solo clips). */
   secondaryUrl?: string;
+  /** When true on dual posts, audio lives on the PIP clip because front was the big view. */
+  dualFrontIsPrimary?: boolean;
   createdAtMs: number;
   ownerUid: string;
   moderationStatus: string;
@@ -655,12 +657,14 @@ export function FeedScreen() {
               : String(rawCd ?? '');
           const challengeDate = normalizeNyDateKey(cdRaw, viewingChallengeDateKey);
           const secondaryUrlRaw = String(data?.secondaryUrl ?? '').trim();
+          const dualFrontIsPrimary = data?.dualFrontIsPrimary === true;
           return {
             id: d.id,
             username: String(data?.username ?? 'user'),
             prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
             url: String(data?.url ?? ''),
             ...(secondaryUrlRaw ? { secondaryUrl: secondaryUrlRaw } : {}),
+            ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
             createdAtMs,
             ownerUid: String(data?.uid ?? ''),
             moderationStatus: String(data?.moderationStatus ?? 'approved'),
@@ -729,6 +733,7 @@ export function FeedScreen() {
                   ? nyDateKey((rawMineCd as { toDate: () => Date }).toDate())
                   : String(rawMineCd ?? '');
               const mineSecondaryUrl = String(data?.secondaryUrl ?? '').trim();
+              const mineDualFrontIsPrimary = data?.dualFrontIsPrimary === true;
               mineDocs = [
                 {
                   id: snap.id,
@@ -736,6 +741,7 @@ export function FeedScreen() {
                   prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
                   url: String(data?.url ?? ''),
                   ...(mineSecondaryUrl ? { secondaryUrl: mineSecondaryUrl } : {}),
+                  ...(mineDualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
                   createdAtMs,
                   ownerUid: String(data?.uid ?? ''),
                   moderationStatus: String(data?.moderationStatus ?? 'pending'),
@@ -925,6 +931,7 @@ export function FeedScreen() {
                   reel
                   url={item.url}
                   secondaryUrl={item.secondaryUrl}
+                  dualFrontIsPrimary={item.dualFrontIsPrimary}
                   shouldPlay={isFocused && activeVideoId === item.id}
                   isMuted={false}
                   useNativeControls

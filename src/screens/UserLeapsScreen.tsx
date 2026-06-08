@@ -39,6 +39,7 @@ type LeapVideo = {
   url: string;
   /** Companion PIP clip for BeReal-style dual-camera posts. */
   secondaryUrl?: string;
+  dualFrontIsPrimary?: boolean;
   createdAtMs: number;
   ownerUid: string;
   moderationStatus: string;
@@ -110,12 +111,14 @@ export function UserLeapsScreen({ route }: Props) {
               typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
             const uname = String(data?.username ?? '').trim();
             const secondaryUrl = String(data?.secondaryUrl ?? '').trim();
+            const dualFrontIsPrimary = data?.dualFrontIsPrimary === true;
             return {
               id: d.id,
               username: uname || hint || 'user',
               prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
               url: String(data?.url ?? ''),
               ...(secondaryUrl ? { secondaryUrl } : {}),
+              ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
               createdAtMs,
               ownerUid: String(data?.uid ?? targetUid),
               moderationStatus: String(data?.moderationStatus ?? ''),
@@ -266,6 +269,7 @@ export function UserLeapsScreen({ route }: Props) {
                     reel
                     url={item.url}
                     secondaryUrl={item.secondaryUrl}
+                    dualFrontIsPrimary={item.dualFrontIsPrimary}
                     shouldPlay={isFocused && activeVideoId === item.id}
                     isMuted={false}
                     useNativeControls

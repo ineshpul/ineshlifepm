@@ -95,17 +95,16 @@ export function DualCameraRecorder({
     // Push above default to keep 1080p crisp even when multi-cam is sharing
     // bandwidth with the front recorder.
     targetBitRate: 10_000_000,
+    // iOS multi-cam exposes one mic input — attaching it to two recorders races
+    // and yields intermittent silent clips. Back camera always owns audio; when
+    // the user swaps front to big, playback reads audio from the PIP clip instead.
     enableAudio: true,
     fileType: 'mp4',
   });
-  // Both clips capture audio so the recording never goes silent regardless of
-  // which one ends up as the "primary" (big) video after a tap-to-swap. The
-  // feed/preview players keep the PIP overlay muted at playback time, so
-  // there's no phasing/echo from the duplicated audio track.
   const frontVideo = useVideoOutput({
     targetResolution: CommonResolutions.HD_16_9,
     targetBitRate: 6_000_000,
-    enableAudio: true,
+    enableAudio: false,
     fileType: 'mp4',
   });
 
@@ -282,38 +281,45 @@ export function DualCameraRecorder({
     };
 
     try {
-      [backRec, frontRec] = await Promise.all([
-        backVideo.createRecorder({ maxDuration: boundedMaxSec }),
-        frontVideo.createRecorder({ maxDuration: boundedMaxSec }),
-      ]);
+      // Re-assert mic permission right before capture — expo-av's recording session
+      // can reset vision-camera's permission view and leave clips silent.
+      if (VisionCamera.microphonePermissionStatus !== 'authorized') {
+        const granted = await VisionCamera.requestMicrophonePermission().catch(() => false);
+        if (!granted) {
+          onError?.(new Error('Microphone permission is required to record with sound.'));
+          return;
+        }
+      }
+
+      backRec = await backVideo.createRecorder({ maxDuration: boundedMaxSec });
       backRecorderRef.current = backRec;
+
+      // Start the audio-bearing recorder first so iOS attaches the shared mic input
+      // before the second movie writer spins up.
+      await backRec.startRecording(
+        (filePath) => {
+          backUri = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
+          backDone = true;
+          maybeFireCapture();
+        },
+        (err) => {
+          onError?.(err);
+        }
+      );
+
+      frontRec = await frontVideo.createRecorder({ maxDuration: boundedMaxSec });
       frontRecorderRef.current = frontRec;
 
-      // Kick off both recorders. We don't block on stop here; the user controls
-      // stop via the parent's record button. `maxDuration` ensures we still
-      // bound the take if they walk away.
-      await Promise.all([
-        backRec.startRecording(
-          (filePath) => {
-            backUri = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
-            backDone = true;
-            maybeFireCapture();
-          },
-          (err) => {
-            onError?.(err);
-          }
-        ),
-        frontRec.startRecording(
-          (filePath) => {
-            frontUri = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
-            frontDone = true;
-            maybeFireCapture();
-          },
-          (err) => {
-            onError?.(err);
-          }
-        ),
-      ]);
+      await frontRec.startRecording(
+        (filePath) => {
+          frontUri = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
+          frontDone = true;
+          maybeFireCapture();
+        },
+        (err) => {
+          onError?.(err);
+        }
+      );
 
       setIsRecording(true);
       isRecordingRef.current = true;

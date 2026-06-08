@@ -6,20 +6,22 @@ type Props = {
   uri: string;
   /** Optional companion clip rendered as a muted PIP tile (BeReal-style dual recording). */
   secondaryUri?: string | null;
+  /** When true, audio was captured on the PIP (back) clip because front was the big view. */
+  dualFrontIsPrimary?: boolean;
 };
 
 /** Preview a recorded or picked clip. Uses `expo-video` because `expo-av` Video is deprecated on SDK 54. */
-export function RecordClipPreview({ uri, secondaryUri }: Props) {
+export function RecordClipPreview({ uri, secondaryUri, dualFrontIsPrimary = false }: Props) {
+  const audioOnSecondary = Boolean(secondaryUri) && dualFrontIsPrimary;
   const player = useVideoPlayer({ uri }, (p) => {
     p.loop = false;
+    p.muted = audioOnSecondary;
   });
-  // The PIP player is silenced so we don't double-up on audio; the primary clip
-  // already carries the recording's audio track.
   const secondaryPlayer = useVideoPlayer(
     secondaryUri ? { uri: secondaryUri } : null,
     (p) => {
       p.loop = true;
-      p.muted = true;
+      p.muted = !audioOnSecondary;
     }
   );
   React.useEffect(() => {

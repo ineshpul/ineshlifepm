@@ -56,6 +56,7 @@ export function VideoPostScreen({ route }: Props) {
     url: string;
     /** Companion PIP clip for BeReal-style dual-camera posts. */
     secondaryUrl?: string;
+    dualFrontIsPrimary?: boolean;
     prompt: string;
     username: string;
     ownerUid: string;
@@ -93,9 +94,11 @@ export function VideoPostScreen({ route }: Props) {
           return;
         }
         const secondaryUrl = String(data?.secondaryUrl ?? '').trim();
+        const dualFrontIsPrimary = data?.dualFrontIsPrimary === true;
         setRow({
           url,
           ...(secondaryUrl ? { secondaryUrl } : {}),
+          ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
           prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
           username: String(data?.username ?? 'user'),
           ownerUid: String(data?.uid ?? ''),
@@ -187,6 +190,8 @@ export function VideoPostScreen({ route }: Props) {
                 useNativeControls
                 shouldPlay={isFocused}
                 isLooping={false}
+                isMuted={Boolean(row.secondaryUrl && row.dualFrontIsPrimary)}
+                volume={row.secondaryUrl && row.dualFrontIsPrimary ? 0 : 1}
                 progressUpdateIntervalMillis={preferences.dataSaver ? 1000 : 250}
               />
               {row.secondaryUrl ? (
@@ -196,9 +201,9 @@ export function VideoPostScreen({ route }: Props) {
                     style={styles.pipVideo}
                     resizeMode={ResizeMode.COVER}
                     shouldPlay={isFocused}
-                    isMuted
+                    isMuted={!row.dualFrontIsPrimary}
                     isLooping
-                    volume={0}
+                    volume={row.dualFrontIsPrimary ? 1 : 0}
                     progressUpdateIntervalMillis={preferences.dataSaver ? 2000 : 1000}
                   />
                 </View>

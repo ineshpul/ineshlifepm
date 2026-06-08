@@ -412,6 +412,7 @@ service cloud.firestore {
               // Optional companion PIP clip URL + storage path for BeReal-style dual-camera posts.
               'secondaryUrl',
               'secondaryStoragePath',
+              'dualFrontIsPrimary',
               'moderationStatus',
               'createdAt',
               'viewCount',
@@ -444,6 +445,7 @@ service cloud.firestore {
               // Optional companion PIP clip URL + storage path for BeReal-style dual-camera posts.
               'secondaryUrl',
               'secondaryStoragePath',
+              'dualFrontIsPrimary',
               'moderationStatus',
               'createdAt',
               'viewCount',
@@ -473,6 +475,17 @@ service cloud.firestore {
             && request.resource.data.secondaryStoragePath.matches(
               '^videos/' + request.auth.uid + '/' + request.resource.data.challengeDate + '/[^/]+$'
             )
+            && (
+              !('dualFrontIsPrimary' in request.resource.data)
+              || request.resource.data.dualFrontIsPrimary == true
+            )
+          )
+        )
+        && (
+          !('dualFrontIsPrimary' in request.resource.data)
+          || (
+            'secondaryUrl' in request.resource.data
+            && 'secondaryStoragePath' in request.resource.data
           )
         )
         && request.resource.data.username is string

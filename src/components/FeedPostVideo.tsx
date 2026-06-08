@@ -36,6 +36,11 @@ function FeedPostVideoInner(props: {
    * the viewer sees both cameras the same way they were recorded.
    */
   secondaryUrl?: string | null;
+  /**
+   * Dual-camera posts record audio on the back camera only. When the front camera
+   * was the big view at capture time, audio lives on the PIP clip instead.
+   */
+  dualFrontIsPrimary?: boolean;
   shouldPlay: boolean;
   isMuted: boolean;
   useNativeControls: boolean;
@@ -51,6 +56,7 @@ function FeedPostVideoInner(props: {
   const {
     url,
     secondaryUrl,
+    dualFrontIsPrimary = false,
     shouldPlay,
     isMuted,
     useNativeControls,
@@ -101,6 +107,10 @@ function FeedPostVideoInner(props: {
 
   const effectivePlay = shouldPlay && !userPaused;
   const playerMuted = !effectivePlay || isMuted;
+  const isDualPost = Boolean(secondaryUrl);
+  const audioOnSecondary = isDualPost && dualFrontIsPrimary;
+  const primaryAudioMuted = playerMuted || audioOnSecondary;
+  const secondaryAudioMuted = playerMuted || !audioOnSecondary;
 
   // Native stop on deactivate — `shouldPlay` handles start/buffer; avoids pause loops.
   React.useEffect(() => {
@@ -256,9 +266,9 @@ function FeedPostVideoInner(props: {
         style={videoStyle}
         resizeMode={resizeMode}
         shouldPlay={effectivePlay}
-        isMuted={playerMuted}
+        isMuted={primaryAudioMuted}
         isLooping={reel}
-        volume={1.0}
+        volume={audioOnSecondary ? 0 : 1.0}
         useNativeControls={nativeControls}
         progressUpdateIntervalMillis={dataSaver ? 1200 : 600}
         onPlaybackStatusUpdate={onPlaybackStatusUpdate}
@@ -280,9 +290,9 @@ function FeedPostVideoInner(props: {
             style={StyleSheet.absoluteFillObject}
             resizeMode={ResizeMode.COVER}
             shouldPlay={effectivePlay}
-            isMuted
+            isMuted={secondaryAudioMuted}
             isLooping={reel}
-            volume={0}
+            volume={audioOnSecondary ? 1.0 : 0}
             progressUpdateIntervalMillis={dataSaver ? 2000 : 1000}
           />
         </View>
