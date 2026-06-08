@@ -761,7 +761,7 @@ export function FeedScreen() {
           <View style={styles.headerLeft}>
             <Brandmark size={36} />
             <View>
-              <Text style={styles.headerTitle}>Daily Feed</Text>
+              <Text style={styles.headerTitle}>Daily Leaps</Text>
             </View>
           </View>
           {user?.uid ? (

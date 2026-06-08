@@ -25,7 +25,7 @@ export function FeedPreviewChoice({ onPreview, onSkip, previewDisabled }: Props)
     <Screen style={styles.screen}>
       <View style={styles.header}>
         <Brandmark size={36} />
-        <Text style={styles.headerTitle}>Daily Feed</Text>
+        <Text style={styles.headerTitle}>Daily Leaps</Text>
       </View>
 
       <View style={styles.card}>
