@@ -41,7 +41,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTa
 
           const icon = options.tabBarIcon?.({
             focused: isFocused,
-            color: isFocused ? colors.white : 'rgba(255,255,255,0.52)',
+            color: isFocused ? colors.green : colors.muted2,
           });
 
           return (
@@ -81,18 +81,18 @@ const styles = StyleSheet.create({
     height: FLOATING_TAB_PILL_HEIGHT,
     paddingHorizontal: 10,
     borderRadius: FLOATING_TAB_PILL_HEIGHT / 2,
-    backgroundColor: 'rgba(22, 22, 24, 0.92)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    borderWidth: 1,
+    borderColor: colors.border,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOpacity: 0.28,
-        shadowRadius: 16,
-        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 4 },
       },
       android: {
-        elevation: 12,
+        elevation: 6,
       },
       default: {},
     }),
@@ -114,6 +114,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   iconWrapFocused: {
-    backgroundColor: 'rgba(255, 107, 84, 0.22)',
+    backgroundColor: colors.cardTint,
   },
 });

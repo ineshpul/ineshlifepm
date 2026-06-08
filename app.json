@@ -1,4 +1,4 @@
-﻿{
+{
   "expo": {
     "name": "Leap",
     "slug": "Leap_MVP",
@@ -24,7 +24,8 @@
         "NSPhotoLibraryAddUsageDescription": "Leap can save your completed takes to your photo library when you enable Save to camera roll.",
         "NSUserNotificationsUsageDescription": "Leap uses notifications to remind you when today's challenge is live and before time runs out.",
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "buildNumber": "2"
     },
     "android": {
       "package": "com.leapmvp.app",

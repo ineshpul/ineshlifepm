@@ -103,8 +103,8 @@ const FEED_HYDRATE_SAFETY_MS = 8_000;
 
 /** Must be a stable reference — `viewabilityConfigCallbackPairs` cannot change after mount (RN FlatList). */
 const FEED_VIEWABILITY_CONFIG = {
-  itemVisiblePercentThreshold: 70,
-  minimumViewTime: 80,
+  itemVisiblePercentThreshold: 55,
+  minimumViewTime: 40,
   waitForInteraction: false,
 } as const;
 
@@ -280,6 +280,8 @@ export function FeedScreen() {
   /** Lifts the reel bottom sheet above the keyboard (fixed-height KAV was ineffective here). */
   const [keyboardSheetBottom, setKeyboardSheetBottom] = React.useState(0);
   const flatListRef = React.useRef<FlatList<FeedVideo>>(null);
+  const activeScrollIndexRef = React.useRef(0);
+  const displayVideosRef = React.useRef<FeedVideo[]>([]);
   /** Measured bottom-sheet height per video so the video slot clears the sheet without extra whitespace. */
   const [reelSheetHeights, setReelSheetHeights] = React.useState<Record<string, number>>({});
   /** Reel sheet `bottom` must use overlap with keyboard vs this slot’s bottom (tab bar is below; window-height math over-lifts). */
@@ -302,33 +304,6 @@ export function FeedScreen() {
   const maxFeedPreviewOffset = React.useMemo(
     () => Math.max(0, (FEED_PREVIEW_SCROLL_LIMIT - 1) * pageHeight),
     [pageHeight]
-  );
-
-  const onFeedScroll = React.useCallback(
-    (e: any) => {
-      const y = Number(e?.nativeEvent?.contentOffset?.y ?? 0);
-      logEngagementScrollingThrottled();
-      const on = y >= scrollTopThreshold;
-      setShowScrollTop((prev) => (prev === on ? prev : on));
-
-      if (
-        feedPreviewMode &&
-        feedPreviewSessionActive &&
-        pageHeight > 40 &&
-        y > maxFeedPreviewOffset + pageHeight * 0.12
-      ) {
-        flatListRef.current?.scrollToOffset({ offset: maxFeedPreviewOffset, animated: true });
-        endFeedPreviewSession();
-      }
-    },
-    [
-      scrollTopThreshold,
-      feedPreviewMode,
-      feedPreviewSessionActive,
-      pageHeight,
-      maxFeedPreviewOffset,
-      endFeedPreviewSession,
-    ]
   );
 
   const previousChallengeDateKey = React.useMemo(
@@ -365,6 +340,47 @@ export function FeedScreen() {
     followingRows,
     feedPreviewMode,
   ]);
+
+  displayVideosRef.current = displayVideos;
+
+  const onFeedScroll = React.useCallback(
+    (e: any) => {
+      const y = Number(e?.nativeEvent?.contentOffset?.y ?? 0);
+      logEngagementScrollingThrottled();
+      const on = y >= scrollTopThreshold;
+      setShowScrollTop((prev) => (prev === on ? prev : on));
+
+      if (pageHeight > 40) {
+        const list = displayVideosRef.current;
+        if (list.length > 0) {
+          const idx = Math.min(list.length - 1, Math.max(0, Math.round(y / pageHeight)));
+          if (idx !== activeScrollIndexRef.current) {
+            activeScrollIndexRef.current = idx;
+            const id = list[idx]?.id;
+            if (id) setActiveVideoId(id);
+          }
+        }
+      }
+
+      if (
+        feedPreviewMode &&
+        feedPreviewSessionActive &&
+        pageHeight > 40 &&
+        y > maxFeedPreviewOffset + pageHeight * 0.12
+      ) {
+        flatListRef.current?.scrollToOffset({ offset: maxFeedPreviewOffset, animated: true });
+        endFeedPreviewSession();
+      }
+    },
+    [
+      scrollTopThreshold,
+      feedPreviewMode,
+      feedPreviewSessionActive,
+      pageHeight,
+      maxFeedPreviewOffset,
+      endFeedPreviewSession,
+    ]
+  );
 
   const scrollToTop = React.useCallback(() => {
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
@@ -439,6 +455,7 @@ export function FeedScreen() {
   }, [nyCalendarDay, viewingChallengeDateKey]);
 
   React.useEffect(() => {
+    activeScrollIndexRef.current = 0;
     if (displayVideos.length === 0) {
       setActiveVideoId(null);
       return;

@@ -35,7 +35,10 @@ function TabIcon({
   focused: boolean;
   color: string;
 }) {
-  return <Ionicons name={name} size={TAB_ICON_SIZE} color={focused ? colors.coral : color} />;
+  const iconName = focused
+    ? (name.replace('-outline', '') as keyof typeof Ionicons.glyphMap)
+    : name;
+  return <Ionicons name={iconName} size={TAB_ICON_SIZE} color={color} />;
 }
 
 export function AppTabs() {

@@ -15,6 +15,29 @@ function formatTimeLeft(totalSeconds: number) {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
+/** expo-av `shouldPlay` alone does not reliably stop audio when multiple players stay mounted. */
+async function syncVideoPlayback(
+  player: Video | null,
+  play: boolean,
+  muted: boolean,
+  ready: boolean
+) {
+  if (!player) return;
+  try {
+    if (play && ready) {
+      await player.setIsMutedAsync(muted);
+      await player.setVolumeAsync(muted ? 0 : 1);
+      await player.playAsync();
+    } else if (!play) {
+      await player.pauseAsync();
+      await player.setIsMutedAsync(true);
+      await player.setVolumeAsync(0);
+    }
+  } catch {
+    // native race
+  }
+}
+
 function FeedPostVideoInner(props: {
   url: string;
   /**
@@ -51,6 +74,7 @@ function FeedPostVideoInner(props: {
     viewerUsername,
   } = props;
   const videoRef = React.useRef<Video>(null);
+  const secondaryVideoRef = React.useRef<Video>(null);
   const [status, setStatus] = React.useState<AVPlaybackStatus | null>(null);
   const [loaded, setLoaded] = React.useState(false);
   const lastStatusPaintRef = React.useRef(0);
@@ -77,11 +101,14 @@ function FeedPostVideoInner(props: {
     () => () => {
       if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
       if (likeFlashTimerRef.current) clearTimeout(likeFlashTimerRef.current);
+      void syncVideoPlayback(videoRef.current, false, true, true);
+      void syncVideoPlayback(secondaryVideoRef.current, false, true, true);
     },
     []
   );
 
   const effectivePlay = shouldPlay && !userPaused;
+  const playerMuted = !effectivePlay || isMuted;
   const prevShouldPlayRef = React.useRef(shouldPlay);
 
   // Required: when a reel leaves the active viewport, reset it to the beginning.
@@ -127,7 +154,12 @@ function FeedPostVideoInner(props: {
     };
   }, [effectivePlay, analyticsVideoId, viewerUid, videoOwnerUid]);
 
-  // Rely on `shouldPlay`/`isMuted` props to control playback; avoid extra native calls here.
+  React.useEffect(() => {
+    void syncVideoPlayback(videoRef.current, effectivePlay, isMuted, loaded);
+    if (secondaryUrl) {
+      void syncVideoPlayback(secondaryVideoRef.current, effectivePlay, true, loaded);
+    }
+  }, [effectivePlay, loaded, url, secondaryUrl, isMuted]);
 
   const onPlaybackStatusUpdate = React.useCallback((s: AVPlaybackStatus) => {
     if (s.isLoaded) setLoaded(true);
@@ -258,7 +290,7 @@ function FeedPostVideoInner(props: {
         style={videoStyle}
         resizeMode={resizeMode}
         shouldPlay={effectivePlay}
-        isMuted={isMuted}
+        isMuted={playerMuted}
         isLooping={reel}
         volume={1.0}
         useNativeControls={nativeControls}
@@ -277,6 +309,7 @@ function FeedPostVideoInner(props: {
       {secondaryUrl ? (
         <View style={reel ? styles.pipReel : styles.pip} pointerEvents="none">
           <Video
+            ref={secondaryVideoRef}
             source={{ uri: secondaryUrl }}
             style={StyleSheet.absoluteFillObject}
             resizeMode={ResizeMode.COVER}
