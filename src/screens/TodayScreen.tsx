@@ -288,26 +288,32 @@ export function TodayScreen() {
         />
         <Text style={styles.bottomHint}>TAP TO RECORD</Text>
         <Text style={styles.bottomSub}>{LEAP_BOTTOM_TAGLINE}</Text>
-        <TouchableOpacity
-          onPress={() => setSuggestOpen(true)}
-          activeOpacity={0.85}
-          accessibilityRole="button"
-          accessibilityLabel="Suggest a leap"
-          style={styles.suggestBtn}
-        >
-          <Text style={styles.suggestBtnTextStrong}>Suggest a leap</Text>
-        </TouchableOpacity>
-        {user?.uid ? (
+        <View style={styles.bottomActionsRow}>
           <TouchableOpacity
-            onPress={() => void shareReferralInvite(user?.username ?? '')}
+            onPress={() => setSuggestOpen(true)}
             activeOpacity={0.85}
             accessibilityRole="button"
-            accessibilityLabel="Invite a friend for 5 inches"
-            style={styles.inviteBtn}
+            accessibilityLabel="Suggest a leap"
+            style={styles.bottomActionBtn}
           >
-            <Text style={styles.inviteBtnText}>Invite a friend for 5″</Text>
+            <Text style={styles.suggestBtnTextStrong} numberOfLines={2}>
+              Suggest a leap
+            </Text>
           </TouchableOpacity>
-        ) : null}
+          {user?.uid ? (
+            <TouchableOpacity
+              onPress={() => void shareReferralInvite(user?.username ?? '')}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Invite a friend for 5 inches"
+              style={styles.bottomActionBtn}
+            >
+              <Text style={styles.inviteBtnText} numberOfLines={2}>
+                Invite a friend for 5″
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
 
       <Modal
@@ -673,30 +679,34 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.muted,
   },
-  suggestBtn: {
-    marginTop: 4,
+  bottomActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 8,
+    width: '100%',
+    maxWidth: 360,
+    paddingHorizontal: 20,
+    alignSelf: 'center',
+  },
+  bottomActionBtn: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
     borderRadius: 14,
+    minHeight: 44,
   },
   suggestBtnTextStrong: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '900',
     color: colors.coral,
     textAlign: 'center',
   },
-  inviteBtn: {
-    marginTop: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 14,
-  },
   inviteBtnText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '900',
     color: colors.moss,
     textAlign: 'center',

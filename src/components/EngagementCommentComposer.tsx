@@ -1,5 +1,14 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors } from '../theme/colors';
@@ -17,6 +26,9 @@ type Props = {
   onComposerFocus?: () => void;
 };
 
+const MIN_INPUT_HEIGHT = 44;
+const MAX_INPUT_HEIGHT = 128;
+
 export const EngagementCommentComposer = React.memo(function EngagementCommentComposer({
   draft,
   onChangeText,
@@ -29,6 +41,11 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
   onComposerFocus,
 }: Props) {
   const inputRef = React.useRef<TextInput>(null);
+  const [inputHeight, setInputHeight] = React.useState(MIN_INPUT_HEIGHT);
+
+  React.useEffect(() => {
+    if (!draft.trim()) setInputHeight(MIN_INPUT_HEIGHT);
+  }, [draft]);
 
   React.useEffect(() => {
     if (!replyTarget) return;
@@ -63,9 +80,23 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
           onChangeText={onChangeText}
           placeholder={replyTarget ? `Reply to @${replyTarget.username}…` : 'Add a comment…'}
           placeholderTextColor={colors.muted}
-          style={[styles.input, forModal && styles.inputModal]}
+          style={[
+            styles.input,
+            forModal && styles.inputModal,
+            { height: Math.max(MIN_INPUT_HEIGHT, inputHeight) },
+          ]}
           editable={!sending}
           maxLength={500}
+          multiline
+          scrollEnabled={inputHeight >= MAX_INPUT_HEIGHT}
+          textAlignVertical="top"
+          onContentSizeChange={(e) => {
+            const next = Math.min(
+              MAX_INPUT_HEIGHT,
+              Math.max(MIN_INPUT_HEIGHT, e.nativeEvent.contentSize.height + (Platform.OS === 'ios' ? 20 : 16))
+            );
+            setInputHeight((prev) => (Math.abs(prev - next) > 1 ? next : prev));
+          }}
           onFocus={() => onComposerFocus?.()}
           autoCorrect
           spellCheck
@@ -104,7 +135,7 @@ const styles = StyleSheet.create({
   },
   composeRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: 8,
   },
   composeReel: {
@@ -144,12 +175,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 22,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingTop: Platform.OS === 'ios' ? 10 : 8,
+    paddingBottom: Platform.OS === 'ios' ? 10 : 8,
     fontSize: 15,
     fontWeight: '500',
     color: colors.text,
     backgroundColor: colors.bg,
-    maxHeight: 100,
+    maxHeight: MAX_INPUT_HEIGHT,
   },
   inputModal: {
     backgroundColor: colors.cardTint,

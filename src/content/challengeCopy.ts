@@ -8,4 +8,4 @@ export const CHALLENGE_PRE_DROP_TITLE = "Today's leap is loading...";
 export const CHALLENGE_PRE_DROP_INSTRUCTIONS = 'Be first · Be fast';
 
 /** Tagline under the Leap CTA on Today (below “Tap to record”). */
-export const LEAP_BOTTOM_TAGLINE = 'One Day. One Leap.';
+export const LEAP_BOTTOM_TAGLINE = 'Take the Leap';
