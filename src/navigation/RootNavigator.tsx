@@ -35,6 +35,7 @@ import { TermsGateScreen } from '../screens/TermsGateScreen';
 import { logNativeScreenView } from '../services/nativeAnalytics';
 import { hasAcceptedTerms, subscribeTermsAcceptance } from '../state/termsAcceptance';
 import { ReferralIntroHost } from '../components/ReferralIntroHost';
+import { AppReviewHost } from '../components/AppReviewHost';
 
 const MainStack = createNativeStackNavigator<MainStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -241,7 +242,12 @@ export function RootNavigator() {
       ) : authed ? (
         <>
           <LoggedInStack />
-          {termsOk ? <ReferralIntroHost /> : null}
+          {termsOk ? (
+            <>
+              <ReferralIntroHost />
+              <AppReviewHost />
+            </>
+          ) : null}
         </>
       ) : (
         <LoggedOutStack />

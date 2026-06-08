@@ -1,7 +1,8 @@
 import * as React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { doc, onSnapshot } from 'firebase/firestore';
 
-import { isFirebaseConfigured } from '../firebase/firebase';
+import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { syncLeapScheduledNotifications } from '../services/notifications';
 import {
   loadPrivacySettingsFromFirestore,
@@ -12,7 +13,8 @@ import {
 import { useAuth } from './auth';
 import { useChallengeWindow } from './challenge';
 import { useHasPostedToday } from './posting';
-import { computeFeedViewingFromNow } from '../utils/nyTime';
+import { readChallengeCache, writeChallengeCache } from './challengeCache';
+import { computeFeedViewingFromNow, nextNyFireUtcMs } from '../utils/nyTime';
 
 const STORAGE_KEY = 'leap.settings.v4';
 
@@ -117,9 +119,52 @@ export function SettingsPreferencesProvider({ children }: { children: React.Reac
   const [preferences, setPreferences] = React.useState<SettingsPreferencesState>(SETTINGS_DEFAULTS);
   const { user } = useAuth();
   const win = useChallengeWindow();
-  void win;
   const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
   const hasPostedToday = useHasPostedToday(user?.uid, viewingChallengeDateKey);
+  const [upcomingNoonLeapTitle, setUpcomingNoonLeapTitle] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const tNoon = nextNyFireUtcMs(12, 0);
+    const { viewingChallengeDateKey: noonDateKey } = computeFeedViewingFromNow(tNoon);
+    let alive = true;
+
+    void readChallengeCache(noonDateKey).then((cached) => {
+      if (!alive || !cached?.title?.trim()) return;
+      setUpcomingNoonLeapTitle(cached.title.trim());
+    });
+
+    if (!isFirebaseConfigured()) return () => {
+      alive = false;
+    };
+
+    const ref = doc(firestore(), 'challenges', noonDateKey);
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        if (!alive) return;
+        const title = snap.exists() ? String(snap.data()?.title ?? '').trim() : '';
+        setUpcomingNoonLeapTitle(title || null);
+        if (title) {
+          const data = snap.data();
+          void writeChallengeCache({
+            dateKey: noonDateKey,
+            title,
+            subtitle: String(data?.subtitle ?? ''),
+            maxDurationSeconds: Number(data?.maxDurationSeconds) || 60,
+            maxRecordingAttempts: Number(data?.maxRecordingAttempts) || 3,
+          });
+        }
+      },
+      () => {
+        // keep last known title on listener errors
+      }
+    );
+
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [win.dateKey, win.isLive]);
 
   React.useEffect(() => {
     let alive = true;
@@ -164,7 +209,7 @@ export function SettingsPreferencesProvider({ children }: { children: React.Reac
       streakReminders: preferences.streakReminders,
       hasPostedToday,
     });
-  }, [ready, preferences.notificationsEnabled, preferences.streakReminders, hasPostedToday]);
+  }, [ready, preferences.notificationsEnabled, preferences.streakReminders, hasPostedToday, upcomingNoonLeapTitle]);
 
   const patch = React.useCallback(
     (partial: Partial<SettingsPreferencesState>) => {
