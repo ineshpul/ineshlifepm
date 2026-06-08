@@ -75,7 +75,7 @@ export default function Home() {
             target="_blank"
             rel="noreferrer"
           >
-            Get the app
+            Take the Leap
           </a>
         </div>
       </header>
@@ -126,7 +126,7 @@ export default function Home() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Get the app
+                  Take the Leap
                 </a>
               </div>
             </div>
@@ -236,7 +236,7 @@ export default function Home() {
                 target="_blank"
                 rel="noreferrer"
               >
-                Get the app
+                Take the Leap
               </a>
             </div>
           </div>
@@ -328,7 +328,7 @@ export default function Home() {
                 ·
               </span>
               <a href={APP_STORE_URL} target="_blank" rel="noreferrer">
-                Get the app
+                Take the Leap
               </a>
             </nav>
           </div>
