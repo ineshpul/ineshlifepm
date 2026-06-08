@@ -2,6 +2,8 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Dimensions,
   FlatList,
   Keyboard,
   Modal,
@@ -13,11 +15,9 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  useWindowDimensions,
   View,
   type KeyboardEvent,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
@@ -56,7 +56,9 @@ import { EngagementThreadCollapseRow } from './EngagementThreadCollapseRow';
 export type { VideoComment };
 
 const COMMENTS_SHEET_HEIGHT_RATIO = 0.65;
-const COMMENTS_SHEET_MIN_PEEK = 72;
+const COMMENTS_SHEET_HEIGHT = Math.round(
+  Dimensions.get('screen').height * COMMENTS_SHEET_HEIGHT_RATIO
+);
 
 type Props = {
   videoId: string;
@@ -82,10 +84,6 @@ export function FeedPostEngagement({
   reelLayout = false,
 }: Props) {
   const navigation = useNavigation<any>();
-  const { height: windowHeight } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
-  const [lockedSheetHeight, setLockedSheetHeight] = React.useState<number | null>(null);
-  const [lockedWindowHeight, setLockedWindowHeight] = React.useState<number | null>(null);
   const { preferences, patch } = useSettingsPreferences();
   const [likeCount, setLikeCount] = React.useState(0);
   const [liked, setLiked] = React.useState(false);
@@ -100,10 +98,10 @@ export function FeedPostEngagement({
   const [blockOpen, setBlockOpen] = React.useState(false);
   const [commentsModalOpen, setCommentsModalOpen] = React.useState(false);
   const [replyTarget, setReplyTarget] = React.useState<ReplyTargetPayload | null>(null);
-  const [modalKeyboardInset, setModalKeyboardInset] = React.useState(0);
   const [expandedThreads, setExpandedThreads] = React.useState<Record<string, boolean>>({});
   const [commentsQueryReady, setCommentsQueryReady] = React.useState(false);
   const postInFlightRef = React.useRef(false);
+  const keyboardInset = React.useRef(new Animated.Value(0)).current;
 
   const commentsThreaded = React.useMemo(() => flattenCommentsForThread(comments), [comments]);
   const commentDisplayList = React.useMemo(
@@ -118,23 +116,32 @@ export function FeedPostEngagement({
   }, [videoId]);
 
   React.useEffect(() => {
-    if (!commentsModalOpen) {
-      setModalKeyboardInset(0);
+    if (!commentsModalOpen || Platform.OS !== 'ios') {
+      keyboardInset.setValue(0);
       return;
     }
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const onShow = (e: KeyboardEvent) => {
-      setModalKeyboardInset(Math.max(0, e.endCoordinates?.height ?? 0));
+      Animated.timing(keyboardInset, {
+        toValue: e.endCoordinates.height,
+        duration: e.duration ?? 250,
+        useNativeDriver: false,
+      }).start();
     };
-    const onHide = () => setModalKeyboardInset(0);
-    const subShow = Keyboard.addListener(showEvt, onShow);
-    const subHide = Keyboard.addListener(hideEvt, onHide);
+    const onHide = (e: KeyboardEvent) => {
+      Animated.timing(keyboardInset, {
+        toValue: 0,
+        duration: e.duration ?? 250,
+        useNativeDriver: false,
+      }).start();
+    };
+    const subShow = Keyboard.addListener('keyboardWillShow', onShow);
+    const subHide = Keyboard.addListener('keyboardWillHide', onHide);
     return () => {
       subShow.remove();
       subHide.remove();
+      keyboardInset.setValue(0);
     };
-  }, [commentsModalOpen]);
+  }, [commentsModalOpen, keyboardInset]);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !viewerUid) return;
@@ -441,17 +448,7 @@ export function FeedPostEngagement({
     setCommentsModalOpen(false);
     setReplyTarget(null);
     setExpandedThreads({});
-    setLockedSheetHeight(null);
-    setLockedWindowHeight(null);
   }, []);
-
-  const commentsSheetHeight = React.useMemo(() => {
-    const screenH = lockedWindowHeight ?? windowHeight;
-    const base = lockedSheetHeight ?? Math.round(screenH * COMMENTS_SHEET_HEIGHT_RATIO);
-    if (modalKeyboardInset <= 0) return base;
-    const maxHeight = screenH - modalKeyboardInset - COMMENTS_SHEET_MIN_PEEK;
-    return Math.max(240, Math.min(base, maxHeight));
-  }, [lockedSheetHeight, lockedWindowHeight, windowHeight, modalKeyboardInset]);
 
   const sheetPullDismissedRef = React.useRef(false);
 
@@ -489,8 +486,6 @@ export function FeedPostEngagement({
       showError('Sign in required', new Error('Log in to view comments.'));
       return;
     }
-    setLockedWindowHeight(windowHeight);
-    setLockedSheetHeight(Math.round(windowHeight * COMMENTS_SHEET_HEIGHT_RATIO));
     setCommentsModalOpen(true);
   };
 
@@ -574,85 +569,80 @@ export function FeedPostEngagement({
       >
         <View style={styles.modalRoot}>
           <Pressable style={styles.modalBackdrop} onPress={() => closeCommentsModal()} />
-          <View
-            style={[
-              styles.modalSheet,
-              {
-                height: commentsSheetHeight,
-                bottom: modalKeyboardInset,
-                paddingBottom: Math.max(insets.bottom, 8),
-              },
-            ]}
+          <Animated.View
+            style={[styles.modalSheetHost, Platform.OS === 'ios' && { marginBottom: keyboardInset }]}
           >
-            <PanGestureHandler
-              onHandlerStateChange={onModalPanGesture}
-              activeOffsetY={8}
-              failOffsetX={[-40, 40]}
-            >
-              <View style={styles.modalTopPan} collapsable={false}>
-                <View style={styles.modalGrabber} />
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Comments</Text>
-                  <TouchableOpacity
-                    onPress={() => closeCommentsModal()}
-                    hitSlop={12}
-                    accessibilityRole="button"
-                    accessibilityLabel="Close comments"
-                  >
-                    <Ionicons name="close" size={26} color={colors.text} />
-                  </TouchableOpacity>
+            <View style={[styles.modalSheet, { height: COMMENTS_SHEET_HEIGHT }]}>
+              <PanGestureHandler
+                onHandlerStateChange={onModalPanGesture}
+                activeOffsetY={8}
+                failOffsetX={[-40, 40]}
+              >
+                <View style={styles.modalTopPan} collapsable={false}>
+                  <View style={styles.modalGrabber} />
+                  <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>Comments</Text>
+                    <TouchableOpacity
+                      onPress={() => closeCommentsModal()}
+                      hitSlop={12}
+                      accessibilityRole="button"
+                      accessibilityLabel="Close comments"
+                    >
+                      <Ionicons name="close" size={26} color={colors.text} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            </PanGestureHandler>
-            <View style={styles.modalKeyboardArea}>
-              <FlatList
-                data={commentDisplayList}
-                extraData={expandedThreads}
-                keyExtractor={(row) =>
-                  row.kind === 'comment' ? row.entry.comment.id : `collapsed-${row.threadRootId}`
-                }
-                renderItem={renderModalRow}
-                ListEmptyComponent={
-                  comments.length === 0 ? (
-                    commentsQueryReady ? (
-                      <View style={styles.modalEmptyWrap}>
-                        <Text style={styles.modalEmpty}>No comments yet.</Text>
-                        <Text style={styles.modalHint}>Be the first to say something.</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.modalLoadingWrap}>
-                        <ActivityIndicator size="large" color={colors.moss} />
-                      </View>
-                    )
-                  ) : null
-                }
-                style={styles.modalList}
-                contentContainerStyle={[
-                  styles.modalListContent,
-                  comments.length === 0 ? styles.modalListContentEmpty : null,
-                ]}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="interactive"
-                showsVerticalScrollIndicator={false}
-                removeClippedSubviews={false}
-                scrollEventThrottle={16}
-                onScroll={onModalListScroll}
-                windowSize={10}
-              />
-              {viewerUid ? (
-                <EngagementCommentComposer
-                  draft={draft}
-                  onChangeText={setDraft}
-                  replyTarget={replyTarget}
-                  onClearReply={() => setReplyTarget(null)}
-                  sending={sending}
-                  onSend={() => void onSendComment()}
-                  forModal
-                  reelLayout={reelLayout}
+              </PanGestureHandler>
+              <View style={styles.modalBody}>
+                <FlatList
+                  data={commentDisplayList}
+                  extraData={expandedThreads}
+                  keyExtractor={(row) =>
+                    row.kind === 'comment' ? row.entry.comment.id : `collapsed-${row.threadRootId}`
+                  }
+                  renderItem={renderModalRow}
+                  ListEmptyComponent={
+                    comments.length === 0 ? (
+                      commentsQueryReady ? (
+                        <View style={styles.modalEmptyWrap}>
+                          <Text style={styles.modalEmpty}>No comments yet.</Text>
+                          <Text style={styles.modalHint}>Be the first to say something.</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.modalLoadingWrap}>
+                          <ActivityIndicator size="large" color={colors.moss} />
+                        </View>
+                      )
+                    ) : null
+                  }
+                  style={styles.modalList}
+                  contentContainerStyle={[
+                    styles.modalListContent,
+                    comments.length === 0 ? styles.modalListContentEmpty : null,
+                  ]}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="none"
+                  showsVerticalScrollIndicator={false}
+                  removeClippedSubviews={false}
+                  scrollEventThrottle={16}
+                  onScroll={onModalListScroll}
+                  windowSize={10}
                 />
-              ) : null}
+                {viewerUid ? (
+                  <EngagementCommentComposer
+                    draft={draft}
+                    onChangeText={setDraft}
+                    replyTarget={replyTarget}
+                    onClearReply={() => setReplyTarget(null)}
+                    sending={sending}
+                    onSend={() => void onSendComment()}
+                    forModal
+                    reelLayout={reelLayout}
+                  />
+                ) : null}
+              </View>
             </View>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
 
@@ -739,10 +729,11 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
+  modalSheetHost: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
   modalSheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
     backgroundColor: colors.white,
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
@@ -773,7 +764,7 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   modalTitle: { fontSize: 17, fontWeight: '900', color: colors.text },
-  modalKeyboardArea: {
+  modalBody: {
     flex: 1,
     minHeight: 0,
   },

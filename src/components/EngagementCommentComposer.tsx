@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors } from '../theme/colors';
 import type { ReplyTargetPayload } from './EngagementCommentRow';
@@ -42,15 +43,15 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
   onComposerFocus,
 }: Props) {
   const inputRef = React.useRef<TextInput>(null);
-  const [inputHeight, setInputHeight] = React.useState(
-    forModal ? MODAL_INPUT_HEIGHT : MIN_INPUT_HEIGHT
-  );
+  const insets = useSafeAreaInsets();
+  const modalBottomPadRef = React.useRef<number | null>(null);
+  if (forModal && modalBottomPadRef.current === null) {
+    modalBottomPadRef.current = Math.max(insets.bottom, 8);
+  }
+  const [inputHeight, setInputHeight] = React.useState(MIN_INPUT_HEIGHT);
 
   React.useEffect(() => {
-    if (forModal) {
-      if (!draft.trim()) setInputHeight(MODAL_INPUT_HEIGHT);
-      return;
-    }
+    if (forModal) return;
     if (!draft.trim()) setInputHeight(MIN_INPUT_HEIGHT);
   }, [draft, forModal]);
 
@@ -67,7 +68,7 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
       style={[
         styles.compose,
         reelLayout && !forModal && styles.composeReel,
-        forModal && styles.composeModal,
+        forModal && [styles.composeModal, { paddingBottom: modalBottomPadRef.current ?? 8 }],
       ]}
     >
       {replyTarget ? (
@@ -89,26 +90,19 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
           placeholderTextColor={colors.muted}
           style={[
             styles.input,
-            forModal && styles.inputModal,
+            forModal ? styles.inputModal : null,
             forModal
-              ? { height: inputHeight, maxHeight: MAX_INPUT_HEIGHT }
+              ? styles.inputModalFixed
               : { height: Math.max(MIN_INPUT_HEIGHT, inputHeight) },
           ]}
           editable={!sending}
           maxLength={500}
           multiline
-          scrollEnabled={forModal ? inputHeight >= MAX_INPUT_HEIGHT : inputHeight >= MAX_INPUT_HEIGHT}
+          scrollEnabled={forModal || inputHeight >= MAX_INPUT_HEIGHT}
           textAlignVertical={forModal ? 'center' : 'top'}
           onContentSizeChange={
             forModal
-              ? (e) => {
-                  const contentH = e.nativeEvent.contentSize.height;
-                  const next = Math.min(
-                    MAX_INPUT_HEIGHT,
-                    Math.max(MODAL_INPUT_HEIGHT, contentH + (Platform.OS === 'ios' ? 8 : 6))
-                  );
-                  setInputHeight((prev) => (Math.abs(prev - next) > 1 ? next : prev));
-                }
+              ? undefined
               : (e) => {
                   const next = Math.min(
                     MAX_INPUT_HEIGHT,
@@ -169,7 +163,6 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border2,
-    paddingBottom: 4,
   },
   replyBar: {
     flexDirection: 'row',
@@ -206,6 +199,10 @@ const styles = StyleSheet.create({
   inputModal: {
     backgroundColor: colors.cardTint,
     borderColor: colors.border2,
+  },
+  inputModalFixed: {
+    height: MODAL_INPUT_HEIGHT,
+    maxHeight: MODAL_INPUT_HEIGHT,
     paddingTop: Platform.OS === 'ios' ? 11 : 10,
     paddingBottom: Platform.OS === 'ios' ? 11 : 10,
   },
