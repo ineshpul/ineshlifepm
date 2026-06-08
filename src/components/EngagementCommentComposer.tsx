@@ -28,6 +28,7 @@ type Props = {
 
 const MIN_INPUT_HEIGHT = 44;
 const MAX_INPUT_HEIGHT = 128;
+const MODAL_INPUT_HEIGHT = 44;
 
 export const EngagementCommentComposer = React.memo(function EngagementCommentComposer({
   draft,
@@ -41,11 +42,17 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
   onComposerFocus,
 }: Props) {
   const inputRef = React.useRef<TextInput>(null);
-  const [inputHeight, setInputHeight] = React.useState(MIN_INPUT_HEIGHT);
+  const [inputHeight, setInputHeight] = React.useState(
+    forModal ? MODAL_INPUT_HEIGHT : MIN_INPUT_HEIGHT
+  );
 
   React.useEffect(() => {
+    if (forModal) {
+      if (!draft.trim()) setInputHeight(MODAL_INPUT_HEIGHT);
+      return;
+    }
     if (!draft.trim()) setInputHeight(MIN_INPUT_HEIGHT);
-  }, [draft]);
+  }, [draft, forModal]);
 
   React.useEffect(() => {
     if (!replyTarget) return;
@@ -83,20 +90,33 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
           style={[
             styles.input,
             forModal && styles.inputModal,
-            { height: Math.max(MIN_INPUT_HEIGHT, inputHeight) },
+            forModal
+              ? { height: inputHeight, maxHeight: MAX_INPUT_HEIGHT }
+              : { height: Math.max(MIN_INPUT_HEIGHT, inputHeight) },
           ]}
           editable={!sending}
           maxLength={500}
           multiline
-          scrollEnabled={inputHeight >= MAX_INPUT_HEIGHT}
-          textAlignVertical="top"
-          onContentSizeChange={(e) => {
-            const next = Math.min(
-              MAX_INPUT_HEIGHT,
-              Math.max(MIN_INPUT_HEIGHT, e.nativeEvent.contentSize.height + (Platform.OS === 'ios' ? 20 : 16))
-            );
-            setInputHeight((prev) => (Math.abs(prev - next) > 1 ? next : prev));
-          }}
+          scrollEnabled={forModal ? inputHeight >= MAX_INPUT_HEIGHT : inputHeight >= MAX_INPUT_HEIGHT}
+          textAlignVertical={forModal ? 'center' : 'top'}
+          onContentSizeChange={
+            forModal
+              ? (e) => {
+                  const contentH = e.nativeEvent.contentSize.height;
+                  const next = Math.min(
+                    MAX_INPUT_HEIGHT,
+                    Math.max(MODAL_INPUT_HEIGHT, contentH + (Platform.OS === 'ios' ? 8 : 6))
+                  );
+                  setInputHeight((prev) => (Math.abs(prev - next) > 1 ? next : prev));
+                }
+              : (e) => {
+                  const next = Math.min(
+                    MAX_INPUT_HEIGHT,
+                    Math.max(MIN_INPUT_HEIGHT, e.nativeEvent.contentSize.height + (Platform.OS === 'ios' ? 20 : 16))
+                  );
+                  setInputHeight((prev) => (Math.abs(prev - next) > 1 ? next : prev));
+                }
+          }
           onFocus={() => onComposerFocus?.()}
           autoCorrect
           spellCheck
@@ -146,10 +166,10 @@ const styles = StyleSheet.create({
   },
   composeModal: {
     marginTop: 0,
-    paddingTop: 10,
+    paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border2,
-    paddingBottom: 6,
+    paddingBottom: 4,
   },
   replyBar: {
     flexDirection: 'row',
@@ -186,6 +206,8 @@ const styles = StyleSheet.create({
   inputModal: {
     backgroundColor: colors.cardTint,
     borderColor: colors.border2,
+    paddingTop: Platform.OS === 'ios' ? 11 : 10,
+    paddingBottom: Platform.OS === 'ios' ? 11 : 10,
   },
   sendBtn: {
     paddingHorizontal: 18,
