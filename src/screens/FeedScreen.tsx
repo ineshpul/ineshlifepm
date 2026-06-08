@@ -11,11 +11,9 @@ import {
   TouchableOpacity,
   View,
   useWindowDimensions,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
   type ViewToken,
 } from 'react-native';
-import { FlatList, ScrollView } from 'react-native-gesture-handler';
+import { FlatList } from 'react-native-gesture-handler';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -102,14 +100,14 @@ const FEED_DAY_WINDOW = 14;
 const FEED_APPROVED_PER_BATCH_LIMIT = 80;
 const FEED_HYDRATE_SAFETY_MS = 8_000;
 
-/** Must be a stable reference — FlatList viewability config cannot change after mount. */
+/** Must be a stable reference — `viewabilityConfigCallbackPairs` cannot change after mount (RN FlatList). */
 const FEED_VIEWABILITY_CONFIG = {
-  itemVisiblePercentThreshold: 88,
-  minimumViewTime: 50,
+  itemVisiblePercentThreshold: 55,
+  minimumViewTime: 40,
   waitForInteraction: false,
 } as const;
 
-/** Prefer the row with the most visible area; ties go to the lower index (stable while paging). */
+/** Pick the feed item that should play: prefer highest reported visible %, else bottom-most row. */
 function pickPrimaryViewable(viewableItems: ViewToken[]): FeedVideo | null {
   const vis = viewableItems.filter(
     (v): v is ViewToken & { item: FeedVideo } => Boolean(v.isViewable && v.item && (v.item as FeedVideo).id)
@@ -126,7 +124,7 @@ function pickPrimaryViewable(viewableItems: ViewToken[]): FeedVideo | null {
     }
   }
   if (bestPct < 0) {
-    vis.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+    vis.sort((a, b) => (b.index ?? 0) - (a.index ?? 0));
     best = vis[0];
   }
   return (best.item as FeedVideo) ?? null;
@@ -278,10 +276,8 @@ export function FeedScreen() {
   const flatListRef = React.useRef<FlatList<FeedVideo>>(null);
   const activeScrollIndexRef = React.useRef(0);
   const displayVideosRef = React.useRef<FeedVideo[]>([]);
-  const prevPageHeightRef = React.useRef(0);
-  const engagementScrollRefs = React.useRef<
-    Record<string, { scrollToEnd: (o?: { animated?: boolean }) => void } | null>
-  >({});
+  /** Measured bottom-sheet height per video so the video slot clears the sheet without extra whitespace. */
+  const [reelSheetHeights, setReelSheetHeights] = React.useState<Record<string, number>>({});
   /** Reel sheet `bottom` must use overlap with keyboard vs this slot’s bottom (tab bar is below; window-height math over-lifts). */
   const feedSlotRef = React.useRef<View>(null);
 
@@ -293,13 +289,10 @@ export function FeedScreen() {
     if (h > 0) setSlotHeight((prev) => (Math.abs(prev - h) > 2 ? h : prev));
   }, []);
   const tabBarClearance = floatingTabContentClearance(insets.bottom);
-  /** Fixed sheet + tab clearance — dynamic per-item measurement caused gaps between video and sheet. */
-  const reelSheetTotalHeight = REEL_BOTTOM_SHEET + tabBarClearance;
   const pageHeight = React.useMemo(() => {
     if (slotHeight > 0) return slotHeight;
     return Math.max(380, windowHeight - insets.top - 52);
   }, [slotHeight, windowHeight, insets.top]);
-  const reelListReady = slotHeight > 40 && pageHeight > 40;
 
   const scrollTopThreshold = Math.max(800, pageHeight * 2.2);
   const maxFeedPreviewOffset = React.useMemo(
@@ -311,6 +304,12 @@ export function FeedScreen() {
     () => prevNyDateKey(viewingChallengeDateKey),
     [viewingChallengeDateKey]
   );
+
+  const onReelSheetLayoutFor = React.useCallback((videoId: string) => (e: LayoutChangeEvent) => {
+    const h = Math.ceil(e.nativeEvent.layout.height);
+    if (h < 48) return;
+    setReelSheetHeights((prev) => (prev[videoId] === h ? prev : { ...prev, [videoId]: h }));
+  }, []);
 
   const displayVideos = React.useMemo(() => {
     let v = videos;
@@ -338,67 +337,24 @@ export function FeedScreen() {
 
   displayVideosRef.current = displayVideos;
 
-  const syncActiveVideoFromOffset = React.useCallback(
-    (y: number) => {
-      const list = displayVideosRef.current;
-      if (pageHeight <= 40 || list.length === 0) return;
-      const idx = Math.min(list.length - 1, Math.max(0, Math.round(y / pageHeight)));
-      activeScrollIndexRef.current = idx;
-      const id = list[idx]?.id;
-      if (id) setActiveVideoId(id);
-    },
-    [pageHeight]
-  );
-
-  const onViewableItemsChanged = React.useCallback(
-    ({ viewableItems }: { viewableItems: ViewToken[]; changed: ViewToken[] }) => {
-      const next = pickPrimaryViewable(viewableItems);
-      if (!next?.id) return;
-      const list = displayVideosRef.current;
-      const idx = list.findIndex((v) => v.id === next.id);
-      if (idx >= 0) activeScrollIndexRef.current = idx;
-      setActiveVideoId(next.id);
-    },
-    []
-  );
-
-  /** Re-snap after feed slot height changes (e.g. dismiss invite banner) so paging stays aligned. */
-  React.useEffect(() => {
-    if (pageHeight <= 40) return;
-    const prev = prevPageHeightRef.current;
-    prevPageHeightRef.current = pageHeight;
-    if (prev <= 40 || prev === pageHeight) return;
-    const idx = activeScrollIndexRef.current;
-    requestAnimationFrame(() => {
-      flatListRef.current?.scrollToOffset({ offset: idx * pageHeight, animated: false });
-      syncActiveVideoFromOffset(idx * pageHeight);
-    });
-  }, [pageHeight, syncActiveVideoFromOffset]);
-
-  const onFeedScrollEnd = React.useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const y = Number(e.nativeEvent.contentOffset.y ?? 0);
-      const list = displayVideosRef.current;
-      if (pageHeight > 40 && list.length > 0) {
-        const idx = Math.min(list.length - 1, Math.max(0, Math.round(y / pageHeight)));
-        const snapped = idx * pageHeight;
-        if (Math.abs(y - snapped) > 2) {
-          flatListRef.current?.scrollToOffset({ offset: snapped, animated: false });
-        }
-        syncActiveVideoFromOffset(snapped);
-        return;
-      }
-      syncActiveVideoFromOffset(y);
-    },
-    [pageHeight, syncActiveVideoFromOffset]
-  );
-
   const onFeedScroll = React.useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    (e: any) => {
       const y = Number(e?.nativeEvent?.contentOffset?.y ?? 0);
       logEngagementScrollingThrottled();
       const on = y >= scrollTopThreshold;
       setShowScrollTop((prev) => (prev === on ? prev : on));
+
+      if (pageHeight > 40) {
+        const list = displayVideosRef.current;
+        if (list.length > 0) {
+          const idx = Math.min(list.length - 1, Math.max(0, Math.round(y / pageHeight)));
+          if (idx !== activeScrollIndexRef.current) {
+            activeScrollIndexRef.current = idx;
+            const id = list[idx]?.id;
+            if (id) setActiveVideoId(id);
+          }
+        }
+      }
 
       if (
         feedPreviewMode &&
@@ -438,9 +394,9 @@ export function FeedScreen() {
       activeVideoId,
       feedHydrated,
       focused: isFocused ? 1 : 0,
-      reelSheetTotalHeight,
+      reelSheetHeights,
     }),
-    [pageHeight, activeVideoId, feedHydrated, isFocused, reelSheetTotalHeight]
+    [pageHeight, activeVideoId, feedHydrated, isFocused, reelSheetHeights]
   );
 
   React.useEffect(() => {
@@ -479,6 +435,14 @@ export function FeedScreen() {
       void setAppBadgeCount(n);
     });
   }, [user?.uid]);
+
+  const onViewableItemsChanged = React.useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken[]; changed: ViewToken[] }) => {
+      const next = pickPrimaryViewable(viewableItems);
+      if (next?.id) setActiveVideoId(next.id);
+    },
+    []
+  );
 
   React.useEffect(() => {
     setActiveVideoId(null);
@@ -901,35 +865,28 @@ export function FeedScreen() {
       ) : null}
 
       <View ref={feedSlotRef} style={styles.feedSlot} onLayout={onSlotLayout} collapsable={false}>
-        {!reelListReady && displayVideos.length > 0 ? (
-          <View style={styles.reelListLoading}>
-            <ActivityIndicator size="large" color={colors.moss} />
-          </View>
-        ) : null}
         <FlatList
-          key={`reel-${pageHeight}`}
           ref={flatListRef}
-          style={[styles.reelList, !reelListReady && displayVideos.length > 0 ? styles.reelListHidden : null]}
+          style={styles.reelList}
           data={displayVideos}
           keyExtractor={(x) => x.id}
           extraData={flatListExtraData}
           viewabilityConfig={FEED_VIEWABILITY_CONFIG}
           onViewableItemsChanged={onViewableItemsChanged}
           onScroll={onFeedScroll}
-          onScrollEndDrag={onFeedScrollEnd}
-          onMomentumScrollEnd={onFeedScrollEnd}
           scrollEventThrottle={16}
           contentContainerStyle={displayVideos.length === 0 ? { flexGrow: 1 } : undefined}
           pagingEnabled
+          snapToInterval={pageHeight}
+          snapToAlignment="start"
           decelerationRate="fast"
+          disableIntervalMomentum
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
           removeClippedSubviews={false}
-          initialNumToRender={2}
-          maxToRenderPerBatch={3}
           windowSize={5}
           getItemLayout={
-            reelListReady
+            slotHeight > 0 && pageHeight > 40
               ? (_, index) => ({
                   length: pageHeight,
                   offset: pageHeight * index,
@@ -957,13 +914,14 @@ export function FeedScreen() {
             )
           }
           renderItem={({ item, index }) => {
+            const sheetBottom = reelSheetHeights[item.id] ?? REEL_BOTTOM_SHEET;
             const showPreviousLeapsChip =
               activeVideoId === item.id &&
               firstPreviousLeapsIndex >= 0 &&
               index === firstPreviousLeapsIndex;
             return (
             <View style={[styles.reelPage, { height: pageHeight }]}>
-              <View style={[styles.reelVideoSlot, { bottom: reelSheetTotalHeight }]}>
+              <View style={[styles.reelVideoSlot, { bottom: sheetBottom }]}>
                 <FeedPostVideo
                   reel
                   url={item.url}
@@ -984,9 +942,10 @@ export function FeedScreen() {
               <View
                 style={[
                   styles.reelSheet,
-                  { height: reelSheetTotalHeight, paddingBottom: tabBarClearance },
+                  { paddingBottom: tabBarClearance },
                   keyboardSheetBottom > 0 ? { bottom: keyboardSheetBottom } : undefined,
                 ]}
+                onLayout={onReelSheetLayoutFor(item.id)}
               >
                 <View style={styles.reelSheetTop}>
                   <View style={styles.reelAvatar}>
@@ -1051,16 +1010,8 @@ export function FeedScreen() {
                     ) : null}
                   </View>
                 </View>
-                {user?.uid && item.id === activeVideoId ? (
-                  <ScrollView
-                    ref={(r) => {
-                      engagementScrollRefs.current[item.id] = r;
-                    }}
-                    style={styles.reelEngagementScroll}
-                    nestedScrollEnabled
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={false}
-                  >
+                {user?.uid ? (
+                  <View style={styles.reelEngagementScroll}>
                     <FeedPostEngagement
                       reelLayout
                       videoId={item.id}
@@ -1070,18 +1021,7 @@ export function FeedScreen() {
                       shareUrl={item.url}
                       viewerUid={user.uid}
                       viewerUsername={user.username}
-                      onCommentComposerFocus={() => {
-                        requestAnimationFrame(() => {
-                          engagementScrollRefs.current[item.id]?.scrollToEnd({ animated: true });
-                        });
-                      }}
                     />
-                  </ScrollView>
-                ) : user?.uid ? (
-                  <View style={styles.reelEngagementPlaceholder}>
-                    <Text style={styles.reelEngagementPlaceholderText}>
-                      Swipe to another leap — comments and share load on the clip in view.
-                    </Text>
                   </View>
                 ) : null}
                 {displayVideos.length > 1 ? (
@@ -1093,7 +1033,7 @@ export function FeedScreen() {
                 ) : null}
               </View>
               {showPreviousLeapsChip ? (
-                <View style={[styles.previousLeapsChip, { bottom: reelSheetTotalHeight + 12 }]} pointerEvents="none">
+                <View style={[styles.previousLeapsChip, { bottom: sheetBottom + 12 }]} pointerEvents="none">
                   <Ionicons name="calendar-outline" size={15} color={colors.moss} />
                   <Text style={styles.previousLeapsChipText}>Previous leaps</Text>
                 </View>
@@ -1194,16 +1134,6 @@ const styles = StyleSheet.create({
   reelList: {
     flex: 1,
   },
-  reelListHidden: {
-    opacity: 0,
-    pointerEvents: 'none',
-  },
-  reelListLoading: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 2,
-  },
   scrollTopFab: {
     position: 'absolute',
     right: 14,
@@ -1266,7 +1196,6 @@ const styles = StyleSheet.create({
   reelPage: {
     width: '100%',
     backgroundColor: colors.bg,
-    overflow: 'hidden',
   },
   reelVideoSlot: {
     position: 'absolute',
@@ -1339,22 +1268,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   reelEngagementScroll: {
-    flex: 1,
-    minHeight: 0,
     alignSelf: 'stretch',
-  },
-  reelEngagementPlaceholder: {
-    flex: 1,
-    minHeight: 48,
-    justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
-  reelEngagementPlaceholderText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.muted,
-    textAlign: 'center',
   },
   reelSwipeRail: {
     flexDirection: 'row',
