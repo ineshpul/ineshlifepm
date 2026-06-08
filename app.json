@@ -3,7 +3,7 @@
     "name": "Leap",
     "slug": "Leap_MVP",
     "scheme": "leapmvp",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/brandmark.png",
     "userInterfaceStyle": "light",
