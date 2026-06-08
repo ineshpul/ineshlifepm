@@ -76,8 +76,7 @@ import {
   nyLeapDayChainBackward,
   prevNyDateKey,
 } from '../utils/nyTime';
-import { markReferralWeeklyNudgeShown, shouldShowReferralWeeklyNudge } from '../state/referralNudge';
-
+import { shareReferralInvite } from '../utils/shareReferralInvite';
 type FeedVideo = {
   id: string;
   username: string;
@@ -176,23 +175,18 @@ export function FeedScreen() {
     return () => clearInterval(id);
   }, []);
 
-  React.useEffect(() => {
-    if (!canViewEveryoneFeed || !user?.uid) {
-      setShowReferralNudge(false);
-      return;
-    }
-    let cancelled = false;
-    void shouldShowReferralWeeklyNudge().then((show) => {
-      if (!cancelled) setShowReferralNudge(show);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [canViewEveryoneFeed, user?.uid, viewingChallengeDateKey]);
+  const inviteUsername = preferences.profileUsername || user?.username || '';
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (user?.uid) {
+        setShowReferralNudge(true);
+      }
+    }, [user?.uid])
+  );
 
   const dismissReferralNudge = React.useCallback(() => {
     setShowReferralNudge(false);
-    void markReferralWeeklyNudgeShown();
   }, []);
 
   const persistPreviewConsumedForDay = React.useCallback(() => {
@@ -856,7 +850,7 @@ export function FeedScreen() {
         <View style={styles.referralNudge}>
           <Text style={styles.referralNudgeText}>
             Know someone who&apos;d leap with you?{' '}
-            <Text style={styles.referralNudgeLink} onPress={() => nav.navigate('Settings')}>
+            <Text style={styles.referralNudgeLink} onPress={() => void shareReferralInvite(inviteUsername)}>
               Invite
             </Text>
           </Text>

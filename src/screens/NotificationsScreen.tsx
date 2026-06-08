@@ -15,6 +15,7 @@ import {
 } from '../services/social';
 import { setAppBadgeCount } from '../services/pushNotifications';
 import { navigateToUserProfile } from '../navigation/navigationHelpers';
+import { shareReferralInvite } from '../utils/shareReferralInvite';
 
 function bodyFor(n: InAppNotification) {
   if (n.type === 'admin_alert') return n.snippet ? String(n.snippet) : 'Admin alert';
@@ -65,7 +66,7 @@ export function NotificationsScreen() {
     }
     if (n.type === 'admin_alert') return;
     if (n.type === 'referral_launch' || n.type === 'referral_activation' || n.type === 'referral_override') {
-      nav.navigate('Settings');
+      void shareReferralInvite(user?.username ?? '');
       return;
     }
     if (n.type === 'mod_queue') {

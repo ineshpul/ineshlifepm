@@ -1,13 +1,12 @@
 import * as React from 'react';
-import { Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 
 import { PrimaryButton } from './PrimaryButton';
 import { colors } from '../theme/colors';
-import { buildReferralShareMessage } from '../constants/referral';
 import { showInfo } from '../utils/ui';
-
+import { shareReferralInvite } from '../utils/shareReferralInvite';
 type Props = {
   username: string;
 };
@@ -20,13 +19,7 @@ export function ReferralInviteCard({ username }: Props) {
     showInfo('Copied', `Your invite username is ${handle}.`);
   };
 
-  const onShare = async () => {
-    try {
-      await Share.share({ message: buildReferralShareMessage(handle) });
-    } catch {
-      // dismissed
-    }
-  };
+  const onShare = () => void shareReferralInvite(handle);
 
   return (
     <View style={styles.card}>

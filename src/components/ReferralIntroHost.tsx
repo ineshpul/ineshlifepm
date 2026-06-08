@@ -1,9 +1,9 @@
 import * as React from 'react';
 
 import { ReferralIntroModal } from './ReferralIntroModal';
-import { rootNavigationRef } from '../navigation/RootNavigator';
 import { useAuth } from '../state/auth';
 import { markReferralIntroSeen, shouldShowReferralIntro } from '../state/referralIntro';
+import { shareReferralInvite } from '../utils/shareReferralInvite';
 
 /**
  * One-time referral intro after login. Shown once per account (AsyncStorage).
@@ -39,17 +39,8 @@ export function ReferralIntroHost() {
 
   const onInvite = React.useCallback(() => {
     dismiss();
-    const go = () => {
-      if (rootNavigationRef.isReady()) {
-        rootNavigationRef.navigate('Settings');
-      }
-    };
-    if (rootNavigationRef.isReady()) {
-      go();
-    } else {
-      setTimeout(go, 120);
-    }
-  }, [dismiss]);
+    void shareReferralInvite(user?.username ?? '');
+  }, [dismiss, user?.username]);
 
   if (!ready || !visible) return null;
 

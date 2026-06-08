@@ -30,6 +30,7 @@ import { LEAP_BOTTOM_TAGLINE } from '../content/challengeCopy';
 import { useAuth } from '../state/auth';
 import { showInfo } from '../utils/ui';
 import { navigateToRecord, navigateToUserProfile } from '../navigation/navigationHelpers';
+import { shareReferralInvite } from '../utils/shareReferralInvite';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { subscribeUsersByUsernamePrefix, type UserSearchHit } from '../services/userSearch';
@@ -298,7 +299,7 @@ export function TodayScreen() {
         </TouchableOpacity>
         {user?.uid ? (
           <TouchableOpacity
-            onPress={() => nav.navigate('Settings')}
+            onPress={() => void shareReferralInvite(user?.username ?? '')}
             activeOpacity={0.85}
             accessibilityRole="button"
             accessibilityLabel="Invite a friend for 5 inches"
