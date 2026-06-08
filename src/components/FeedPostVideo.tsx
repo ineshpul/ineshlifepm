@@ -125,6 +125,24 @@ function FeedPostVideoInner(props: {
     void stopVideoPlayer(secondary, false);
   }, [effectivePlay, reel]);
 
+  // Dual-camera PIP can keep playing when it carries audio — force it to follow the main reel.
+  React.useEffect(() => {
+    if (!secondaryUrl) return;
+    const secondary = secondaryVideoRef.current;
+    if (!secondary) return;
+    void (async () => {
+      try {
+        if (effectivePlay) {
+          await secondary.playAsync();
+        } else {
+          await secondary.pauseAsync();
+        }
+      } catch {
+        // native race
+      }
+    })();
+  }, [effectivePlay, secondaryUrl]);
+
   React.useEffect(() => {
     if (viewTimerRef.current) {
       clearTimeout(viewTimerRef.current);

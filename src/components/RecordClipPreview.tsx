@@ -20,10 +20,34 @@ export function RecordClipPreview({ uri, secondaryUri, dualFrontIsPrimary = fals
   const secondaryPlayer = useVideoPlayer(
     secondaryUri ? { uri: secondaryUri } : null,
     (p) => {
-      p.loop = true;
+      p.loop = false;
       p.muted = !audioOnSecondary;
     }
   );
+
+  // Keep the PIP frame-locked to the primary clip — native controls only drive the main player.
+  React.useEffect(() => {
+    if (!secondaryUri || !secondaryPlayer) return;
+    const playSub = player.addListener('playingChange', ({ isPlaying }) => {
+      try {
+        if (isPlaying) secondaryPlayer.play();
+        else secondaryPlayer.pause();
+      } catch {
+        // ignore
+      }
+    });
+    const endSub = player.addListener('playToEnd', () => {
+      try {
+        secondaryPlayer.pause();
+      } catch {
+        // ignore
+      }
+    });
+    return () => {
+      playSub.remove();
+      endSub.remove();
+    };
+  }, [player, secondaryPlayer, secondaryUri]);
   React.useEffect(() => {
     // Autoplay once after recording so users don't have to tap play.
     const t = setTimeout(() => {

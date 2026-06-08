@@ -2,10 +2,10 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Dimensions,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -16,6 +16,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  type KeyboardEvent,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -98,6 +99,7 @@ export function FeedPostEngagement({
   const [expandedThreads, setExpandedThreads] = React.useState<Record<string, boolean>>({});
   const [commentsQueryReady, setCommentsQueryReady] = React.useState(false);
   const postInFlightRef = React.useRef(false);
+  const keyboardInset = React.useRef(new Animated.Value(0)).current;
 
   const commentsThreaded = React.useMemo(() => flattenCommentsForThread(comments), [comments]);
   const commentDisplayList = React.useMemo(
@@ -110,6 +112,36 @@ export function FeedPostEngagement({
     setComments([]);
     setCommentsQueryReady(false);
   }, [videoId]);
+
+  React.useEffect(() => {
+    if (!commentsModalOpen) {
+      keyboardInset.setValue(0);
+      return;
+    }
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = (e: KeyboardEvent) => {
+      Animated.timing(keyboardInset, {
+        toValue: Math.max(0, e.endCoordinates.height),
+        duration: e.duration ?? 250,
+        useNativeDriver: false,
+      }).start();
+    };
+    const onHide = (e: KeyboardEvent) => {
+      Animated.timing(keyboardInset, {
+        toValue: 0,
+        duration: e.duration ?? 250,
+        useNativeDriver: false,
+      }).start();
+    };
+    const subShow = Keyboard.addListener(showEvt, onShow);
+    const subHide = Keyboard.addListener(hideEvt, onHide);
+    return () => {
+      subShow.remove();
+      subHide.remove();
+      keyboardInset.setValue(0);
+    };
+  }, [commentsModalOpen, keyboardInset]);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !viewerUid) return;
@@ -541,7 +573,7 @@ export function FeedPostEngagement({
       >
         <View style={styles.modalRoot}>
           <Pressable style={styles.modalBackdrop} onPress={() => closeCommentsModal()} />
-          <View style={[styles.modalSheet, { height: commentsSheetHeight }]}>
+          <Animated.View style={[styles.modalSheet, { height: commentsSheetHeight }]}>
             <PanGestureHandler
               onHandlerStateChange={onModalPanGesture}
               activeOffsetY={8}
@@ -562,11 +594,7 @@ export function FeedPostEngagement({
                 </View>
               </View>
             </PanGestureHandler>
-            <KeyboardAvoidingView
-              style={styles.modalBody}
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-              enabled={commentsModalOpen}
-            >
+            <Animated.View style={[styles.modalBody, { paddingBottom: keyboardInset }]}>
               <FlatList
                 data={commentDisplayList}
                 extraData={expandedThreads}
@@ -613,8 +641,8 @@ export function FeedPostEngagement({
                   reelLayout={reelLayout}
                 />
               ) : null}
-            </KeyboardAvoidingView>
-          </View>
+            </Animated.View>
+          </Animated.View>
         </View>
       </Modal>
 

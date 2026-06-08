@@ -131,6 +131,28 @@ export function VideoPostScreen({ route }: Props) {
   }, [isFocused, loadState, videoId, blockOtherPeoplesPost]);
 
   const [keyboardPad, setKeyboardPad] = React.useState(0);
+  const primaryVideoRef = React.useRef<Video>(null);
+  const secondaryVideoRef = React.useRef<Video>(null);
+  const [primaryPlaying, setPrimaryPlaying] = React.useState(false);
+  const dualFrontIsPrimary = row?.dualFrontIsPrimary === true;
+  const secondaryCarriesAudio = Boolean(row?.secondaryUrl && dualFrontIsPrimary);
+  const secondaryShouldPlay = isFocused && primaryPlaying;
+  React.useEffect(() => {
+    if (isFocused) return;
+    setPrimaryPlaying(false);
+    void (async () => {
+      try {
+        await secondaryVideoRef.current?.pauseAsync();
+      } catch {
+        // ignore
+      }
+    })();
+  }, [isFocused]);
+
+  React.useEffect(() => {
+    setPrimaryPlaying(false);
+  }, [row?.url, row?.secondaryUrl]);
+
   React.useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
@@ -184,26 +206,43 @@ export function VideoPostScreen({ route }: Props) {
           >
             <View style={styles.videoWrap}>
               <Video
+                ref={primaryVideoRef}
                 source={{ uri: row.url }}
                 style={styles.video}
                 resizeMode={ResizeMode.CONTAIN}
                 useNativeControls
                 shouldPlay={isFocused}
                 isLooping={false}
-                isMuted={Boolean(row.secondaryUrl && row.dualFrontIsPrimary)}
-                volume={row.secondaryUrl && row.dualFrontIsPrimary ? 0 : 1}
+                isMuted={secondaryCarriesAudio}
+                volume={secondaryCarriesAudio ? 0 : 1}
                 progressUpdateIntervalMillis={preferences.dataSaver ? 1000 : 250}
+                onPlaybackStatusUpdate={(status) => {
+                  if (!status.isLoaded) return;
+                  const playing = Boolean(status.isPlaying);
+                  setPrimaryPlaying(playing);
+                  if (status.didJustFinish) {
+                    void (async () => {
+                      try {
+                        await secondaryVideoRef.current?.pauseAsync();
+                        await secondaryVideoRef.current?.setPositionAsync(0);
+                      } catch {
+                        // ignore
+                      }
+                    })();
+                  }
+                }}
               />
               {row.secondaryUrl ? (
                 <View style={styles.pip} pointerEvents="none">
                   <Video
+                    ref={secondaryVideoRef}
                     source={{ uri: row.secondaryUrl }}
                     style={styles.pipVideo}
                     resizeMode={ResizeMode.COVER}
-                    shouldPlay={isFocused}
-                    isMuted={!row.dualFrontIsPrimary}
-                    isLooping
-                    volume={row.dualFrontIsPrimary ? 1 : 0}
+                    shouldPlay={secondaryShouldPlay}
+                    isMuted={!dualFrontIsPrimary}
+                    isLooping={false}
+                    volume={dualFrontIsPrimary ? 1 : 0}
                     progressUpdateIntervalMillis={preferences.dataSaver ? 2000 : 1000}
                   />
                 </View>
