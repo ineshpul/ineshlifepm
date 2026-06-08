@@ -26,7 +26,6 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
 import { getPlayerFacingChallenge, useTodayChallenge } from '../state/challenge';
 import { useLiveCount } from '../state/live';
-import { LEAP_BOTTOM_TAGLINE } from '../content/challengeCopy';
 import { useAuth } from '../state/auth';
 import { showInfo } from '../utils/ui';
 import { navigateToRecord, navigateToUserProfile } from '../navigation/navigationHelpers';
@@ -287,8 +286,7 @@ export function TodayScreen() {
           style={styles.leapBtn}
         />
         <Text style={styles.bottomHint}>TAP TO RECORD</Text>
-        <Text style={styles.bottomSub}>{LEAP_BOTTOM_TAGLINE}</Text>
-        <View style={styles.bottomActionsRow}>
+        <View style={styles.bottomActionsColumn}>
           <TouchableOpacity
             onPress={() => setSuggestOpen(true)}
             activeOpacity={0.85}
@@ -673,31 +671,23 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: colors.text,
   },
-  bottomSub: {
+  bottomActionsColumn: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 4,
     marginTop: 6,
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.muted,
-  },
-  bottomActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    justifyContent: 'center',
-    gap: 10,
-    marginTop: 8,
     width: '100%',
     maxWidth: 360,
     paddingHorizontal: 20,
     alignSelf: 'center',
   },
   bottomActionBtn: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
+    paddingVertical: 6,
     paddingHorizontal: 8,
     borderRadius: 14,
-    minHeight: 44,
+    minHeight: 32,
   },
   suggestBtnTextStrong: {
     fontSize: 12,
