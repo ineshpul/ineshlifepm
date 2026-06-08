@@ -13,6 +13,7 @@ import {
   useWindowDimensions,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  type ViewToken,
 } from 'react-native';
 import { FlatList } from 'react-native-gesture-handler';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
@@ -100,6 +101,36 @@ const FEED_DAY_WINDOW = 14;
 /** Per batched query (several days) — newest first via `orderBy('createdAt')`. */
 const FEED_APPROVED_PER_BATCH_LIMIT = 80;
 const FEED_HYDRATE_SAFETY_MS = 8_000;
+
+/** Must be a stable reference — FlatList viewability config cannot change after mount. */
+const FEED_VIEWABILITY_CONFIG = {
+  itemVisiblePercentThreshold: 60,
+  minimumViewTime: 50,
+  waitForInteraction: false,
+} as const;
+
+/** Prefer the row with the most visible area; ties go to the lower index (stable while paging). */
+function pickPrimaryViewable(viewableItems: ViewToken[]): FeedVideo | null {
+  const vis = viewableItems.filter(
+    (v): v is ViewToken & { item: FeedVideo } => Boolean(v.isViewable && v.item && (v.item as FeedVideo).id)
+  );
+  if (!vis.length) return null;
+  let best = vis[0];
+  let bestPct = -1;
+  for (const v of vis) {
+    const pct = (v as { percentVisible?: number }).percentVisible;
+    const score = typeof pct === 'number' && Number.isFinite(pct) ? pct : -1;
+    if (score > bestPct) {
+      bestPct = score;
+      best = v;
+    }
+  }
+  if (bestPct < 0) {
+    vis.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+    best = vis[0];
+  }
+  return (best.item as FeedVideo) ?? null;
+}
 
 export function FeedScreen() {
   const isFocused = useIsFocused();
@@ -247,6 +278,7 @@ export function FeedScreen() {
   const flatListRef = React.useRef<FlatList<FeedVideo>>(null);
   const activeScrollIndexRef = React.useRef(0);
   const displayVideosRef = React.useRef<FeedVideo[]>([]);
+  const prevPageHeightRef = React.useRef(0);
   /** Measured bottom-sheet height per video so the video slot clears the sheet without extra whitespace. */
   const [reelSheetHeights, setReelSheetHeights] = React.useState<Record<string, number>>({});
   /** Reel sheet `bottom` must use overlap with keyboard vs this slot’s bottom (tab bar is below; window-height math over-lifts). */
@@ -308,13 +340,11 @@ export function FeedScreen() {
 
   displayVideosRef.current = displayVideos;
 
-  /** Single source of truth — only update after the page snap settles (not mid-scroll). */
   const syncActiveVideoFromOffset = React.useCallback(
     (y: number) => {
       const list = displayVideosRef.current;
       if (pageHeight <= 40 || list.length === 0) return;
       const idx = Math.min(list.length - 1, Math.max(0, Math.round(y / pageHeight)));
-      if (idx === activeScrollIndexRef.current) return;
       activeScrollIndexRef.current = idx;
       const id = list[idx]?.id;
       if (id) setActiveVideoId(id);
@@ -322,11 +352,47 @@ export function FeedScreen() {
     [pageHeight]
   );
 
+  const onViewableItemsChanged = React.useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken[]; changed: ViewToken[] }) => {
+      const next = pickPrimaryViewable(viewableItems);
+      if (!next?.id) return;
+      const list = displayVideosRef.current;
+      const idx = list.findIndex((v) => v.id === next.id);
+      if (idx >= 0) activeScrollIndexRef.current = idx;
+      setActiveVideoId(next.id);
+    },
+    []
+  );
+
+  /** Re-snap after feed slot height changes (e.g. dismiss invite banner) so paging stays aligned. */
+  React.useEffect(() => {
+    if (pageHeight <= 40) return;
+    const prev = prevPageHeightRef.current;
+    prevPageHeightRef.current = pageHeight;
+    if (prev <= 40 || prev === pageHeight) return;
+    const idx = activeScrollIndexRef.current;
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToOffset({ offset: idx * pageHeight, animated: false });
+      syncActiveVideoFromOffset(idx * pageHeight);
+    });
+  }, [pageHeight, syncActiveVideoFromOffset]);
+
   const onFeedScrollEnd = React.useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      syncActiveVideoFromOffset(Number(e.nativeEvent.contentOffset.y ?? 0));
+      const y = Number(e.nativeEvent.contentOffset.y ?? 0);
+      const list = displayVideosRef.current;
+      if (pageHeight > 40 && list.length > 0) {
+        const idx = Math.min(list.length - 1, Math.max(0, Math.round(y / pageHeight)));
+        const snapped = idx * pageHeight;
+        if (Math.abs(y - snapped) > 2) {
+          flatListRef.current?.scrollToOffset({ offset: snapped, animated: true });
+        }
+        syncActiveVideoFromOffset(snapped);
+        return;
+      }
+      syncActiveVideoFromOffset(y);
     },
-    [syncActiveVideoFromOffset]
+    [pageHeight, syncActiveVideoFromOffset]
   );
 
   const onFeedScroll = React.useCallback(
@@ -843,6 +909,8 @@ export function FeedScreen() {
           data={displayVideos}
           keyExtractor={(x) => x.id}
           extraData={flatListExtraData}
+          viewabilityConfig={FEED_VIEWABILITY_CONFIG}
+          onViewableItemsChanged={onViewableItemsChanged}
           onScroll={onFeedScroll}
           onScrollEndDrag={onFeedScrollEnd}
           onMomentumScrollEnd={onFeedScrollEnd}

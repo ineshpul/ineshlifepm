@@ -28,18 +28,6 @@ async function stopVideoPlayer(player: Video | null, resetPosition: boolean) {
   }
 }
 
-/** Start playback once the clip is buffered. */
-async function startVideoPlayer(player: Video | null, muted: boolean) {
-  if (!player) return;
-  try {
-    await player.setIsMutedAsync(muted);
-    await player.setVolumeAsync(muted ? 0 : 1);
-    await player.playAsync();
-  } catch {
-    // native race
-  }
-}
-
 function FeedPostVideoInner(props: {
   url: string;
   /**
@@ -114,25 +102,18 @@ function FeedPostVideoInner(props: {
   const effectivePlay = shouldPlay && !userPaused;
   const playerMuted = !effectivePlay || isMuted;
 
-  // Only react on play/pause transitions — avoids pause loops from status churn.
+  // Native stop on deactivate — `shouldPlay` handles start/buffer; avoids pause loops.
   React.useEffect(() => {
     const player = videoRef.current;
     const secondary = secondaryVideoRef.current;
     const wasPlaying = prevEffectivePlayRef.current;
     prevEffectivePlayRef.current = effectivePlay;
 
-    if (!effectivePlay) {
-      if (wasPlaying) {
-        void stopVideoPlayer(player, reel);
-        void stopVideoPlayer(secondary, false);
-      }
-      return;
-    }
+    if (effectivePlay || !wasPlaying) return;
 
-    if (!loaded) return;
-    void startVideoPlayer(player, isMuted);
-    if (secondaryUrl) void startVideoPlayer(secondary, true);
-  }, [effectivePlay, loaded, url, secondaryUrl, isMuted, reel]);
+    void stopVideoPlayer(player, reel);
+    void stopVideoPlayer(secondary, false);
+  }, [effectivePlay, reel]);
 
   React.useEffect(() => {
     if (viewTimerRef.current) {
