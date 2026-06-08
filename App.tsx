@@ -20,6 +20,9 @@ import {
 } from './src/services/userPrivacySettings';
 import { registerAndSavePushToken, unregisterPushDevice } from './src/services/pushNotifications';
 import { getForegroundChatConversationId } from './src/chat/activeConversationRef';
+import { prefetchTodayChallengeCache } from './src/state/challengeCache';
+
+prefetchTodayChallengeCache();
 
 /** Foreground: show remote pushes unless the user is already in that chat thread. */
 Notifications.setNotificationHandler({

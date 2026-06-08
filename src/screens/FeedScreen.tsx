@@ -11,7 +11,8 @@ import {
   TouchableOpacity,
   View,
   useWindowDimensions,
-  type ViewToken,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { FlatList } from 'react-native-gesture-handler';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
@@ -99,36 +100,6 @@ const FEED_DAY_WINDOW = 14;
 /** Per batched query (several days) — newest first via `orderBy('createdAt')`. */
 const FEED_APPROVED_PER_BATCH_LIMIT = 80;
 const FEED_HYDRATE_SAFETY_MS = 8_000;
-
-/** Must be a stable reference — `viewabilityConfigCallbackPairs` cannot change after mount (RN FlatList). */
-const FEED_VIEWABILITY_CONFIG = {
-  itemVisiblePercentThreshold: 55,
-  minimumViewTime: 40,
-  waitForInteraction: false,
-} as const;
-
-/** Pick the feed item that should play: prefer highest reported visible %, else bottom-most row. */
-function pickPrimaryViewable(viewableItems: ViewToken[]): FeedVideo | null {
-  const vis = viewableItems.filter(
-    (v): v is ViewToken & { item: FeedVideo } => Boolean(v.isViewable && v.item && (v.item as FeedVideo).id)
-  );
-  if (!vis.length) return null;
-  let best = vis[0];
-  let bestPct = -1;
-  for (const v of vis) {
-    const pct = (v as { percentVisible?: number }).percentVisible;
-    const score = typeof pct === 'number' && Number.isFinite(pct) ? pct : -1;
-    if (score > bestPct) {
-      bestPct = score;
-      best = v;
-    }
-  }
-  if (bestPct < 0) {
-    vis.sort((a, b) => (b.index ?? 0) - (a.index ?? 0));
-    best = vis[0];
-  }
-  return (best.item as FeedVideo) ?? null;
-}
 
 export function FeedScreen() {
   const isFocused = useIsFocused();
@@ -337,24 +308,33 @@ export function FeedScreen() {
 
   displayVideosRef.current = displayVideos;
 
+  /** Single source of truth — only update after the page snap settles (not mid-scroll). */
+  const syncActiveVideoFromOffset = React.useCallback(
+    (y: number) => {
+      const list = displayVideosRef.current;
+      if (pageHeight <= 40 || list.length === 0) return;
+      const idx = Math.min(list.length - 1, Math.max(0, Math.round(y / pageHeight)));
+      if (idx === activeScrollIndexRef.current) return;
+      activeScrollIndexRef.current = idx;
+      const id = list[idx]?.id;
+      if (id) setActiveVideoId(id);
+    },
+    [pageHeight]
+  );
+
+  const onFeedScrollEnd = React.useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      syncActiveVideoFromOffset(Number(e.nativeEvent.contentOffset.y ?? 0));
+    },
+    [syncActiveVideoFromOffset]
+  );
+
   const onFeedScroll = React.useCallback(
-    (e: any) => {
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const y = Number(e?.nativeEvent?.contentOffset?.y ?? 0);
       logEngagementScrollingThrottled();
       const on = y >= scrollTopThreshold;
       setShowScrollTop((prev) => (prev === on ? prev : on));
-
-      if (pageHeight > 40) {
-        const list = displayVideosRef.current;
-        if (list.length > 0) {
-          const idx = Math.min(list.length - 1, Math.max(0, Math.round(y / pageHeight)));
-          if (idx !== activeScrollIndexRef.current) {
-            activeScrollIndexRef.current = idx;
-            const id = list[idx]?.id;
-            if (id) setActiveVideoId(id);
-          }
-        }
-      }
 
       if (
         feedPreviewMode &&
@@ -435,14 +415,6 @@ export function FeedScreen() {
       void setAppBadgeCount(n);
     });
   }, [user?.uid]);
-
-  const onViewableItemsChanged = React.useCallback(
-    ({ viewableItems }: { viewableItems: ViewToken[]; changed: ViewToken[] }) => {
-      const next = pickPrimaryViewable(viewableItems);
-      if (next?.id) setActiveVideoId(next.id);
-    },
-    []
-  );
 
   React.useEffect(() => {
     setActiveVideoId(null);
@@ -871,9 +843,9 @@ export function FeedScreen() {
           data={displayVideos}
           keyExtractor={(x) => x.id}
           extraData={flatListExtraData}
-          viewabilityConfig={FEED_VIEWABILITY_CONFIG}
-          onViewableItemsChanged={onViewableItemsChanged}
           onScroll={onFeedScroll}
+          onScrollEndDrag={onFeedScrollEnd}
+          onMomentumScrollEnd={onFeedScrollEnd}
           scrollEventThrottle={16}
           contentContainerStyle={displayVideos.length === 0 ? { flexGrow: 1 } : undefined}
           pagingEnabled

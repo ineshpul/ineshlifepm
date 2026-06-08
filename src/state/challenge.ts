@@ -8,6 +8,7 @@ import {
   CHALLENGE_PRE_DROP_TITLE,
 } from '../content/challengeCopy';
 import { computeChallengeWindowFromNow, computeFeedViewingFromNow } from '../utils/nyTime';
+import { peekChallengeCache, readChallengeCache, writeChallengeCache } from './challengeCache';
 
 /** Quick-pick lengths in MOD settings; any integer in [MIN, MAX] is allowed when saved. */
 export const TASK_DURATION_OPTIONS = [15, 30, 45, 60, 90, 120] as const;
@@ -65,7 +66,8 @@ export function getChallengeWatermarkInfo(
 
 export function getPlayerFacingChallenge(challenge: Challenge, window: ChallengeWindow): PlayerFacingChallenge {
   if (window.isLive) {
-    const title = challenge.title.trim();
+    const cachedTitle = peekChallengeCache(challenge.dateKey)?.title?.trim() ?? '';
+    const title = challenge.title.trim() || cachedTitle;
     return {
       title: title || "Loading today's leap…",
       instructionsLine: `${CHALLENGE_INSTRUCTIONS} · Up to ${challenge.maxDurationSeconds}s`,
@@ -97,13 +99,32 @@ export function useTodayChallenge() {
   /** Must match `videos/{uid}_{viewingChallengeDateKey}` / Record screen (noon→noon NY), not calendar `win.dateKey`. */
   const viewingChallengeDateKey = computeFeedViewingFromNow(Date.now()).viewingChallengeDateKey;
 
-  const [challenge, setChallenge] = React.useState<Challenge>(() => ({
-    dateKey: viewingChallengeDateKey,
-    title: '',
-    subtitle: '',
-    maxDurationSeconds: 60,
-    maxRecordingAttempts: DEFAULT_MAX_RECORDING_ATTEMPTS,
-  }));
+  const emptyChallenge = React.useCallback(
+    (dateKey: string): Challenge => ({
+      dateKey,
+      title: '',
+      subtitle: '',
+      maxDurationSeconds: 60,
+      maxRecordingAttempts: DEFAULT_MAX_RECORDING_ATTEMPTS,
+    }),
+    []
+  );
+
+  const [challenge, setChallenge] = React.useState<Challenge>(() => {
+    const cached = peekChallengeCache(viewingChallengeDateKey);
+    return cached ?? emptyChallenge(viewingChallengeDateKey);
+  });
+
+  React.useEffect(() => {
+    let alive = true;
+    void readChallengeCache(viewingChallengeDateKey).then((cached) => {
+      if (!alive || !cached) return;
+      setChallenge(cached);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [viewingChallengeDateKey]);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured()) {
@@ -116,35 +137,27 @@ export function useTodayChallenge() {
       (snap) => {
         if (snap.exists()) {
           const data: any = snap.data();
-          setChallenge({
+          const next: Challenge = {
             dateKey: viewingChallengeDateKey,
             title: String(data?.title ?? 'Daily challenge'),
             subtitle: String(data?.subtitle ?? ''),
             maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
             maxRecordingAttempts: normalizeMaxRecordingAttempts(data?.maxRecordingAttempts),
-          });
+          };
+          setChallenge(next);
+          void writeChallengeCache(next);
         } else {
-          setChallenge({
-            dateKey: viewingChallengeDateKey,
-            title: '',
-            subtitle: '',
-            maxDurationSeconds: 60,
-            maxRecordingAttempts: DEFAULT_MAX_RECORDING_ATTEMPTS,
-          });
+          setChallenge(emptyChallenge(viewingChallengeDateKey));
         }
       },
       () => {
-        setChallenge({
-          dateKey: viewingChallengeDateKey,
-          title: '',
-          subtitle: '',
-          maxDurationSeconds: 60,
-          maxRecordingAttempts: DEFAULT_MAX_RECORDING_ATTEMPTS,
-        });
+        setChallenge((cur) =>
+          cur.title.trim() ? cur : emptyChallenge(viewingChallengeDateKey)
+        );
       }
     );
     return () => unsub();
-  }, [viewingChallengeDateKey]);
+  }, [viewingChallengeDateKey, emptyChallenge]);
 
   return { challenge, window: win };
 }

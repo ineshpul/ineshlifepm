@@ -15,24 +15,26 @@ function formatTimeLeft(totalSeconds: number) {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
-/** expo-av `shouldPlay` alone does not reliably stop audio when multiple players stay mounted. */
-async function syncVideoPlayback(
-  player: Video | null,
-  play: boolean,
-  muted: boolean,
-  ready: boolean
-) {
+/** Pause and mute a player when it leaves the active reel slot. */
+async function stopVideoPlayer(player: Video | null, resetPosition: boolean) {
   if (!player) return;
   try {
-    if (play && ready) {
-      await player.setIsMutedAsync(muted);
-      await player.setVolumeAsync(muted ? 0 : 1);
-      await player.playAsync();
-    } else if (!play) {
-      await player.pauseAsync();
-      await player.setIsMutedAsync(true);
-      await player.setVolumeAsync(0);
-    }
+    await player.pauseAsync();
+    await player.setIsMutedAsync(true);
+    await player.setVolumeAsync(0);
+    if (resetPosition) await player.setPositionAsync(0);
+  } catch {
+    // native race
+  }
+}
+
+/** Start playback once the clip is buffered. */
+async function startVideoPlayer(player: Video | null, muted: boolean) {
+  if (!player) return;
+  try {
+    await player.setIsMutedAsync(muted);
+    await player.setVolumeAsync(muted ? 0 : 1);
+    await player.playAsync();
   } catch {
     // native race
   }
@@ -83,6 +85,7 @@ function FeedPostVideoInner(props: {
   const viewRecordedKeyRef = React.useRef<string | null>(null);
   const [likeFlash, setLikeFlash] = React.useState(false);
   const likeFlashTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevEffectivePlayRef = React.useRef(false);
 
   React.useEffect(() => {
     viewRecordedKeyRef.current = null;
@@ -91,6 +94,7 @@ function FeedPostVideoInner(props: {
   React.useEffect(() => {
     setLoaded(false);
     lastStatusPaintRef.current = 0;
+    prevEffectivePlayRef.current = false;
   }, [url]);
 
   React.useEffect(() => {
@@ -101,37 +105,34 @@ function FeedPostVideoInner(props: {
     () => () => {
       if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
       if (likeFlashTimerRef.current) clearTimeout(likeFlashTimerRef.current);
-      void syncVideoPlayback(videoRef.current, false, true, true);
-      void syncVideoPlayback(secondaryVideoRef.current, false, true, true);
+      void stopVideoPlayer(videoRef.current, false);
+      void stopVideoPlayer(secondaryVideoRef.current, false);
     },
     []
   );
 
   const effectivePlay = shouldPlay && !userPaused;
   const playerMuted = !effectivePlay || isMuted;
-  const prevShouldPlayRef = React.useRef(shouldPlay);
 
-  // Required: when a reel leaves the active viewport, reset it to the beginning.
+  // Only react on play/pause transitions — avoids pause loops from status churn.
   React.useEffect(() => {
-    if (!reel) {
-      prevShouldPlayRef.current = shouldPlay;
+    const player = videoRef.current;
+    const secondary = secondaryVideoRef.current;
+    const wasPlaying = prevEffectivePlayRef.current;
+    prevEffectivePlayRef.current = effectivePlay;
+
+    if (!effectivePlay) {
+      if (wasPlaying) {
+        void stopVideoPlayer(player, reel);
+        void stopVideoPlayer(secondary, false);
+      }
       return;
     }
-    const prev = prevShouldPlayRef.current;
-    prevShouldPlayRef.current = shouldPlay;
-    if (prev && !shouldPlay) {
-      const player = videoRef.current;
-      if (!player) return;
-      void (async () => {
-        try {
-          await player.pauseAsync();
-          await player.setPositionAsync(0);
-        } catch {
-          // best-effort
-        }
-      })();
-    }
-  }, [reel, shouldPlay, url]);
+
+    if (!loaded) return;
+    void startVideoPlayer(player, isMuted);
+    if (secondaryUrl) void startVideoPlayer(secondary, true);
+  }, [effectivePlay, loaded, url, secondaryUrl, isMuted, reel]);
 
   React.useEffect(() => {
     if (viewTimerRef.current) {
@@ -154,16 +155,8 @@ function FeedPostVideoInner(props: {
     };
   }, [effectivePlay, analyticsVideoId, viewerUid, videoOwnerUid]);
 
-  React.useEffect(() => {
-    void syncVideoPlayback(videoRef.current, effectivePlay, isMuted, loaded);
-    if (secondaryUrl) {
-      void syncVideoPlayback(secondaryVideoRef.current, effectivePlay, true, loaded);
-    }
-  }, [effectivePlay, loaded, url, secondaryUrl, isMuted]);
-
   const onPlaybackStatusUpdate = React.useCallback((s: AVPlaybackStatus) => {
     if (s.isLoaded) setLoaded(true);
-    else setLoaded(false);
 
     if (!s.isLoaded) {
       setStatus(s);
@@ -258,24 +251,16 @@ function FeedPostVideoInner(props: {
   const videoStyle = reel ? StyleSheet.absoluteFillObject : styles.video;
 
   const reelTapLayer =
-    reel && (shouldPlay || onReelActivate) ? (
+    reel ? (
       <GestureDetector gesture={reelGesture}>
         <View
           style={styles.reelTouchLayer}
           accessibilityRole="button"
-          accessibilityLabel={
-            !shouldPlay && onReelActivate ? 'Play video' : userPaused ? 'Play video' : 'Pause video'
-          }
+          accessibilityLabel={userPaused ? 'Play video' : 'Pause video'}
         >
         {shouldPlay && longPressing ? (
           <View style={styles.reelIconCenter} pointerEvents="none">
             <Ionicons name="pause" size={58} color="rgba(255,255,255,0.92)" />
-          </View>
-        ) : !shouldPlay && onReelActivate ? (
-          <View style={styles.reelIconCenter} pointerEvents="none">
-            <View style={styles.reelPlayCircle}>
-              <Ionicons name="play" size={42} color="rgba(255,255,255,0.96)" style={{ marginLeft: 4 }} />
-            </View>
           </View>
         ) : null}
         </View>
