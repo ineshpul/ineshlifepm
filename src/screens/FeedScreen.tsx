@@ -15,7 +15,7 @@ import {
   type NativeSyntheticEvent,
   type ViewToken,
 } from 'react-native';
-import { FlatList } from 'react-native-gesture-handler';
+import { FlatList, ScrollView } from 'react-native-gesture-handler';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -104,7 +104,7 @@ const FEED_HYDRATE_SAFETY_MS = 8_000;
 
 /** Must be a stable reference — FlatList viewability config cannot change after mount. */
 const FEED_VIEWABILITY_CONFIG = {
-  itemVisiblePercentThreshold: 60,
+  itemVisiblePercentThreshold: 88,
   minimumViewTime: 50,
   waitForInteraction: false,
 } as const;
@@ -279,8 +279,9 @@ export function FeedScreen() {
   const activeScrollIndexRef = React.useRef(0);
   const displayVideosRef = React.useRef<FeedVideo[]>([]);
   const prevPageHeightRef = React.useRef(0);
-  /** Measured bottom-sheet height per video so the video slot clears the sheet without extra whitespace. */
-  const [reelSheetHeights, setReelSheetHeights] = React.useState<Record<string, number>>({});
+  const engagementScrollRefs = React.useRef<
+    Record<string, { scrollToEnd: (o?: { animated?: boolean }) => void } | null>
+  >({});
   /** Reel sheet `bottom` must use overlap with keyboard vs this slot’s bottom (tab bar is below; window-height math over-lifts). */
   const feedSlotRef = React.useRef<View>(null);
 
@@ -292,10 +293,13 @@ export function FeedScreen() {
     if (h > 0) setSlotHeight((prev) => (Math.abs(prev - h) > 2 ? h : prev));
   }, []);
   const tabBarClearance = floatingTabContentClearance(insets.bottom);
+  /** Fixed sheet + tab clearance — dynamic per-item measurement caused gaps between video and sheet. */
+  const reelSheetTotalHeight = REEL_BOTTOM_SHEET + tabBarClearance;
   const pageHeight = React.useMemo(() => {
     if (slotHeight > 0) return slotHeight;
     return Math.max(380, windowHeight - insets.top - 52);
   }, [slotHeight, windowHeight, insets.top]);
+  const reelListReady = slotHeight > 40 && pageHeight > 40;
 
   const scrollTopThreshold = Math.max(800, pageHeight * 2.2);
   const maxFeedPreviewOffset = React.useMemo(
@@ -307,12 +311,6 @@ export function FeedScreen() {
     () => prevNyDateKey(viewingChallengeDateKey),
     [viewingChallengeDateKey]
   );
-
-  const onReelSheetLayoutFor = React.useCallback((videoId: string) => (e: LayoutChangeEvent) => {
-    const h = Math.ceil(e.nativeEvent.layout.height);
-    if (h < 48) return;
-    setReelSheetHeights((prev) => (prev[videoId] === h ? prev : { ...prev, [videoId]: h }));
-  }, []);
 
   const displayVideos = React.useMemo(() => {
     let v = videos;
@@ -385,7 +383,7 @@ export function FeedScreen() {
         const idx = Math.min(list.length - 1, Math.max(0, Math.round(y / pageHeight)));
         const snapped = idx * pageHeight;
         if (Math.abs(y - snapped) > 2) {
-          flatListRef.current?.scrollToOffset({ offset: snapped, animated: true });
+          flatListRef.current?.scrollToOffset({ offset: snapped, animated: false });
         }
         syncActiveVideoFromOffset(snapped);
         return;
@@ -440,9 +438,9 @@ export function FeedScreen() {
       activeVideoId,
       feedHydrated,
       focused: isFocused ? 1 : 0,
-      reelSheetHeights,
+      reelSheetTotalHeight,
     }),
-    [pageHeight, activeVideoId, feedHydrated, isFocused, reelSheetHeights]
+    [pageHeight, activeVideoId, feedHydrated, isFocused, reelSheetTotalHeight]
   );
 
   React.useEffect(() => {
@@ -903,9 +901,15 @@ export function FeedScreen() {
       ) : null}
 
       <View ref={feedSlotRef} style={styles.feedSlot} onLayout={onSlotLayout} collapsable={false}>
+        {!reelListReady && displayVideos.length > 0 ? (
+          <View style={styles.reelListLoading}>
+            <ActivityIndicator size="large" color={colors.moss} />
+          </View>
+        ) : null}
         <FlatList
+          key={`reel-${pageHeight}`}
           ref={flatListRef}
-          style={styles.reelList}
+          style={[styles.reelList, !reelListReady && displayVideos.length > 0 ? styles.reelListHidden : null]}
           data={displayVideos}
           keyExtractor={(x) => x.id}
           extraData={flatListExtraData}
@@ -917,16 +921,15 @@ export function FeedScreen() {
           scrollEventThrottle={16}
           contentContainerStyle={displayVideos.length === 0 ? { flexGrow: 1 } : undefined}
           pagingEnabled
-          snapToInterval={pageHeight}
-          snapToAlignment="start"
           decelerationRate="fast"
-          disableIntervalMomentum
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
           removeClippedSubviews={false}
+          initialNumToRender={2}
+          maxToRenderPerBatch={3}
           windowSize={5}
           getItemLayout={
-            slotHeight > 0 && pageHeight > 40
+            reelListReady
               ? (_, index) => ({
                   length: pageHeight,
                   offset: pageHeight * index,
@@ -954,14 +957,13 @@ export function FeedScreen() {
             )
           }
           renderItem={({ item, index }) => {
-            const sheetBottom = reelSheetHeights[item.id] ?? REEL_BOTTOM_SHEET;
             const showPreviousLeapsChip =
               activeVideoId === item.id &&
               firstPreviousLeapsIndex >= 0 &&
               index === firstPreviousLeapsIndex;
             return (
             <View style={[styles.reelPage, { height: pageHeight }]}>
-              <View style={[styles.reelVideoSlot, { bottom: sheetBottom }]}>
+              <View style={[styles.reelVideoSlot, { bottom: reelSheetTotalHeight }]}>
                 <FeedPostVideo
                   reel
                   url={item.url}
@@ -982,10 +984,9 @@ export function FeedScreen() {
               <View
                 style={[
                   styles.reelSheet,
-                  { paddingBottom: tabBarClearance },
+                  { height: reelSheetTotalHeight, paddingBottom: tabBarClearance },
                   keyboardSheetBottom > 0 ? { bottom: keyboardSheetBottom } : undefined,
                 ]}
-                onLayout={onReelSheetLayoutFor(item.id)}
               >
                 <View style={styles.reelSheetTop}>
                   <View style={styles.reelAvatar}>
@@ -1050,8 +1051,16 @@ export function FeedScreen() {
                     ) : null}
                   </View>
                 </View>
-                {user?.uid ? (
-                  <View style={styles.reelEngagementScroll}>
+                {user?.uid && item.id === activeVideoId ? (
+                  <ScrollView
+                    ref={(r) => {
+                      engagementScrollRefs.current[item.id] = r;
+                    }}
+                    style={styles.reelEngagementScroll}
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                  >
                     <FeedPostEngagement
                       reelLayout
                       videoId={item.id}
@@ -1061,7 +1070,18 @@ export function FeedScreen() {
                       shareUrl={item.url}
                       viewerUid={user.uid}
                       viewerUsername={user.username}
+                      onCommentComposerFocus={() => {
+                        requestAnimationFrame(() => {
+                          engagementScrollRefs.current[item.id]?.scrollToEnd({ animated: true });
+                        });
+                      }}
                     />
+                  </ScrollView>
+                ) : user?.uid ? (
+                  <View style={styles.reelEngagementPlaceholder}>
+                    <Text style={styles.reelEngagementPlaceholderText}>
+                      Swipe to another leap — comments and share load on the clip in view.
+                    </Text>
                   </View>
                 ) : null}
                 {displayVideos.length > 1 ? (
@@ -1073,7 +1093,7 @@ export function FeedScreen() {
                 ) : null}
               </View>
               {showPreviousLeapsChip ? (
-                <View style={[styles.previousLeapsChip, { bottom: sheetBottom + 12 }]} pointerEvents="none">
+                <View style={[styles.previousLeapsChip, { bottom: reelSheetTotalHeight + 12 }]} pointerEvents="none">
                   <Ionicons name="calendar-outline" size={15} color={colors.moss} />
                   <Text style={styles.previousLeapsChipText}>Previous leaps</Text>
                 </View>
@@ -1174,6 +1194,16 @@ const styles = StyleSheet.create({
   reelList: {
     flex: 1,
   },
+  reelListHidden: {
+    opacity: 0,
+    pointerEvents: 'none',
+  },
+  reelListLoading: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
   scrollTopFab: {
     position: 'absolute',
     right: 14,
@@ -1236,6 +1266,7 @@ const styles = StyleSheet.create({
   reelPage: {
     width: '100%',
     backgroundColor: colors.bg,
+    overflow: 'hidden',
   },
   reelVideoSlot: {
     position: 'absolute',
@@ -1308,7 +1339,22 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   reelEngagementScroll: {
+    flex: 1,
+    minHeight: 0,
     alignSelf: 'stretch',
+  },
+  reelEngagementPlaceholder: {
+    flex: 1,
+    minHeight: 48,
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  reelEngagementPlaceholderText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+    textAlign: 'center',
   },
   reelSwipeRail: {
     flexDirection: 'row',
