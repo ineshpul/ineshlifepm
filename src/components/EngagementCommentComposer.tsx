@@ -24,6 +24,7 @@ type Props = {
   forModal: boolean;
   reelLayout: boolean;
   onComposerFocus?: () => void;
+  bottomInset?: number;
 };
 
 const MIN_INPUT_HEIGHT = 44;
@@ -40,6 +41,7 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
   forModal,
   reelLayout,
   onComposerFocus,
+  bottomInset = 0,
 }: Props) {
   const inputRef = React.useRef<TextInput>(null);
   const [inputHeight, setInputHeight] = React.useState(MIN_INPUT_HEIGHT);
@@ -62,7 +64,7 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
       style={[
         styles.compose,
         reelLayout && !forModal && styles.composeReel,
-        forModal && styles.composeModal,
+        forModal && [styles.composeModal, { paddingBottom: bottomInset }],
       ]}
     >
       {replyTarget ? (
