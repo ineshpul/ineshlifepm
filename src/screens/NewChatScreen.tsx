@@ -98,7 +98,7 @@ export function NewChatScreen({ navigation, route }: Props) {
   };
 
   return (
-    <Screen style={styles.screen} dismissKeyboardOnTap>
+    <Screen style={styles.screen} dismissKeyboardOnTap edges={['bottom', 'left', 'right']}>
       {sharePost ? (
         <View style={styles.shareBanner}>
           <Text style={styles.shareLabel}>Sharing</Text>
@@ -186,8 +186,8 @@ const styles = StyleSheet.create({
   shareTxt: { fontSize: 14, fontWeight: '900', color: colors.text },
   search: {
     marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 12,
+    marginTop: 8,
+    marginBottom: 10,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.border,
