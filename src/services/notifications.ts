@@ -4,9 +4,12 @@ import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { IosAuthorizationStatus } from 'expo-notifications';
 
+import { statsDocKeysForLeapDay } from '../lib/leapDayKey';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { readChallengeCache, writeChallengeCache } from '../state/challengeCache';
 import { computeFeedViewingFromNow, nextNyFireUtcMs } from '../utils/nyTime';
+
+const STATS_COLLECTION = 'dailyChallengeStats';
 
 const STORAGE_KEY = 'leap.notificationSchedule.v2';
 const ANDROID_CHANNEL_ID = 'leap-reminders';
@@ -51,6 +54,45 @@ function truncateForNotification(text: string, max = NOTIFICATION_PROMPT_MAX): s
   return `${t.slice(0, max - 1).trimEnd()}…`;
 }
 
+function approvedCountFromStats(data: Record<string, unknown> | undefined): number | null {
+  if (!data) return null;
+  const n = Number(data.approvedPostCount);
+  if (Number.isFinite(n) && n >= 0) return n;
+  const counted = data.countedApprovedVideoIds;
+  if (counted && typeof counted === 'object' && !Array.isArray(counted)) {
+    const keys = Object.keys(counted as Record<string, unknown>).filter((k) =>
+      Boolean((counted as Record<string, unknown>)[k])
+    );
+    if (keys.length > 0) return keys.length;
+  }
+  return null;
+}
+
+async function resolvePostedCount(dateKey: string, atMs = Date.now()): Promise<number> {
+  const keys = statsDocKeysForLeapDay(dateKey, atMs);
+  if (!isFirebaseConfigured() || keys.length === 0) return 0;
+
+  let total = 0;
+  let hasAny = false;
+  await Promise.all(
+    keys.map(async (key) => {
+      try {
+        const snap = await getDoc(doc(firestore(), STATS_COLLECTION, key));
+        const n = approvedCountFromStats(
+          snap.exists() ? (snap.data() as Record<string, unknown>) : undefined
+        );
+        if (n != null) {
+          hasAny = true;
+          total += n;
+        }
+      } catch {
+        // ignore read errors
+      }
+    })
+  );
+  return hasAny ? total : 0;
+}
+
 async function resolveChallengePrompt(dateKey: string): Promise<string | null> {
   const cached = await readChallengeCache(dateKey);
   const cachedTitle = cached?.title?.trim();
@@ -82,6 +124,21 @@ function leapLiveNotificationContent(prompt: string | null): Notifications.Notif
     body: prompt
       ? truncateForNotification(prompt)
       : 'Open Leap and post before midnight.',
+    interruptionLevel: 'timeSensitive',
+    ...(Platform.OS === 'android' ? { priority: Notifications.AndroidNotificationPriority.HIGH } : {}),
+  };
+}
+
+function afternoonLeapNotificationContent(postedCount: number): Notifications.NotificationContentInput {
+  const body =
+    postedCount <= 0
+      ? 'Be the first to take today’s leap.'
+      : postedCount === 1
+        ? 'Join 1 person who posted and take today’s leap.'
+        : `Join ${postedCount} people who posted and take today’s leap.`;
+  return {
+    title: 'People are leaping',
+    body,
     interruptionLevel: 'timeSensitive',
     ...(Platform.OS === 'android' ? { priority: Notifications.AndroidNotificationPriority.HIGH } : {}),
   };
@@ -143,17 +200,25 @@ export async function syncLeapScheduledNotifications(opts: {
     }
 
     const tNoon = nextNyFireUtcMs(12, 0);
+    const tAfternoon = nextNyFireUtcMs(16, 0);
     const tLate = nextNyFireUtcMs(22, 30);
     const noonDateKey = computeFeedViewingFromNow(tNoon).viewingChallengeDateKey;
+    const afternoonDateKey = computeFeedViewingFromNow(tAfternoon).viewingChallengeDateKey;
     const lateDateKey = computeFeedViewingFromNow(tLate).viewingChallengeDateKey;
-    const [noonPrompt, latePrompt] = await Promise.all([
+    const [noonPrompt, afternoonPostedCount, latePrompt] = await Promise.all([
       resolveChallengePrompt(noonDateKey),
+      resolvePostedCount(afternoonDateKey, tAfternoon),
       resolveChallengePrompt(lateDateKey),
     ]);
 
     await Notifications.scheduleNotificationAsync({
       content: leapLiveNotificationContent(noonPrompt),
       trigger: dateTriggerAtUtcMs(tNoon),
+    });
+
+    await Notifications.scheduleNotificationAsync({
+      content: afternoonLeapNotificationContent(afternoonPostedCount),
+      trigger: dateTriggerAtUtcMs(tAfternoon),
     });
 
     await Notifications.scheduleNotificationAsync({

@@ -13,8 +13,25 @@ import {
 import { useAuth } from './auth';
 import { useChallengeWindow } from './challenge';
 import { useHasPostedToday } from './posting';
+import { statsDocKeysForLeapDay } from '../lib/leapDayKey';
 import { readChallengeCache, writeChallengeCache } from './challengeCache';
 import { computeFeedViewingFromNow, nextNyFireUtcMs } from '../utils/nyTime';
+
+const STATS_COLLECTION = 'dailyChallengeStats';
+
+function approvedCountFromStats(data: Record<string, unknown> | undefined): number | null {
+  if (!data) return null;
+  const n = Number(data.approvedPostCount);
+  if (Number.isFinite(n) && n >= 0) return n;
+  const counted = data.countedApprovedVideoIds;
+  if (counted && typeof counted === 'object' && !Array.isArray(counted)) {
+    const keys = Object.keys(counted as Record<string, unknown>).filter((k) =>
+      Boolean((counted as Record<string, unknown>)[k])
+    );
+    if (keys.length > 0) return keys.length;
+  }
+  return null;
+}
 
 const STORAGE_KEY = 'leap.settings.v4';
 
@@ -122,6 +139,7 @@ export function SettingsPreferencesProvider({ children }: { children: React.Reac
   const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
   const hasPostedToday = useHasPostedToday(user?.uid, viewingChallengeDateKey);
   const [upcomingNoonLeapTitle, setUpcomingNoonLeapTitle] = React.useState<string | null>(null);
+  const [todayPostedCount, setTodayPostedCount] = React.useState(0);
 
   React.useEffect(() => {
     const tNoon = nextNyFireUtcMs(12, 0);
@@ -167,6 +185,53 @@ export function SettingsPreferencesProvider({ children }: { children: React.Reac
   }, [win.dateKey, win.isLive]);
 
   React.useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      setTodayPostedCount(0);
+      return;
+    }
+
+    const statsKeys = statsDocKeysForLeapDay(viewingChallengeDateKey, Date.now());
+    if (statsKeys.length === 0) {
+      setTodayPostedCount(0);
+      return;
+    }
+
+    const totals = new Map<string, number>();
+    const publish = () => {
+      let sum = 0;
+      let hasAny = false;
+      for (const v of totals.values()) {
+        if (Number.isFinite(v) && v >= 0) {
+          sum += v;
+          hasAny = true;
+        }
+      }
+      setTodayPostedCount(hasAny ? sum : 0);
+    };
+
+    const unsubs = statsKeys.map((statsKey) =>
+      onSnapshot(
+        doc(firestore(), STATS_COLLECTION, statsKey),
+        (snap) => {
+          const n = approvedCountFromStats(
+            snap.exists() ? (snap.data() as Record<string, unknown>) : undefined
+          );
+          if (n != null) totals.set(statsKey, n);
+          else totals.delete(statsKey);
+          publish();
+        },
+        () => {
+          // keep last known count on listener errors
+        }
+      )
+    );
+
+    return () => {
+      for (const unsub of unsubs) unsub();
+    };
+  }, [viewingChallengeDateKey, win.dateKey, win.isLive]);
+
+  React.useEffect(() => {
     let alive = true;
     (async () => {
       try {
@@ -209,7 +274,14 @@ export function SettingsPreferencesProvider({ children }: { children: React.Reac
       streakReminders: preferences.streakReminders,
       hasPostedToday,
     });
-  }, [ready, preferences.notificationsEnabled, preferences.streakReminders, hasPostedToday, upcomingNoonLeapTitle]);
+  }, [
+    ready,
+    preferences.notificationsEnabled,
+    preferences.streakReminders,
+    hasPostedToday,
+    upcomingNoonLeapTitle,
+    todayPostedCount,
+  ]);
 
   const patch = React.useCallback(
     (partial: Partial<SettingsPreferencesState>) => {
