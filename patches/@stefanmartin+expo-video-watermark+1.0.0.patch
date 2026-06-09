@@ -1,0 +1,79 @@
+diff --git a/node_modules/@stefanmartin/expo-video-watermark/ios/ExpoVideoWatermarkModule.swift b/node_modules/@stefanmartin/expo-video-watermark/ios/ExpoVideoWatermarkModule.swift
+index 527145a..c53d9bf 100644
+--- a/node_modules/@stefanmartin/expo-video-watermark/ios/ExpoVideoWatermarkModule.swift
++++ b/node_modules/@stefanmartin/expo-video-watermark/ios/ExpoVideoWatermarkModule.swift
+@@ -80,8 +80,10 @@ public class ExpoVideoWatermarkModule: Module {
+       return
+     }
+ 
+-    // Get video size accounting for transform
+-    let videoSize = self.naturalSizeForTrack(videoTrack)
++    // Render size + transform derived from the track's preferredTransform so rotated
++    // recordings (e.g. expo-camera landscape takes) fill the frame instead of
++    // letterboxing with black bars above the watermark.
++    let (videoSize, transform) = self.videoCompositionProperties(for: videoTrack)
+ 
+     // Create layer hierarchy for watermark overlay
+     let parentLayer = CALayer()
+@@ -125,8 +127,6 @@ public class ExpoVideoWatermarkModule: Module {
+ 
+     let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compositionVideoTrack)
+ 
+-    // Apply transform to handle rotated videos
+-    let transform = self.transformForTrack(videoTrack)
+     layerInstruction.setTransform(transform, at: .zero)
+ 
+     instruction.layerInstructions = [layerInstruction]
+@@ -169,37 +169,24 @@ public class ExpoVideoWatermarkModule: Module {
+     }
+   }
+ 
+-  // Calculate the natural size accounting for video transform/rotation
+-  private func naturalSizeForTrack(_ track: AVAssetTrack) -> CGSize {
+-    let size = track.naturalSize
+-    let transform = track.preferredTransform
++  /// Maps a track's stored pixel buffer into upright render-space coordinates.
++  private func videoCompositionProperties(
++    for track: AVAssetTrack
++  ) -> (renderSize: CGSize, transform: CGAffineTransform) {
++    let naturalSize = track.naturalSize
++    let preferredTransform = track.preferredTransform
+ 
+-    // Check if video is rotated 90 or 270 degrees
+-    if abs(transform.a) == 0 && abs(transform.d) == 0 {
+-      return CGSize(width: size.height, height: size.width)
+-    }
+-    return size
+-  }
++    let transformedRect = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform)
++    let renderSize = CGSize(width: abs(transformedRect.width), height: abs(transformedRect.height))
+ 
+-  // Get the transform needed to render the video correctly
+-  private func transformForTrack(_ track: AVAssetTrack) -> CGAffineTransform {
+-    let size = track.naturalSize
+-    let transform = track.preferredTransform
+-
+-    // Handle different rotation cases
+-    if transform.a == 0 && transform.d == 0 {
+-      if transform.b == 1.0 && transform.c == -1.0 {
+-        // 90 degrees rotation
+-        return CGAffineTransform(translationX: size.height, y: 0).rotated(by: .pi / 2)
+-      } else if transform.b == -1.0 && transform.c == 1.0 {
+-        // 270 degrees rotation
+-        return CGAffineTransform(translationX: 0, y: size.width).rotated(by: -.pi / 2)
+-      }
+-    } else if transform.a == -1.0 && transform.d == -1.0 {
+-      // 180 degrees rotation
+-      return CGAffineTransform(translationX: size.width, y: size.height).rotated(by: .pi)
++    var transform = preferredTransform
++    if transformedRect.origin.x != 0 {
++      transform.tx -= transformedRect.origin.x
++    }
++    if transformedRect.origin.y != 0 {
++      transform.ty -= transformedRect.origin.y
+     }
+ 
+-    return .identity
++    return (renderSize, transform)
+   }
+ }
