@@ -25,45 +25,47 @@ export function RecordClipPreview({ uri, secondaryUri, dualFrontIsPrimary = fals
     }
   );
 
-  // Keep the PIP frame-locked to the primary clip — native controls only drive the main player.
+  // Keep the PIP frame-locked to the primary clip through native-control replay.
   React.useEffect(() => {
     if (!secondaryUri || !secondaryPlayer) return;
-    const playSub = player.addListener('playingChange', ({ isPlaying }) => {
-      try {
-        if (isPlaying) secondaryPlayer.play();
-        else secondaryPlayer.pause();
-      } catch {
-        // ignore
-      }
-    });
-    const endSub = player.addListener('playToEnd', () => {
-      try {
-        secondaryPlayer.pause();
-      } catch {
-        // ignore
-      }
-    });
-    return () => {
-      playSub.remove();
-      endSub.remove();
-    };
-  }, [player, secondaryPlayer, secondaryUri]);
 
-  // When audio lives on the PIP clip, keep its timeline aligned with the big preview.
-  React.useEffect(() => {
-    if (!audioOnSecondary || !secondaryPlayer) return;
-    const id = setInterval(() => {
+    const syncPip = () => {
       try {
         const primaryTime = player.currentTime;
-        if (Math.abs(secondaryPlayer.currentTime - primaryTime) > 0.25) {
-          secondaryPlayer.currentTime = primaryTime;
+        const primaryPlaying = player.playing;
+        if (primaryPlaying) {
+          if (Math.abs(secondaryPlayer.currentTime - primaryTime) > 0.2) {
+            secondaryPlayer.currentTime = primaryTime;
+          }
+          if (!secondaryPlayer.playing) {
+            secondaryPlayer.play();
+          }
+        } else if (secondaryPlayer.playing) {
+          secondaryPlayer.pause();
         }
       } catch {
         // ignore
       }
-    }, 350);
-    return () => clearInterval(id);
-  }, [player, secondaryPlayer, audioOnSecondary]);
+    };
+
+    const playSub = player.addListener('playingChange', syncPip);
+    const endSub = player.addListener('playToEnd', () => {
+      try {
+        secondaryPlayer.pause();
+        secondaryPlayer.currentTime = 0;
+      } catch {
+        // ignore
+      }
+    });
+    const interval = setInterval(syncPip, 250);
+
+    return () => {
+      playSub.remove();
+      endSub.remove();
+      clearInterval(interval);
+    };
+  }, [player, secondaryPlayer, secondaryUri]);
+
   React.useEffect(() => {
     // Autoplay once after recording so users don't have to tap play.
     const t = setTimeout(() => {

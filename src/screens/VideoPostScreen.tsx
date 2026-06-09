@@ -152,6 +152,7 @@ export function VideoPostScreen({ route }: Props) {
 
   React.useEffect(() => {
     setPrimaryPlaying(false);
+    secondarySyncPosRef.current = 0;
   }, [row?.url, row?.secondaryUrl]);
 
   React.useEffect(() => {
@@ -221,11 +222,20 @@ export function VideoPostScreen({ route }: Props) {
                   if (!status.isLoaded) return;
                   const playing = Boolean(status.isPlaying);
                   setPrimaryPlaying(playing);
-                  if (secondaryCarriesAudio) {
+                  if (row.secondaryUrl) {
                     const pos = status.positionMillis ?? 0;
-                    if (Math.abs(pos - secondarySyncPosRef.current) >= 200) {
+                    if (Math.abs(pos - secondarySyncPosRef.current) >= 150) {
                       secondarySyncPosRef.current = pos;
-                      void secondaryVideoRef.current?.setPositionAsync(pos).catch(() => {});
+                      void (async () => {
+                        try {
+                          await secondaryVideoRef.current?.setPositionAsync(pos);
+                          if (playing) await secondaryVideoRef.current?.playAsync();
+                        } catch {
+                          // ignore
+                        }
+                      })();
+                    } else if (playing) {
+                      void secondaryVideoRef.current?.playAsync().catch(() => {});
                     }
                   }
                   if (status.didJustFinish) {
@@ -233,6 +243,7 @@ export function VideoPostScreen({ route }: Props) {
                       try {
                         await secondaryVideoRef.current?.pauseAsync();
                         await secondaryVideoRef.current?.setPositionAsync(0);
+                        secondarySyncPosRef.current = 0;
                       } catch {
                         // ignore
                       }

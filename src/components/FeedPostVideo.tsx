@@ -94,7 +94,8 @@ function FeedPostVideoInner(props: {
     setLoaded(false);
     lastStatusPaintRef.current = 0;
     prevEffectivePlayRef.current = false;
-  }, [url]);
+    secondarySyncPosRef.current = 0;
+  }, [url, secondaryUrl]);
 
   React.useEffect(() => {
     if (!shouldPlay) setUserPaused(false);
@@ -171,7 +172,7 @@ function FeedPostVideoInner(props: {
     void stopVideoPlayer(secondary, false);
   }, [effectivePlay, reel]);
 
-  // Dual-camera PIP can keep playing when it carries audio — force it to follow the main reel.
+  // Dual-camera PIP must follow the main reel on every play/replay/loop.
   React.useEffect(() => {
     if (!secondaryUrl) return;
     const secondary = secondaryVideoRef.current;
@@ -179,6 +180,8 @@ function FeedPostVideoInner(props: {
     void (async () => {
       try {
         if (effectivePlay) {
+          await secondary.setIsMutedAsync(secondaryAudioMuted);
+          await secondary.setVolumeAsync(audioOnSecondary ? 1.0 : 0);
           await secondary.playAsync();
         } else {
           await secondary.pauseAsync();
@@ -187,16 +190,15 @@ function FeedPostVideoInner(props: {
         // native race
       }
     })();
-  }, [effectivePlay, secondaryUrl]);
+  }, [effectivePlay, secondaryUrl, secondaryAudioMuted, audioOnSecondary]);
 
-  // When the PIP clip carries audio, keep it time-aligned with the primary reel.
   React.useEffect(() => {
-    if (!audioOnSecondary || !status?.isLoaded) return;
+    if (!secondaryUrl || !status?.isLoaded || !effectivePlay) return;
     const pos = status.positionMillis ?? 0;
-    if (Math.abs(pos - secondarySyncPosRef.current) < 200) return;
+    if (Math.abs(pos - secondarySyncPosRef.current) < 150) return;
     secondarySyncPosRef.current = pos;
     void secondaryVideoRef.current?.setPositionAsync(pos).catch(() => {});
-  }, [audioOnSecondary, status]);
+  }, [secondaryUrl, status, effectivePlay]);
 
   React.useEffect(() => {
     if (viewTimerRef.current) {
