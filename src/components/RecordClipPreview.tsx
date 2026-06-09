@@ -48,6 +48,22 @@ export function RecordClipPreview({ uri, secondaryUri, dualFrontIsPrimary = fals
       endSub.remove();
     };
   }, [player, secondaryPlayer, secondaryUri]);
+
+  // When audio lives on the PIP clip, keep its timeline aligned with the big preview.
+  React.useEffect(() => {
+    if (!audioOnSecondary || !secondaryPlayer) return;
+    const id = setInterval(() => {
+      try {
+        const primaryTime = player.currentTime;
+        if (Math.abs(secondaryPlayer.currentTime - primaryTime) > 0.25) {
+          secondaryPlayer.currentTime = primaryTime;
+        }
+      } catch {
+        // ignore
+      }
+    }, 350);
+    return () => clearInterval(id);
+  }, [player, secondaryPlayer, audioOnSecondary]);
   React.useEffect(() => {
     // Autoplay once after recording so users don't have to tap play.
     const t = setTimeout(() => {

@@ -524,20 +524,22 @@ export function RecordScreen() {
 
     recordTapBusyRef.current = true;
     try {
-      const micOk = await ensureMicrophonePermissionForRecording();
-      if (!micOk) {
-        showError(
-          'Microphone needed',
-          new Error('Allow the microphone to record video with sound, or change this in Settings.')
-        );
-        restorePreviewAfterRecording();
-        return;
-      }
-
       if (cameraMode === 'single') {
+        const micOk = await ensureMicrophonePermissionForRecording();
+        if (!micOk) {
+          showError(
+            'Microphone needed',
+            new Error('Allow the microphone to record video with sound, or change this in Settings.')
+          );
+          restorePreviewAfterRecording();
+          return;
+        }
         await setAudioSessionForRecording().catch(() => {});
         await startRecordingSession();
       } else {
+        // Dual mode uses vision-camera's AVAudioSession. expo-av's recording probe
+        // races the shared mic and causes intermittent silent clips on iOS.
+        await setAudioSessionForPlayback().catch(() => {});
         await startDualRecordingSession();
       }
     } finally {

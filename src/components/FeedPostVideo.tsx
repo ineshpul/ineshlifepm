@@ -73,6 +73,7 @@ function FeedPostVideoInner(props: {
   } = props;
   const videoRef = React.useRef<Video>(null);
   const secondaryVideoRef = React.useRef<Video>(null);
+  const secondarySyncPosRef = React.useRef(0);
   const [status, setStatus] = React.useState<AVPlaybackStatus | null>(null);
   const [loaded, setLoaded] = React.useState(false);
   const lastStatusPaintRef = React.useRef(0);
@@ -187,6 +188,15 @@ function FeedPostVideoInner(props: {
       }
     })();
   }, [effectivePlay, secondaryUrl]);
+
+  // When the PIP clip carries audio, keep it time-aligned with the primary reel.
+  React.useEffect(() => {
+    if (!audioOnSecondary || !status?.isLoaded) return;
+    const pos = status.positionMillis ?? 0;
+    if (Math.abs(pos - secondarySyncPosRef.current) < 200) return;
+    secondarySyncPosRef.current = pos;
+    void secondaryVideoRef.current?.setPositionAsync(pos).catch(() => {});
+  }, [audioOnSecondary, status]);
 
   React.useEffect(() => {
     if (viewTimerRef.current) {

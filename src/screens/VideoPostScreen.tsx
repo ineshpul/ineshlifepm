@@ -133,6 +133,7 @@ export function VideoPostScreen({ route }: Props) {
   const [keyboardPad, setKeyboardPad] = React.useState(0);
   const primaryVideoRef = React.useRef<Video>(null);
   const secondaryVideoRef = React.useRef<Video>(null);
+  const secondarySyncPosRef = React.useRef(0);
   const [primaryPlaying, setPrimaryPlaying] = React.useState(false);
   const dualFrontIsPrimary = row?.dualFrontIsPrimary === true;
   const secondaryCarriesAudio = Boolean(row?.secondaryUrl && dualFrontIsPrimary);
@@ -220,6 +221,13 @@ export function VideoPostScreen({ route }: Props) {
                   if (!status.isLoaded) return;
                   const playing = Boolean(status.isPlaying);
                   setPrimaryPlaying(playing);
+                  if (secondaryCarriesAudio) {
+                    const pos = status.positionMillis ?? 0;
+                    if (Math.abs(pos - secondarySyncPosRef.current) >= 200) {
+                      secondarySyncPosRef.current = pos;
+                      void secondaryVideoRef.current?.setPositionAsync(pos).catch(() => {});
+                    }
+                  }
                   if (status.didJustFinish) {
                     void (async () => {
                       try {
