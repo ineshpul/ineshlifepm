@@ -6,7 +6,6 @@ import {
   Dimensions,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -17,6 +16,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  type KeyboardEvent,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -98,6 +98,7 @@ export function FeedPostEngagement({
   const [blockOpen, setBlockOpen] = React.useState(false);
   const [commentsModalOpen, setCommentsModalOpen] = React.useState(false);
   const [commentsSheetHeight, setCommentsSheetHeight] = React.useState(0);
+  const [modalKeyboardHeight, setModalKeyboardHeight] = React.useState(0);
   const [replyTarget, setReplyTarget] = React.useState<ReplyTargetPayload | null>(null);
   const [expandedThreads, setExpandedThreads] = React.useState<Record<string, boolean>>({});
   const [commentsQueryReady, setCommentsQueryReady] = React.useState(false);
@@ -115,6 +116,26 @@ export function FeedPostEngagement({
     setComments([]);
     setCommentsQueryReady(false);
   }, [videoId]);
+
+  React.useEffect(() => {
+    if (!commentsModalOpen) {
+      setModalKeyboardHeight(0);
+      return;
+    }
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = (e: KeyboardEvent) => {
+      setModalKeyboardHeight(Math.max(0, e.endCoordinates.height));
+    };
+    const onHide = () => setModalKeyboardHeight(0);
+    const subShow = Keyboard.addListener(showEvt, onShow);
+    const subHide = Keyboard.addListener(hideEvt, onHide);
+    return () => {
+      subShow.remove();
+      subHide.remove();
+      setModalKeyboardHeight(0);
+    };
+  }, [commentsModalOpen]);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !viewerUid) return;
@@ -455,6 +476,7 @@ export function FeedPostEngagement({
     Keyboard.dismiss();
     setCommentsModalOpen(false);
     setCommentsSheetHeight(0);
+    setModalKeyboardHeight(0);
     setReplyTarget(null);
     setExpandedThreads({});
   }, []);
@@ -612,10 +634,11 @@ export function FeedPostEngagement({
                 </View>
               </View>
             </PanGestureHandler>
-            <KeyboardAvoidingView
-              style={styles.modalBody}
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              keyboardVerticalOffset={0}
+            <View
+              style={[
+                styles.modalBody,
+                modalKeyboardHeight > 0 ? { paddingBottom: modalKeyboardHeight } : null,
+              ]}
             >
               <FlatList
                 data={commentDisplayList}
@@ -661,10 +684,10 @@ export function FeedPostEngagement({
                   onSend={() => void onSendComment()}
                   forModal
                   reelLayout={reelLayout}
-                  bottomInset={Math.max(insets.bottom, 8)}
+                  bottomInset={modalKeyboardHeight > 0 ? 0 : Math.max(insets.bottom, 8)}
                 />
               ) : null}
-            </KeyboardAvoidingView>
+            </View>
           </View>
         </View>
       </Modal>
