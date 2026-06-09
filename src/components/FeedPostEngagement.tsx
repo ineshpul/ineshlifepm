@@ -1,5 +1,6 @@
 import * as React from 'react';
 import {
+  ActionSheetIOS,
   ActivityIndicator,
   Alert,
   Dimensions,
@@ -37,7 +38,8 @@ import {
 import { colors } from '../theme/colors';
 import { firestore, firebaseAuth, isFirebaseConfigured } from '../firebase/firebase';
 import { createInAppNotification } from '../services/social';
-import { showError } from '../utils/ui';
+import { saveRemoteVideoToCameraRoll } from '../services/saveVideoToCameraRoll';
+import { showError, showInfo } from '../utils/ui';
 import { BlockReportModal } from '../chat/components/BlockReportModal';
 import { reportVideo } from '../services/contentReports';
 import { blockUser } from '../services/chat/chatFirestore';
@@ -99,6 +101,7 @@ export function FeedPostEngagement({
   const [replyTarget, setReplyTarget] = React.useState<ReplyTargetPayload | null>(null);
   const [expandedThreads, setExpandedThreads] = React.useState<Record<string, boolean>>({});
   const [commentsQueryReady, setCommentsQueryReady] = React.useState(false);
+  const [savingToRoll, setSavingToRoll] = React.useState(false);
   const postInFlightRef = React.useRef(false);
 
   const commentsThreaded = React.useMemo(() => flattenCommentsForThread(comments), [comments]);
@@ -263,7 +266,7 @@ export function FeedPostEngagement({
     }
   };
 
-  const onShare = async () => {
+  const shareLink = async () => {
     try {
       const message = `${shareTitle}\n${shareUrl}`;
       const isHttp = /^https?:\/\//i.test(shareUrl.trim());
@@ -275,6 +278,41 @@ export function FeedPostEngagement({
     } catch {
       // user dismissed sheet
     }
+  };
+
+  const saveToCameraRoll = async () => {
+    if (savingToRoll) return;
+    setSavingToRoll(true);
+    try {
+      await saveRemoteVideoToCameraRoll(shareUrl);
+      showInfo('Saved', 'Video saved to camera roll.');
+    } catch (e) {
+      showError('Could not save', e);
+    } finally {
+      setSavingToRoll(false);
+    }
+  };
+
+  const onShare = () => {
+    const options = ['Share link', 'Save to camera roll', 'Cancel'];
+    const run = (index: number) => {
+      if (index === 0) void shareLink();
+      else if (index === 1) void saveToCameraRoll();
+    };
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options, cancelButtonIndex: 2, title: shareTitle },
+        run
+      );
+      return;
+    }
+
+    Alert.alert('Share', shareTitle, [
+      { text: 'Share link', onPress: () => void shareLink() },
+      { text: 'Save to camera roll', onPress: () => void saveToCameraRoll() },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const notifyCommentRecipients = async (text: string, reply: ReplyTargetPayload | null) => {
@@ -515,10 +553,15 @@ export function FeedPostEngagement({
         <TouchableOpacity
           style={styles.actionBtn}
           onPress={onShare}
+          disabled={savingToRoll}
           accessibilityRole="button"
-          accessibilityLabel="Share link outside Leap"
+          accessibilityLabel="Share video"
         >
-          <Ionicons name="share-outline" size={22} color={colors.text} />
+          {savingToRoll ? (
+            <ActivityIndicator size="small" color={colors.text} />
+          ) : (
+            <Ionicons name="share-outline" size={22} color={colors.text} />
+          )}
         </TouchableOpacity>
 
         {viewerUid && viewerUid !== videoOwnerUid ? (

@@ -43,6 +43,35 @@ async function cleanupTempFile(uri: string | undefined): Promise<void> {
   }
 }
 
+async function downloadRemoteVideo(url: string): Promise<string> {
+  const dest = `${FileSystem.cacheDirectory}leap-share-save-${Date.now()}.mp4`;
+  const result = await FileSystem.downloadAsync(url, dest);
+  if (result.status !== 200) {
+    throw new Error('Could not download the video. Check your connection and try again.');
+  }
+  return result.uri;
+}
+
+/** Save a feed or chat video URL (remote or local) to the camera roll. */
+export async function saveRemoteVideoToCameraRoll(videoUrl: string): Promise<void> {
+  const trimmed = videoUrl.trim();
+  if (!trimmed || trimmed.startsWith('demo://')) {
+    throw new Error('No video to save.');
+  }
+
+  if (!/^https?:\/\//i.test(trimmed)) {
+    await saveVideoToCameraRoll(trimmed);
+    return;
+  }
+
+  const localUri = await downloadRemoteVideo(trimmed);
+  try {
+    await saveVideoToCameraRoll(localUri);
+  } finally {
+    await cleanupTempFile(localUri);
+  }
+}
+
 /** Camera-roll only — posted/uploaded feed videos never pass through watermarking. */
 export async function saveVideoToCameraRoll(
   uri: string,

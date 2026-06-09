@@ -2,6 +2,7 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -118,37 +119,41 @@ export function NewChatScreen({ navigation, route }: Props) {
         data={filtered}
         keyExtractor={(r) => r.targetUid}
         extraData={rows.map((r) => `${r.targetUid}:${r.targetPhotoUrl ?? ''}`).join('|')}
-        contentContainerStyle={{ paddingBottom: 40 }}
+        contentContainerStyle={styles.list}
         ListEmptyComponent={<Text style={styles.empty}>Follow people first, then message them here.</Text>}
         renderItem={({ item }) => {
           const photo = (item.targetPhotoUrl ?? '').trim();
+          const isBusy = busy === item.targetUid;
           return (
-            <View style={styles.row}>
-              <TouchableOpacity
-                style={styles.rowTap}
-                onPress={() => void openDm(item.targetUid, item.targetUsername)}
-                disabled={busy === item.targetUid}
-                accessibilityRole="button"
-                accessibilityLabel={`Message ${item.targetUsername}`}
-              >
-                <View style={styles.avatar}>
-                  {photo ? (
-                    <Image
-                      key={`newchat-${item.targetUid}`}
-                      recyclingKey={item.targetUid}
-                      source={{ uri: photo }}
-                      style={styles.avatarImg}
-                      contentFit="cover"
-                    />
-                  ) : (
-                    <Text style={styles.avatarTxt}>{item.targetUsername.slice(0, 1).toUpperCase()}</Text>
-                  )}
-                </View>
-                <Text style={styles.chatAction}>Message</Text>
-                {busy === item.targetUid ? <ActivityIndicator color={colors.moss} /> : null}
-              </TouchableOpacity>
-              <UsernameLink uid={item.targetUid} username={item.targetUsername} style={styles.name} />
-            </View>
+            <Pressable
+              style={({ pressed }) => [styles.row, pressed && !isBusy && styles.rowPressed]}
+              onPress={() => void openDm(item.targetUid, item.targetUsername)}
+              disabled={isBusy}
+              accessibilityRole="button"
+              accessibilityLabel={`Message ${item.targetUsername}`}
+            >
+              <View style={styles.avatar}>
+                {photo ? (
+                  <Image
+                    key={`newchat-${item.targetUid}`}
+                    recyclingKey={item.targetUid}
+                    source={{ uri: photo }}
+                    style={styles.avatarImg}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <Text style={styles.avatarTxt}>{item.targetUsername.slice(0, 1).toUpperCase()}</Text>
+                )}
+              </View>
+              <View style={styles.nameCol}>
+                <UsernameLink uid={item.targetUid} username={item.targetUsername} style={styles.name} />
+              </View>
+              {isBusy ? (
+                <ActivityIndicator color={colors.moss} size="small" />
+              ) : (
+                <Ionicons name="chevron-forward" size={16} color={colors.muted2} />
+              )}
+            </Pressable>
           );
         }}
       />
@@ -195,31 +200,23 @@ const styles = StyleSheet.create({
   searchAfterShare: {
     marginTop: 10,
   },
+  list: { paddingHorizontal: 16, paddingBottom: 40, gap: 8, paddingTop: 2 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
+    gap: 10,
     paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border2,
-  },
-  rowTap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flexShrink: 0,
-  },
-  chatAction: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: colors.moss,
-    minWidth: 72,
-  },
-  avatar: {
-    width: 44,
-    height: 44,
+    paddingHorizontal: 14,
     borderRadius: 14,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  rowPressed: { opacity: 0.88 },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: colors.cardTint,
     alignItems: 'center',
     justifyContent: 'center',
@@ -227,8 +224,9 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     overflow: 'hidden',
   },
-  avatarImg: { width: 44, height: 44 },
-  avatarTxt: { fontSize: 16, fontWeight: '900', color: colors.moss },
-  name: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: '800' },
+  avatarImg: { width: 40, height: 40 },
+  avatarTxt: { fontSize: 15, fontWeight: '900', color: colors.moss },
+  nameCol: { flex: 1, minWidth: 0 },
+  name: { fontSize: 15, fontWeight: '800' },
   empty: { padding: 24, textAlign: 'center', color: colors.muted, fontWeight: '600' },
 });
