@@ -95,7 +95,7 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
           maxLength={500}
           multiline
           scrollEnabled={forModal || inputHeight >= MAX_INPUT_HEIGHT}
-          textAlignVertical={forModal ? 'center' : 'top'}
+          textAlignVertical="top"
           onContentSizeChange={
             forModal
               ? undefined

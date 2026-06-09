@@ -3,10 +3,10 @@ import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
+  Animated,
   Dimensions,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -17,6 +17,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  type KeyboardEvent,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -106,6 +107,7 @@ export function FeedPostEngagement({
   const [commentsQueryReady, setCommentsQueryReady] = React.useState(false);
   const [savingToRoll, setSavingToRoll] = React.useState(false);
   const postInFlightRef = React.useRef(false);
+  const keyboardInset = React.useRef(new Animated.Value(0)).current;
 
   const commentsThreaded = React.useMemo(() => flattenCommentsForThread(comments), [comments]);
   const commentDisplayList = React.useMemo(
@@ -118,6 +120,31 @@ export function FeedPostEngagement({
     setComments([]);
     setCommentsQueryReady(false);
   }, [videoId]);
+
+  React.useEffect(() => {
+    if (!commentsModalOpen) {
+      keyboardInset.setValue(0);
+      return;
+    }
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const animateInset = (toValue: number, duration?: number) => {
+      Animated.timing(keyboardInset, {
+        toValue,
+        duration: duration ?? 250,
+        useNativeDriver: false,
+      }).start();
+    };
+    const onShow = (e: KeyboardEvent) => animateInset(e.endCoordinates.height, e.duration ?? 250);
+    const onHide = (e: KeyboardEvent) => animateInset(0, e.duration ?? 250);
+    const subShow = Keyboard.addListener(showEvt, onShow);
+    const subHide = Keyboard.addListener(hideEvt, onHide);
+    return () => {
+      subShow.remove();
+      subHide.remove();
+      keyboardInset.setValue(0);
+    };
+  }, [commentsModalOpen, keyboardInset]);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !viewerUid) return;
@@ -457,11 +484,12 @@ export function FeedPostEngagement({
 
   const closeCommentsModal = React.useCallback(() => {
     Keyboard.dismiss();
+    keyboardInset.setValue(0);
     setCommentsModalOpen(false);
     setCommentsSheetHeight(0);
     setReplyTarget(null);
     setExpandedThreads({});
-  }, []);
+  }, [keyboardInset]);
 
   const sheetPullDismissedRef = React.useRef(false);
 
@@ -595,33 +623,30 @@ export function FeedPostEngagement({
             accessibilityRole="button"
             accessibilityLabel="Close comments"
           />
-          <View style={[styles.modalSheet, { height: commentsSheetHeight }]}>
-            <PanGestureHandler
-              onHandlerStateChange={onModalPanGesture}
-              activeOffsetY={8}
-              failOffsetX={[-40, 40]}
-            >
-              <View style={styles.modalTopPan} collapsable={false}>
-                <View style={styles.modalGrabber} />
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Comments</Text>
-                  <TouchableOpacity
-                    onPress={() => closeCommentsModal()}
-                    hitSlop={12}
-                    accessibilityRole="button"
-                    accessibilityLabel="Close comments"
-                  >
-                    <Ionicons name="close" size={26} color={colors.text} />
-                  </TouchableOpacity>
+          <Animated.View style={[styles.modalSheetHost, { marginBottom: keyboardInset }]}>
+            <View style={[styles.modalSheet, { height: commentsSheetHeight }]}>
+              <PanGestureHandler
+                onHandlerStateChange={onModalPanGesture}
+                activeOffsetY={8}
+                failOffsetX={[-40, 40]}
+              >
+                <View style={styles.modalTopPan} collapsable={false}>
+                  <View style={styles.modalGrabber} />
+                  <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>Comments</Text>
+                    <TouchableOpacity
+                      onPress={() => closeCommentsModal()}
+                      hitSlop={12}
+                      accessibilityRole="button"
+                      accessibilityLabel="Close comments"
+                    >
+                      <Ionicons name="close" size={26} color={colors.text} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            </PanGestureHandler>
-            <KeyboardAvoidingView
-              style={styles.modalBody}
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              keyboardVerticalOffset={0}
-            >
-              <FlatList
+              </PanGestureHandler>
+              <View style={styles.modalBody}>
+                <FlatList
                 data={commentDisplayList}
                 extraData={expandedThreads}
                 keyExtractor={(row) =>
@@ -655,21 +680,22 @@ export function FeedPostEngagement({
                 onScroll={onModalListScroll}
                 windowSize={10}
               />
-              {viewerUid ? (
-                <EngagementCommentComposer
-                  draft={draft}
-                  onChangeText={setDraft}
-                  replyTarget={replyTarget}
-                  onClearReply={() => setReplyTarget(null)}
-                  sending={sending}
-                  onSend={() => void onSendComment()}
-                  forModal
-                  reelLayout={reelLayout}
-                  bottomInset={Math.max(insets.bottom, 8)}
-                />
-              ) : null}
-            </KeyboardAvoidingView>
-          </View>
+                {viewerUid ? (
+                  <EngagementCommentComposer
+                    draft={draft}
+                    onChangeText={setDraft}
+                    replyTarget={replyTarget}
+                    onClearReply={() => setReplyTarget(null)}
+                    sending={sending}
+                    onSend={() => void onSendComment()}
+                    forModal
+                    reelLayout={reelLayout}
+                    bottomInset={Math.max(insets.bottom, 8)}
+                  />
+                ) : null}
+              </View>
+            </View>
+          </Animated.View>
         </View>
       </Modal>
 
@@ -756,11 +782,11 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
+  modalSheetHost: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
   modalSheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     backgroundColor: colors.white,
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
