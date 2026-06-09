@@ -244,6 +244,7 @@ export function YourLeapsScreen() {
                     analyticsVideoId={item.id}
                     videoOwnerUid={item.ownerUid}
                     viewerUid={user?.uid}
+                    viewerUsername={user?.username}
                     onReelActivate={() => setActiveVideoId(item.id)}
                   />
                 </View>

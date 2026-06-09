@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -7,6 +7,8 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { colors } from '../theme/colors';
 import { recordVideoView } from '../services/recordVideoView';
 import { ensureVideoLiked } from '../services/videoLikes';
+
+const HEART_BURST_SIZE = 96;
 
 function formatTimeLeft(totalSeconds: number) {
   const s = Math.max(0, totalSeconds);
@@ -77,8 +79,10 @@ function FeedPostVideoInner(props: {
   const [userPaused, setUserPaused] = React.useState(false);
   const viewTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const viewRecordedKeyRef = React.useRef<string | null>(null);
-  const [likeFlash, setLikeFlash] = React.useState(false);
-  const likeFlashTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [heartBurst, setHeartBurst] = React.useState<{ x: number; y: number } | null>(null);
+  const heartScale = React.useRef(new Animated.Value(0)).current;
+  const heartOpacity = React.useRef(new Animated.Value(0)).current;
+  const heartAnimRef = React.useRef<Animated.CompositeAnimation | null>(null);
   const prevEffectivePlayRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -98,11 +102,52 @@ function FeedPostVideoInner(props: {
   React.useEffect(
     () => () => {
       if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
-      if (likeFlashTimerRef.current) clearTimeout(likeFlashTimerRef.current);
+      heartAnimRef.current?.stop();
       void stopVideoPlayer(videoRef.current, false);
       void stopVideoPlayer(secondaryVideoRef.current, false);
     },
     []
+  );
+
+  const playHeartBurst = React.useCallback(
+    (x: number, y: number) => {
+      heartAnimRef.current?.stop();
+      setHeartBurst({ x, y });
+      heartScale.setValue(0.4);
+      heartOpacity.setValue(0);
+      heartAnimRef.current = Animated.parallel([
+        Animated.sequence([
+          Animated.spring(heartScale, {
+            toValue: 1.12,
+            friction: 5,
+            tension: 140,
+            useNativeDriver: true,
+          }),
+          Animated.timing(heartScale, {
+            toValue: 1,
+            duration: 140,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.timing(heartOpacity, {
+            toValue: 1,
+            duration: 90,
+            useNativeDriver: true,
+          }),
+          Animated.delay(420),
+          Animated.timing(heartOpacity, {
+            toValue: 0,
+            duration: 260,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]);
+      heartAnimRef.current.start(({ finished }) => {
+        if (finished) setHeartBurst(null);
+      });
+    },
+    [heartOpacity, heartScale]
   );
 
   const effectivePlay = shouldPlay && !userPaused;
@@ -212,34 +257,33 @@ function FeedPostVideoInner(props: {
     []
   );
 
-  const doDoubleTapLike = React.useCallback(() => {
-    if (!analyticsVideoId || !viewerUid || !viewerUsername || !videoOwnerUid) return;
-    void (async () => {
-      try {
-        const didLike = await ensureVideoLiked({
-          videoId: analyticsVideoId,
-          viewerUid,
-          viewerUsername,
-          videoOwnerUid,
-        });
-        if (didLike) {
-          setLikeFlash(true);
-          if (likeFlashTimerRef.current) clearTimeout(likeFlashTimerRef.current);
-          likeFlashTimerRef.current = setTimeout(() => {
-            likeFlashTimerRef.current = null;
-            setLikeFlash(false);
-          }, 450);
-        }
-      } catch {
-        // ignore
-      }
-    })();
-  }, [analyticsVideoId, viewerUid, viewerUsername, videoOwnerUid]);
+  const doDoubleTapLike = React.useCallback(
+    (tapX: number, tapY: number) => {
+      if (!reel) return;
+      playHeartBurst(tapX, tapY);
+      if (!analyticsVideoId || !viewerUid || !videoOwnerUid) return;
+      void ensureVideoLiked({
+        videoId: analyticsVideoId,
+        viewerUid,
+        viewerUsername: viewerUsername ?? 'user',
+        videoOwnerUid,
+      }).catch(() => {
+        // ignore — heart animation already shown
+      });
+    },
+    [reel, playHeartBurst, analyticsVideoId, viewerUid, viewerUsername, videoOwnerUid]
+  );
 
   // Native gesture recognition (snappier than JS timers, feels closer to TikTok).
   const singleTap = React.useMemo(() => Gesture.Tap().numberOfTaps(1).onEnd(() => doSingleTap()), [doSingleTap]);
   const doubleTap = React.useMemo(
-    () => Gesture.Tap().numberOfTaps(2).maxDelay(190).onEnd(() => doDoubleTapLike()),
+    () =>
+      Gesture.Tap()
+        .numberOfTaps(2)
+        .maxDelay(280)
+        .onEnd((e) => {
+          doDoubleTapLike(e.x, e.y);
+        }),
     [doDoubleTapLike]
   );
   const tapGesture = React.useMemo(() => Gesture.Exclusive(doubleTap, singleTap), [doubleTap, singleTap]);
@@ -316,10 +360,21 @@ function FeedPostVideoInner(props: {
         </View>
       ) : null}
       {reelTapLayer}
-      {reel && likeFlash ? (
-        <View style={styles.likeFlash} pointerEvents="none">
-          <Ionicons name="heart" size={92} color="rgba(255,255,255,0.92)" />
-        </View>
+      {reel && heartBurst ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.heartBurst,
+            {
+              left: heartBurst.x - HEART_BURST_SIZE / 2,
+              top: heartBurst.y - HEART_BURST_SIZE / 2,
+              opacity: heartOpacity,
+              transform: [{ scale: heartScale }],
+            },
+          ]}
+        >
+          <Ionicons name="heart" size={HEART_BURST_SIZE} color={colors.coral} />
+        </Animated.View>
       ) : null}
       <View style={styles.timerBar} pointerEvents="none">
         <Text style={styles.timerText}>{formatTimeLeft(remainingSec)} left</Text>
@@ -348,12 +403,17 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     zIndex: 2,
   },
-  likeFlash: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 3,
+  heartBurst: {
+    position: 'absolute',
+    zIndex: 5,
+    width: HEART_BURST_SIZE,
+    height: HEART_BURST_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.05)',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
   },
   reelIconCenter: {
     ...StyleSheet.absoluteFillObject,
