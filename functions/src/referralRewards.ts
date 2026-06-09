@@ -146,6 +146,8 @@ async function createReferrerNotification(args: {
   });
 }
 
+type ReferralGrantResult = 'newly_granted' | 'already_granted' | 'failed';
+
 async function grantReferralInches(args: {
   db: admin.firestore.Firestore;
   referrerUid: string;
@@ -155,7 +157,7 @@ async function grantReferralInches(args: {
   grantType: 'activation' | 'override';
   refereeUid: string;
   refereeOrganicInches?: number;
-}): Promise<boolean> {
+}): Promise<ReferralGrantResult> {
   const {
     db,
     referrerUid,
@@ -167,12 +169,12 @@ async function grantReferralInches(args: {
     refereeOrganicInches,
   } = args;
   const inch = Math.round(Number(inchDelta ?? 0) * 10) / 10;
-  if (!referrerUid || inch <= 0) return false;
+  if (!referrerUid || inch <= 0) return 'failed';
 
   const grantRef = db.doc(`${REFERRAL_GRANTS_COLLECTION}/${grantId}`);
   const nowMs = Date.now();
 
-  const granted = await db.runTransaction(async (tx) => {
+  const reserved = await db.runTransaction(async (tx) => {
     const existing = await tx.get(grantRef);
     if (existing.exists) return false;
 
@@ -189,10 +191,15 @@ async function grantReferralInches(args: {
     return true;
   });
 
-  if (!granted) return false;
+  if (!reserved) return 'already_granted';
 
-  await incrementUserLeapInches(db, referrerUid, inch, challengeDayKey, nowMs, nowMs);
-  return true;
+  try {
+    await incrementUserLeapInches(db, referrerUid, inch, challengeDayKey, nowMs, nowMs);
+    return 'newly_granted';
+  } catch (e) {
+    logger.error('referral inch credit failed after grant reserved', { grantId, referrerUid, e });
+    return 'failed';
+  }
 }
 
 async function ensureReferralDoc(args: {
@@ -212,7 +219,6 @@ async function ensureReferralDoc(args: {
       refereeUid,
       overrideWindowStartLeapDay: firstApprovedLeapDay,
       overrideWindowEndLeapDay: windowEnd,
-      activationBonusGranted: false,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     },
     { merge: true }
@@ -242,26 +248,10 @@ export async function maybeGrantReferralActivationBonus(args: {
     firstApprovedLeapDay,
   });
 
-  const granted = await db.runTransaction(async (tx) => {
-    const refSnap = await tx.get(referralRef);
-    if (!refSnap.exists) return false;
-    if (refSnap.data()?.activationBonusGranted === true) return false;
+  const referralSnap = await referralRef.get();
+  if (referralSnap.data()?.activationBonusGranted === true) return;
 
-    tx.set(
-      referralRef,
-      {
-        activationBonusGranted: true,
-        activationBonusGrantedAt: admin.firestore.FieldValue.serverTimestamp(),
-        firstApprovedLeapDay,
-      },
-      { merge: true }
-    );
-    return true;
-  });
-
-  if (!granted) return;
-
-  const ok = await grantReferralInches({
+  const grantResult = await grantReferralInches({
     db,
     referrerUid,
     inchDelta: REFERRAL_ACTIVATION_BONUS_INCHES,
@@ -271,7 +261,20 @@ export async function maybeGrantReferralActivationBonus(args: {
     refereeUid,
   });
 
-  if (!ok) return;
+  if (grantResult === 'failed') return;
+
+  if (grantResult === 'newly_granted' || grantResult === 'already_granted') {
+    await referralRef.set(
+      {
+        activationBonusGranted: true,
+        activationBonusGrantedAt: admin.firestore.FieldValue.serverTimestamp(),
+        firstApprovedLeapDay,
+      },
+      { merge: true }
+    );
+  }
+
+  if (grantResult !== 'newly_granted') return;
 
   try {
     await createReferrerNotification({
@@ -325,7 +328,7 @@ export async function maybeGrantReferralDayOverride(args: {
   const overrideInches = Math.round(organic * REFERRAL_OVERRIDE_RATE * 10) / 10;
   if (overrideInches <= 0) return;
 
-  const ok = await grantReferralInches({
+  const grantResult = await grantReferralInches({
     db,
     referrerUid,
     inchDelta: overrideInches,
@@ -336,7 +339,7 @@ export async function maybeGrantReferralDayOverride(args: {
     refereeOrganicInches: organic,
   });
 
-  if (!ok) return;
+  if (grantResult !== 'newly_granted') return;
 
   try {
     await createReferrerNotification({
@@ -349,6 +352,41 @@ export async function maybeGrantReferralDayOverride(args: {
     });
   } catch (e) {
     logger.warn('referral override notification failed', { referrerUid, refereeUid, e });
+  }
+}
+
+/** Lightweight sanity checks for referral username + leap-day window logic. */
+export function runReferralRewardsSelfCheck(): void {
+  const usernameCases: Array<{ input: string; expected: string }> = [
+    { input: '@Alice', expected: 'alice' },
+    { input: 'Bob Smith', expected: 'bob_smith' },
+    { input: '  MIKE__J  ', expected: 'mike_j' },
+    { input: '', expected: '' },
+  ];
+  for (const { input, expected } of usernameCases) {
+    const got = normalizeReferrerUsername(input);
+    if (got !== expected) {
+      throw new Error(`normalizeReferrerUsername(${JSON.stringify(input)}) = ${JSON.stringify(got)}, want ${JSON.stringify(expected)}`);
+    }
+  }
+
+  const window = addChallengeDateKeys('2026-06-09', REFERRAL_OVERRIDE_WINDOW_DAYS);
+  if (window.length !== REFERRAL_OVERRIDE_WINDOW_DAYS) {
+    throw new Error(`override window length ${window.length}, want ${REFERRAL_OVERRIDE_WINDOW_DAYS}`);
+  }
+  if (window[0] !== '2026-06-09') {
+    throw new Error(`override window start ${window[0]}, want 2026-06-09`);
+  }
+  if (!challengeDateInOverrideWindow(window[0], window[window.length - 1], '2026-06-09')) {
+    throw new Error('first leap day should be inside override window');
+  }
+  if (challengeDateInOverrideWindow(window[0], window[window.length - 1], '2026-06-01')) {
+    throw new Error('day before window should be excluded');
+  }
+
+  const override = Math.round(12.3 * REFERRAL_OVERRIDE_RATE * 10) / 10;
+  if (override !== 1.2) {
+    throw new Error(`override inches ${override}, want 1.2`);
   }
 }
 

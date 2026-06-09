@@ -16,6 +16,12 @@ export async function resolveReferrerUsername(username: string): Promise<Resolve
   return res.data;
 }
 
+function isRetryableReferralClaimError(e: unknown): boolean {
+  const code =
+    e && typeof e === 'object' && 'code' in e ? String((e as { code?: string }).code ?? '') : '';
+  return code === 'functions/failed-precondition';
+}
+
 export async function claimReferral(referrerUsername: string): Promise<{ referrerUsername: string }> {
   if (!isFirebaseConfigured()) {
     throw new Error('Firebase is not configured.');
@@ -30,8 +36,23 @@ export async function claimReferral(referrerUsername: string): Promise<{ referre
     firebaseFunctions(),
     'claimReferralCallable'
   );
-  const res = await fn({ referrerUsername: referrerUsername.trim() });
-  return { referrerUsername: res.data.referrerUsername };
+
+  const trimmed = referrerUsername.trim();
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fn({ referrerUsername: trimmed });
+      return { referrerUsername: res.data.referrerUsername };
+    } catch (e) {
+      lastError = e;
+      if (isRetryableReferralClaimError(e) && attempt < 2) {
+        await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastError ?? new Error('Referral claim failed.');
 }
 
 export async function adminAnnounceReferralProgram(): Promise<{ announced: number }> {

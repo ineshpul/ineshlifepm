@@ -371,6 +371,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           await auth.authStateReady();
           if (auth.currentUser?.uid === u.uid) {
+            // claimReferralCallable requires `users/{uid}` — bootstrap runs async in applyFirebaseSession.
+            await bootstrapUserDocWithUsername({ uid: u.uid, candidateUsername: username });
             await claimReferral(invite);
           }
         } catch {
