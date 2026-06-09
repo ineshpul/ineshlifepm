@@ -65,6 +65,8 @@ type Props = {
   videoOwnerUsername: string;
   shareTitle: string;
   shareUrl: string;
+  /** Leap prompt burned into camera-roll exports (e.g. "Jump on one foot"). */
+  challengePrompt?: string;
   viewerUid: string | undefined;
   viewerUsername: string;
   onCommentComposerFocus?: () => void;
@@ -77,6 +79,7 @@ export function FeedPostEngagement({
   videoOwnerUsername,
   shareTitle,
   shareUrl,
+  challengePrompt,
   viewerUid,
   viewerUsername,
   onCommentComposerFocus,
@@ -305,7 +308,8 @@ export function FeedPostEngagement({
     if (savingToRoll) return;
     setSavingToRoll(true);
     try {
-      await saveRemoteVideoToCameraRoll(shareUrl);
+      const prompt = challengePrompt?.trim();
+      await saveRemoteVideoToCameraRoll(shareUrl, prompt ? { title: prompt } : undefined);
       showInfo('Saved', 'Video saved to camera roll.');
     } catch (e) {
       showError('Could not save', e);

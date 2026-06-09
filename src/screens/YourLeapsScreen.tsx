@@ -284,6 +284,7 @@ export function YourLeapsScreen() {
                         videoOwnerUsername={item.username}
                         shareTitle={`${item.username} on Leap`}
                         shareUrl={item.url}
+                        challengePrompt={item.prompt}
                         viewerUid={user.uid}
                         viewerUsername={user.username}
                         onCommentComposerFocus={() => {

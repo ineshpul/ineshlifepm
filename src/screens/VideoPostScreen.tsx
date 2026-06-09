@@ -262,6 +262,7 @@ export function VideoPostScreen({ route }: Props) {
                 videoOwnerUsername={row.username}
                 shareTitle={`${row.username} on Leap`}
                 shareUrl={row.url}
+                challengePrompt={row.prompt}
                 viewerUid={user.uid}
                 viewerUsername={user.username}
                 onCommentComposerFocus={() => {

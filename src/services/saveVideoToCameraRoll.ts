@@ -53,26 +53,29 @@ async function downloadRemoteVideo(url: string): Promise<string> {
 }
 
 /** Save a feed or chat video URL (remote or local) to the camera roll. */
-export async function saveRemoteVideoToCameraRoll(videoUrl: string): Promise<void> {
+export async function saveRemoteVideoToCameraRoll(
+  videoUrl: string,
+  challenge?: ChallengeWatermarkInfo
+): Promise<void> {
   const trimmed = videoUrl.trim();
   if (!trimmed || trimmed.startsWith('demo://')) {
     throw new Error('No video to save.');
   }
 
   if (!/^https?:\/\//i.test(trimmed)) {
-    await saveVideoToCameraRoll(trimmed);
+    await saveVideoToCameraRoll(trimmed, challenge);
     return;
   }
 
   const localUri = await downloadRemoteVideo(trimmed);
   try {
-    await saveVideoToCameraRoll(localUri);
+    await saveVideoToCameraRoll(localUri, challenge);
   } finally {
     await cleanupTempFile(localUri);
   }
 }
 
-/** Camera-roll only — posted/uploaded feed videos never pass through watermarking. */
+/** Camera-roll export — burns in the leap prompt when challenge info is provided. */
 export async function saveVideoToCameraRoll(
   uri: string,
   challenge?: ChallengeWatermarkInfo
