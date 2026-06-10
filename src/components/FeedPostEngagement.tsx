@@ -101,13 +101,18 @@ export function FeedPostEngagement({
   const [reportOpen, setReportOpen] = React.useState(false);
   const [blockOpen, setBlockOpen] = React.useState(false);
   const [commentsModalOpen, setCommentsModalOpen] = React.useState(false);
-  const [commentsSheetHeight, setCommentsSheetHeight] = React.useState(0);
+  const [keyboardVisible, setKeyboardVisible] = React.useState(false);
   const [replyTarget, setReplyTarget] = React.useState<ReplyTargetPayload | null>(null);
   const [expandedThreads, setExpandedThreads] = React.useState<Record<string, boolean>>({});
   const [commentsQueryReady, setCommentsQueryReady] = React.useState(false);
   const [savingToRoll, setSavingToRoll] = React.useState(false);
   const postInFlightRef = React.useRef(false);
   const keyboardInset = React.useRef(new Animated.Value(0)).current;
+  const baseSheetHeightAnim = React.useRef(new Animated.Value(0)).current;
+  const sheetAnimatedHeight = React.useMemo(
+    () => Animated.add(baseSheetHeightAnim, keyboardInset),
+    [baseSheetHeightAnim, keyboardInset]
+  );
 
   const commentsThreaded = React.useMemo(() => flattenCommentsForThread(comments), [comments]);
   const commentDisplayList = React.useMemo(
@@ -124,6 +129,7 @@ export function FeedPostEngagement({
   React.useEffect(() => {
     if (!commentsModalOpen) {
       keyboardInset.setValue(0);
+      setKeyboardVisible(false);
       return;
     }
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -135,14 +141,21 @@ export function FeedPostEngagement({
         useNativeDriver: false,
       }).start();
     };
-    const onShow = (e: KeyboardEvent) => animateInset(e.endCoordinates.height, e.duration ?? 250);
-    const onHide = (e: KeyboardEvent) => animateInset(0, e.duration ?? 250);
+    const onShow = (e: KeyboardEvent) => {
+      setKeyboardVisible(true);
+      animateInset(e.endCoordinates.height, e.duration ?? 250);
+    };
+    const onHide = (e: KeyboardEvent) => {
+      setKeyboardVisible(false);
+      animateInset(0, e.duration ?? 250);
+    };
     const subShow = Keyboard.addListener(showEvt, onShow);
     const subHide = Keyboard.addListener(hideEvt, onHide);
     return () => {
       subShow.remove();
       subHide.remove();
       keyboardInset.setValue(0);
+      setKeyboardVisible(false);
     };
   }, [commentsModalOpen, keyboardInset]);
 
@@ -485,11 +498,12 @@ export function FeedPostEngagement({
   const closeCommentsModal = React.useCallback(() => {
     Keyboard.dismiss();
     keyboardInset.setValue(0);
+    baseSheetHeightAnim.setValue(0);
+    setKeyboardVisible(false);
     setCommentsModalOpen(false);
-    setCommentsSheetHeight(0);
     setReplyTarget(null);
     setExpandedThreads({});
-  }, [keyboardInset]);
+  }, [keyboardInset, baseSheetHeightAnim]);
 
   const sheetPullDismissedRef = React.useRef(false);
 
@@ -499,27 +513,38 @@ export function FeedPostEngagement({
     }
   }, [commentsModalOpen]);
 
+  const dismissSheetOrKeyboard = React.useCallback(() => {
+    if (keyboardVisible) {
+      Keyboard.dismiss();
+      return;
+    }
+    closeCommentsModal();
+  }, [keyboardVisible, closeCommentsModal]);
+
   const onModalPanGesture = React.useCallback(
     (e: { nativeEvent: { state: State; translationY: number; velocityY: number } }) => {
       const { state, translationY, velocityY } = e.nativeEvent;
       if (state !== State.END) return;
-      if (translationY > 40 || velocityY > 520) {
-        closeCommentsModal();
+      if (translationY > 28 || velocityY > 420) {
+        dismissSheetOrKeyboard();
       }
     },
-    [closeCommentsModal]
+    [dismissSheetOrKeyboard]
   );
 
   const onModalListScroll = React.useCallback(
     (ev: NativeSyntheticEvent<NativeScrollEvent>) => {
-      if (Platform.OS !== 'ios' || sheetPullDismissedRef.current) return;
+      if (sheetPullDismissedRef.current) return;
       const y = ev.nativeEvent.contentOffset.y;
-      if (y < -40) {
-        sheetPullDismissedRef.current = true;
-        closeCommentsModal();
+      if (y >= -28) return;
+      if (keyboardVisible) {
+        Keyboard.dismiss();
+        return;
       }
+      sheetPullDismissedRef.current = true;
+      closeCommentsModal();
     },
-    [closeCommentsModal]
+    [keyboardVisible, closeCommentsModal]
   );
 
   const onOpenCommentsModal = () => {
@@ -527,7 +552,7 @@ export function FeedPostEngagement({
       showError('Sign in required', new Error('Log in to view comments.'));
       return;
     }
-    setCommentsSheetHeight(
+    baseSheetHeightAnim.setValue(
       Math.round(Dimensions.get('window').height * COMMENTS_SHEET_HEIGHT_RATIO)
     );
     setCommentsModalOpen(true);
@@ -624,11 +649,11 @@ export function FeedPostEngagement({
             accessibilityLabel="Close comments"
           />
           <Animated.View style={[styles.modalSheetHost, { marginBottom: keyboardInset }]}>
-            <View style={[styles.modalSheet, { height: commentsSheetHeight }]}>
+            <Animated.View style={[styles.modalSheet, { height: sheetAnimatedHeight }]}>
               <PanGestureHandler
                 onHandlerStateChange={onModalPanGesture}
-                activeOffsetY={8}
-                failOffsetX={[-40, 40]}
+                activeOffsetY={10}
+                failOffsetX={[-28, 28]}
               >
                 <View style={styles.modalTopPan} collapsable={false}>
                   <View style={styles.modalGrabber} />
@@ -646,55 +671,57 @@ export function FeedPostEngagement({
                 </View>
               </PanGestureHandler>
               <View style={styles.modalBody}>
-                <FlatList
-                data={commentDisplayList}
-                extraData={expandedThreads}
-                keyExtractor={(row) =>
-                  row.kind === 'comment' ? row.entry.comment.id : `collapsed-${row.threadRootId}`
-                }
-                renderItem={renderModalRow}
-                ListEmptyComponent={
-                  comments.length === 0 ? (
-                    commentsQueryReady ? (
-                      <View style={styles.modalEmptyWrap}>
-                        <Text style={styles.modalEmpty}>No comments yet.</Text>
-                        <Text style={styles.modalHint}>Be the first to say something.</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.modalLoadingWrap}>
-                        <ActivityIndicator size="large" color={colors.moss} />
-                      </View>
-                    )
-                  ) : null
-                }
-                style={styles.modalList}
-                contentContainerStyle={[
-                  styles.modalListContent,
-                  comments.length === 0 ? styles.modalListContentEmpty : null,
-                ]}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-                showsVerticalScrollIndicator={false}
-                removeClippedSubviews={false}
-                scrollEventThrottle={16}
-                onScroll={onModalListScroll}
-                windowSize={10}
-              />
-                {viewerUid ? (
-                  <EngagementCommentComposer
-                    draft={draft}
-                    onChangeText={setDraft}
-                    replyTarget={replyTarget}
-                    onClearReply={() => setReplyTarget(null)}
-                    sending={sending}
-                    onSend={() => void onSendComment()}
-                    forModal
-                    reelLayout={reelLayout}
-                    bottomInset={Math.max(insets.bottom, 8)}
+                  <FlatList
+                    data={commentDisplayList}
+                    extraData={expandedThreads}
+                    keyExtractor={(row) =>
+                      row.kind === 'comment' ? row.entry.comment.id : `collapsed-${row.threadRootId}`
+                    }
+                    renderItem={renderModalRow}
+                    ListEmptyComponent={
+                      comments.length === 0 ? (
+                        commentsQueryReady ? (
+                          <View style={styles.modalEmptyWrap}>
+                            <Text style={styles.modalEmpty}>No comments yet.</Text>
+                            <Text style={styles.modalHint}>Be the first to say something.</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.modalLoadingWrap}>
+                            <ActivityIndicator size="large" color={colors.moss} />
+                          </View>
+                        )
+                      ) : null
+                    }
+                    style={styles.modalList}
+                    contentContainerStyle={[
+                      styles.modalListContent,
+                      comments.length === 0 ? styles.modalListContentEmpty : null,
+                    ]}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                    showsVerticalScrollIndicator={false}
+                    removeClippedSubviews={false}
+                    scrollEventThrottle={16}
+                    onScroll={onModalListScroll}
+                    bounces
+                    alwaysBounceVertical
+                    windowSize={10}
                   />
-                ) : null}
-              </View>
-            </View>
+                  {viewerUid ? (
+                    <EngagementCommentComposer
+                      draft={draft}
+                      onChangeText={setDraft}
+                      replyTarget={replyTarget}
+                      onClearReply={() => setReplyTarget(null)}
+                      sending={sending}
+                      onSend={() => void onSendComment()}
+                      forModal
+                      reelLayout={reelLayout}
+                      bottomInset={keyboardVisible ? 8 : Math.max(insets.bottom, 8)}
+                    />
+                  ) : null}
+                </View>
+            </Animated.View>
           </Animated.View>
         </View>
       </Modal>
@@ -799,7 +826,8 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   modalTopPan: {
-    paddingBottom: 2,
+    paddingBottom: 4,
+    paddingTop: 6,
   },
   modalGrabber: {
     alignSelf: 'center',
@@ -807,8 +835,8 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 3,
     backgroundColor: colors.border2,
-    marginTop: 10,
-    marginBottom: 10,
+    marginTop: 8,
+    marginBottom: 8,
   },
   modalHeader: {
     flexDirection: 'row',
