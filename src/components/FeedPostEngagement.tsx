@@ -109,10 +109,6 @@ export function FeedPostEngagement({
   const postInFlightRef = React.useRef(false);
   const keyboardInset = React.useRef(new Animated.Value(0)).current;
   const baseSheetHeightAnim = React.useRef(new Animated.Value(0)).current;
-  const sheetAnimatedHeight = React.useMemo(
-    () => Animated.add(baseSheetHeightAnim, keyboardInset),
-    [baseSheetHeightAnim, keyboardInset]
-  );
 
   const commentsThreaded = React.useMemo(() => flattenCommentsForThread(comments), [comments]);
   const commentDisplayList = React.useMemo(
@@ -649,7 +645,7 @@ export function FeedPostEngagement({
             accessibilityLabel="Close comments"
           />
           <Animated.View style={[styles.modalSheetHost, { marginBottom: keyboardInset }]}>
-            <Animated.View style={[styles.modalSheet, { height: sheetAnimatedHeight }]}>
+            <Animated.View style={[styles.modalSheet, { height: baseSheetHeightAnim }]}>
               <PanGestureHandler
                 onHandlerStateChange={onModalPanGesture}
                 activeOffsetY={10}
@@ -681,12 +677,24 @@ export function FeedPostEngagement({
                     ListEmptyComponent={
                       comments.length === 0 ? (
                         commentsQueryReady ? (
-                          <View style={styles.modalEmptyWrap}>
+                          <View
+                            style={[
+                              styles.modalEmptyWrap,
+                              keyboardVisible && styles.modalEmptyWrapCompact,
+                            ]}
+                          >
                             <Text style={styles.modalEmpty}>No comments yet.</Text>
-                            <Text style={styles.modalHint}>Be the first to say something.</Text>
+                            {!keyboardVisible ? (
+                              <Text style={styles.modalHint}>Be the first to say something.</Text>
+                            ) : null}
                           </View>
                         ) : (
-                          <View style={styles.modalLoadingWrap}>
+                          <View
+                            style={[
+                              styles.modalLoadingWrap,
+                              keyboardVisible && styles.modalLoadingWrapCompact,
+                            ]}
+                          >
                             <ActivityIndicator size="large" color={colors.moss} />
                           </View>
                         )
@@ -695,7 +703,7 @@ export function FeedPostEngagement({
                     style={styles.modalList}
                     contentContainerStyle={[
                       styles.modalListContent,
-                      comments.length === 0 ? styles.modalListContentEmpty : null,
+                      comments.length === 0 && !keyboardVisible ? styles.modalListContentEmpty : null,
                     ]}
                     keyboardShouldPersistTaps="handled"
                     keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -869,6 +877,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 24,
     paddingHorizontal: 8,
+  },
+  modalEmptyWrapCompact: {
+    minHeight: 0,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+  },
+  modalLoadingWrapCompact: {
+    minHeight: 0,
+    paddingVertical: 16,
   },
   modalEmpty: { fontSize: 16, fontWeight: '800', color: colors.text },
   modalHint: { marginTop: 6, fontSize: 14, fontWeight: '600', color: colors.muted },
