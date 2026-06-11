@@ -328,9 +328,16 @@ export function ConversationScreen({ navigation, route }: Props) {
   }, [conversationId, user?.uid]);
 
   React.useEffect(() => {
-    members.forEach((m) => {
-      if (m.memberUid !== user?.uid) watchPresence(m.memberUid);
-    });
+    if (!user?.uid) return;
+    const unsubs: (() => void)[] = [];
+    for (const m of members) {
+      if (m.memberUid !== user.uid) {
+        unsubs.push(watchPresence(m.memberUid));
+      }
+    }
+    return () => {
+      for (const u of unsubs) u();
+    };
   }, [members, user?.uid, watchPresence]);
 
   /** Keep pinned to newest when new messages arrive while you are following the thread. */

@@ -3,6 +3,7 @@ import * as React from 'react';
 import { isFirebaseConfigured } from '../../firebase/firebase';
 import {
   subscribeConversation,
+  subscribeDmMembers,
   subscribeMembers,
   type ConversationDoc,
   type ConversationMemberRow,
@@ -21,7 +22,7 @@ export function useConversation(conversationId: string | undefined, myUid: strin
       return;
     }
     setLoading(true);
-    const u1 = subscribeConversation(
+    return subscribeConversation(
       conversationId,
       (c) => {
         setConversation(c);
@@ -29,12 +30,18 @@ export function useConversation(conversationId: string | undefined, myUid: strin
       },
       () => setLoading(false)
     );
-    const u2 = subscribeMembers(conversationId, setMembers);
-    return () => {
-      u1();
-      u2();
-    };
   }, [conversationId]);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured() || !conversationId || !conversation) {
+      setMembers([]);
+      return;
+    }
+    if (conversation.type === 'dm') {
+      return subscribeDmMembers(conversationId, conversation.memberIds, setMembers);
+    }
+    return subscribeMembers(conversationId, setMembers);
+  }, [conversationId, conversation?.type, conversation?.memberIds.join('|')]);
 
   const myMember = React.useMemo(() => {
     if (!myUid) return null;

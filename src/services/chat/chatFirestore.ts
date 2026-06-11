@@ -362,7 +362,7 @@ export function subscribeMyInboxRows(
 ): Unsubscribe {
   // Per-user mirror under `users/{uid}/chatConversations` — avoids collectionGroup + nested
   // `conversationMembers` rules that often yield an empty inbox in client SDKs.
-  const q = query(collection(firestore(), 'users', myUid, P.CHAT_CONVERSATIONS_INBOX), limit(200));
+  const q = query(collection(firestore(), 'users', myUid, P.CHAT_CONVERSATIONS_INBOX), limit(80));
   return onSnapshot(
     q,
     (snap) => {
@@ -467,6 +467,36 @@ export function subscribeMembers(
   return onSnapshot(membersCol(convId), (snap) => {
     onData(snap.docs.map((d) => mapMemberDoc(d.id, d.data() as Record<string, unknown>)));
   }, (e) => onError?.(e as Error));
+}
+
+/** DM threads: one doc listener per member instead of the full members subcollection. */
+export function subscribeDmMembers(
+  convId: string,
+  memberUids: readonly string[],
+  onData: (rows: ConversationMemberRow[]) => void,
+  onError?: (e: Error) => void
+): Unsubscribe {
+  const byUid = new Map<string, ConversationMemberRow>();
+  const publish = () => onData(Array.from(byUid.values()));
+  const unsubs = memberUids.map((uid) => {
+    const memberUid = String(uid ?? '').trim();
+    if (!memberUid) return () => {};
+    return onSnapshot(
+      doc(membersCol(convId), memberUid),
+      (snap) => {
+        if (snap.exists()) {
+          byUid.set(memberUid, mapMemberDoc(snap.id, snap.data() as Record<string, unknown>));
+        } else {
+          byUid.delete(memberUid);
+        }
+        publish();
+      },
+      (e) => onError?.(e as Error)
+    );
+  });
+  return () => {
+    for (const u of unsubs) u();
+  };
 }
 
 export function subscribeTyping(
