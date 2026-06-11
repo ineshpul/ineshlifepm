@@ -118,6 +118,9 @@ export async function fetchFirstApprovedFeedPage<T>(
 /**
  * Detect (and optionally preload) approved leaps newer than `afterCreatedAtMs` on the newest leap day.
  * One-shot `getDocs` — not a listener.
+ *
+ * Returns raw approved posts; callers must apply viewer visibility filters (friends / block / mute /
+ * hidden) before showing a count or prepending into the feed.
  */
 export async function fetchNewerApprovedFeedSince<T>(
   newestDayKey: string,

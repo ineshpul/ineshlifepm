@@ -122,6 +122,30 @@ function formatNewLeapsBanner(count: number): string {
   return `${count} new leaps — tap to view`;
 }
 
+/** Same visibility rules as the feed FlatList data (friends / block / mute / hidden; no preview slice). */
+function filterFeedVideosForViewer(
+  items: readonly FeedVideo[],
+  opts: {
+    viewerUid?: string;
+    feedType: string;
+    followingTargetUids: ReadonlySet<string>;
+    blockedUsernames: readonly string[];
+    mutedUsernames: readonly string[];
+    hiddenVideoIds: readonly string[];
+  }
+): FeedVideo[] {
+  let v = items.filter((item) => Boolean(item.url));
+  if (opts.feedType === 'friends' && opts.viewerUid) {
+    v = v.filter(
+      (item) => item.ownerUid === opts.viewerUid || opts.followingTargetUids.has(item.ownerUid)
+    );
+  }
+  v = v.filter((item) => !opts.blockedUsernames.includes(item.username));
+  v = v.filter((item) => !opts.mutedUsernames.includes(item.username));
+  v = v.filter((item) => !opts.hiddenVideoIds.includes(item.id));
+  return v;
+}
+
 /** Must be a stable reference — `viewabilityConfigCallbackPairs` cannot change after mount (RN FlatList). */
 const FEED_VIEWABILITY_CONFIG = {
   itemVisiblePercentThreshold: 55,
@@ -487,15 +511,35 @@ export function FeedScreen() {
         { limit: FEED_NEW_LEAPS_DETECT_LIMIT }
       );
       const loadedIds = new Set(feedApprovedRef.current.map((v) => v.id));
-      const fresh = newer.filter((v) => v.url && !loadedIds.has(v.id));
-      pendingNewLeapsRef.current = fresh;
-      setNewLeapsBannerCount(fresh.length);
+      const notYetLoaded = newer.filter((v) => v.url && !loadedIds.has(v.id));
+      const followingUids = new Set(followingRows.map((f) => f.targetUid));
+      const visible = filterFeedVideosForViewer(notYetLoaded, {
+        viewerUid: user.uid,
+        feedType: preferences.feedType,
+        followingTargetUids: followingUids,
+        blockedUsernames: preferences.blockedUsernames,
+        mutedUsernames: preferences.mutedUsernames,
+        hiddenVideoIds: preferences.hiddenVideoIds,
+      });
+      pendingNewLeapsRef.current = visible;
+      setNewLeapsBannerCount(visible.length);
     } catch {
       // ignore poll errors
     } finally {
       newLeapsCheckInFlightRef.current = false;
     }
-  }, [user?.uid, feedPreviewMode, canViewEveryoneFeed, feedDayChain, docToFeedVideo]);
+  }, [
+    user?.uid,
+    feedPreviewMode,
+    canViewEveryoneFeed,
+    feedDayChain,
+    docToFeedVideo,
+    followingRows,
+    preferences.feedType,
+    preferences.blockedUsernames,
+    preferences.mutedUsernames,
+    preferences.hiddenVideoIds,
+  ]);
 
   const applyPendingNewLeaps = React.useCallback(() => {
     const pending = pendingNewLeapsRef.current;
@@ -529,15 +573,20 @@ export function FeedScreen() {
     setReelSheetHeights((prev) => (prev[videoId] === h ? prev : { ...prev, [videoId]: h }));
   }, []);
 
+  const followingTargetUids = React.useMemo(
+    () => new Set(followingRows.map((f) => f.targetUid)),
+    [followingRows]
+  );
+
   const displayVideos = React.useMemo(() => {
-    let v = videos;
-    if (preferences.feedType === 'friends' && user?.uid) {
-      const fu = new Set(followingRows.map((f) => f.targetUid));
-      v = v.filter((item) => item.ownerUid === user.uid || fu.has(item.ownerUid));
-    }
-    v = v.filter((item) => !preferences.blockedUsernames.includes(item.username));
-    v = v.filter((item) => !preferences.mutedUsernames.includes(item.username));
-    v = v.filter((item) => !preferences.hiddenVideoIds.includes(item.id));
+    let v = filterFeedVideosForViewer(videos, {
+      viewerUid: user?.uid,
+      feedType: preferences.feedType,
+      followingTargetUids,
+      blockedUsernames: preferences.blockedUsernames,
+      mutedUsernames: preferences.mutedUsernames,
+      hiddenVideoIds: preferences.hiddenVideoIds,
+    });
     if (feedPreviewMode) {
       v = v.slice(0, FEED_PREVIEW_SCROLL_LIMIT);
     }
@@ -549,8 +598,29 @@ export function FeedScreen() {
     preferences.mutedUsernames,
     preferences.hiddenVideoIds,
     user?.uid,
-    followingRows,
+    followingTargetUids,
     feedPreviewMode,
+  ]);
+
+  React.useEffect(() => {
+    if (pendingNewLeapsRef.current.length === 0) return;
+    const visible = filterFeedVideosForViewer(pendingNewLeapsRef.current, {
+      viewerUid: user?.uid,
+      feedType: preferences.feedType,
+      followingTargetUids,
+      blockedUsernames: preferences.blockedUsernames,
+      mutedUsernames: preferences.mutedUsernames,
+      hiddenVideoIds: preferences.hiddenVideoIds,
+    });
+    pendingNewLeapsRef.current = visible;
+    setNewLeapsBannerCount(visible.length);
+  }, [
+    user?.uid,
+    followingTargetUids,
+    preferences.feedType,
+    preferences.blockedUsernames,
+    preferences.mutedUsernames,
+    preferences.hiddenVideoIds,
   ]);
 
   displayVideosRef.current = displayVideos;
