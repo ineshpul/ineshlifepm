@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { collection, doc, getDoc, limit, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
@@ -21,6 +22,7 @@ import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { deleteStaffVideo } from '../services/deleteVideo';
+import { staffAnnounceAppReview } from '../services/appReviewAdmin';
 import { showError, showInfo } from '../utils/ui';
 
 type QueueItem = {
@@ -45,6 +47,7 @@ export function AdminVideoModerationScreen() {
 
   const [manualId, setManualId] = React.useState('');
   const [manualMeta, setManualMeta] = React.useState('');
+  const [broadcastBusy, setBroadcastBusy] = React.useState(false);
 
   React.useEffect(() => {
     void Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
@@ -202,6 +205,32 @@ export function AdminVideoModerationScreen() {
     );
   };
 
+  const runAnnounceAppReview = () => {
+    if (!canMod || broadcastBusy) return;
+    Alert.alert(
+      'Request App Store reviews?',
+      'Sends one in-app notification to every user (and push if enabled). Tapping opens the review prompt.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Send',
+          onPress: () =>
+            void (async () => {
+              setBroadcastBusy(true);
+              try {
+                const r = await staffAnnounceAppReview();
+                showInfo('Review prompt sent', `Notified ${r.announced} users.`);
+              } catch (e) {
+                showError('Send failed', e);
+              } finally {
+                setBroadcastBusy(false);
+              }
+            })(),
+        },
+      ]
+    );
+  };
+
   const setManualStatus = (next: 'approved' | 'rejected' | 'nulled') => {
     const id = manualId.trim();
     if (!id) return;
@@ -229,11 +258,33 @@ export function AdminVideoModerationScreen() {
 
   return (
     <Screen style={styles.screen}>
-      <Text style={styles.kicker}>ADMIN</Text>
+      <Text style={styles.kicker}>MOD</Text>
       <Text style={styles.title}>Video moderation</Text>
       <Text style={styles.helper}>
         Pending posts appear here. Approve to show in the feed and on profiles, or reject to take down.
       </Text>
+
+      <View style={styles.modSettingsCard}>
+        <Text style={styles.modSettingsKicker}>MOD SETTINGS</Text>
+        <TouchableOpacity
+          style={styles.modSettingsRow}
+          onPress={runAnnounceAppReview}
+          disabled={broadcastBusy}
+          activeOpacity={0.65}
+        >
+          <View style={styles.modSettingsTextCol}>
+            <Text style={styles.modSettingsLabel}>Request App Store reviews</Text>
+            <Text style={styles.modSettingsSub}>
+              Broadcast a review prompt to all users — in-app notification and push when enabled.
+            </Text>
+          </View>
+          {broadcastBusy ? (
+            <ActivityIndicator size="small" color={colors.moss} />
+          ) : (
+            <Ionicons name="chevron-forward" size={18} color={colors.muted2} />
+          )}
+        </TouchableOpacity>
+      </View>
 
       {!hydrated ? (
         <View style={styles.center}>
@@ -385,6 +436,30 @@ const styles = StyleSheet.create({
   kicker: { fontSize: 11, fontWeight: '900', letterSpacing: 2, color: colors.muted },
   title: { fontSize: 22, fontWeight: '900', color: colors.text, marginTop: 4 },
   helper: { fontSize: 13, fontWeight: '600', color: colors.muted, lineHeight: 18, marginTop: 8, marginBottom: 8 },
+  modSettingsCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+    gap: 8,
+  },
+  modSettingsKicker: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    color: colors.muted,
+  },
+  modSettingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  modSettingsTextCol: { flex: 1, minWidth: 0, gap: 4 },
+  modSettingsLabel: { fontSize: 15, fontWeight: '800', color: colors.text },
+  modSettingsSub: { fontSize: 12, fontWeight: '600', color: colors.muted, lineHeight: 17 },
   list: { flex: 1 },
   center: { paddingVertical: 40, alignItems: 'center', gap: 12 },
   loadingText: { fontSize: 14, fontWeight: '700', color: colors.muted },

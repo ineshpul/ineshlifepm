@@ -16,6 +16,7 @@ import {
 import { setAppBadgeCount } from '../services/pushNotifications';
 import { navigateToUserProfile } from '../navigation/navigationHelpers';
 import { shareReferralInvite } from '../utils/shareReferralInvite';
+import { requestStaffAppReviewPrompt } from '../state/appReviewBroadcast';
 
 function bodyFor(n: InAppNotification) {
   if (n.type === 'admin_alert') return n.snippet ? String(n.snippet) : 'Admin alert';
@@ -33,6 +34,9 @@ function bodyFor(n: InAppNotification) {
   }
   if (n.type === 'referral_launch') {
     return n.snippet ?? 'Invite friends and earn bonus inches';
+  }
+  if (n.type === 'app_review_request') {
+    return n.snippet ?? 'Enjoying Leap? Leave us a quick App Store review.';
   }
   return n.snippet ? `commented: ${n.snippet}` : 'commented on your leap';
 }
@@ -65,6 +69,10 @@ export function NotificationsScreen() {
       }
     }
     if (n.type === 'admin_alert') return;
+    if (n.type === 'app_review_request') {
+      requestStaffAppReviewPrompt();
+      return;
+    }
     if (n.type === 'referral_launch' || n.type === 'referral_activation' || n.type === 'referral_override') {
       void shareReferralInvite(user?.username ?? '');
       return;
@@ -111,6 +119,7 @@ export function NotificationsScreen() {
               </TouchableOpacity>
               <View style={styles.rowBody}>
                 {item.type === 'admin_alert' ||
+                item.type === 'app_review_request' ||
                 item.type === 'mod_queue' ||
                 item.type === 'moderation_rejected' ? (
                   <TouchableOpacity onPress={() => void openNotification(item)} activeOpacity={0.85}>

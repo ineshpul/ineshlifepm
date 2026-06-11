@@ -26,7 +26,8 @@ export type NotificationType =
   | 'moderation_rejected'
   | 'referral_activation'
   | 'referral_override'
-  | 'referral_launch';
+  | 'referral_launch'
+  | 'app_review_request';
 
 export type InAppNotification = {
   id: string;

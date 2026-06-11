@@ -4,6 +4,7 @@ import type { NavigationContainerRef } from '@react-navigation/native';
 import { firebaseAuth } from '../firebase/firebase';
 import { countUnreadNotifications, markNotificationRead } from '../services/social';
 import { setAppBadgeCount } from '../services/pushNotifications';
+import { requestStaffAppReviewPrompt } from '../state/appReviewBroadcast';
 import type { MainStackParamList } from './types';
 
 function str(d: Record<string, unknown> | undefined, key: string): string {
@@ -33,7 +34,8 @@ export async function handleNotificationNavigation(
       type === 'comment' ||
       type === 'follow' ||
       type === 'mod_queue' ||
-      type === 'moderation_rejected')
+      type === 'moderation_rejected' ||
+      type === 'app_review_request')
   ) {
     try {
       await markNotificationRead(uid, notificationId);
@@ -42,6 +44,11 @@ export async function handleNotificationNavigation(
     } catch {
       // ignore
     }
+  }
+
+  if (type === 'app_review_request') {
+    requestStaffAppReviewPrompt();
+    return;
   }
 
   if (kind === 'mod_queue' || type === 'mod_queue') {

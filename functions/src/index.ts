@@ -32,6 +32,7 @@ import {
   claimReferralCallable,
   resolveReferrerUsernameCallable,
 } from './claimReferral';
+import { staffAnnounceAppReviewCallable } from './announceAppReview';
 
 admin.initializeApp();
 
@@ -62,6 +63,7 @@ export {
   resolveReferrerUsernameCallable,
   claimReferralCallable,
   adminAnnounceReferralProgramCallable,
+  staffAnnounceAppReviewCallable,
 };
 
 type ChatMessagePayload = {
@@ -101,6 +103,9 @@ function buildBody(data: NotifPayload): string {
   }
   if (data.type === 'referral_launch') {
     return data.snippet ? String(data.snippet) : 'Invite friends and earn bonus inches';
+  }
+  if (data.type === 'app_review_request') {
+    return data.snippet ? String(data.snippet) : 'Enjoying Leap? Leave us a quick App Store review.';
   }
   const snip = data.snippet ? `: ${String(data.snippet)}` : '';
   return `@${u} commented${snip}`;

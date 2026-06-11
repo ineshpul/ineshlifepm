@@ -11,6 +11,7 @@ import {
   shouldShowAppReviewPrompt,
   snoozeAppReviewPrompt,
 } from '../state/appReviewPrompt';
+import { subscribeStaffAppReviewPrompt } from '../state/appReviewBroadcast';
 import { shouldShowReferralIntro } from '../state/referralIntro';
 
 /**
@@ -19,7 +20,10 @@ import { shouldShowReferralIntro } from '../state/referralIntro';
 export function AppReviewHost() {
   const { user } = useAuth();
   const [visible, setVisible] = React.useState(false);
+  const [staffPromptVisible, setStaffPromptVisible] = React.useState(false);
   const [challengesCompleted, setChallengesCompleted] = React.useState(0);
+
+  React.useEffect(() => subscribeStaffAppReviewPrompt(() => setStaffPromptVisible(true)), []);
 
   React.useEffect(() => {
     if (!user?.uid || !isFirebaseConfigured()) {
@@ -80,16 +84,19 @@ export function AppReviewHost() {
 
   const dismiss = React.useCallback(() => {
     setVisible(false);
+    setStaffPromptVisible(false);
     if (user?.uid) void snoozeAppReviewPrompt(user.uid);
   }, [user?.uid]);
 
   const onReview = React.useCallback(() => {
     setVisible(false);
+    setStaffPromptVisible(false);
     if (user?.uid) void markAppReviewPromptCompleted(user.uid);
     void requestAppStoreReview();
   }, [user?.uid]);
 
-  if (!visible) return null;
+  const showModal = visible || staffPromptVisible;
+  if (!showModal) return null;
 
-  return <AppReviewModal visible={visible} onReview={onReview} onDismiss={dismiss} />;
+  return <AppReviewModal visible={showModal} onReview={onReview} onDismiss={dismiss} />;
 }
