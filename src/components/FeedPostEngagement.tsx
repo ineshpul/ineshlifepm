@@ -399,6 +399,8 @@ export function FeedPostEngagement({
       await notifyCommentRecipients(text, reply);
       setDraft('');
       setReplyTarget(null);
+      setKeyboardVisible(false);
+      keyboardInset.setValue(0);
       Keyboard.dismiss();
     } catch (e) {
       showError('Comment failed', e);
@@ -503,12 +505,16 @@ export function FeedPostEngagement({
   }, [commentsModalOpen]);
 
   const dismissSheetOrKeyboard = React.useCallback(() => {
-    if (keyboardVisible) {
+    if (keyboardVisible && draft.trim()) {
       Keyboard.dismiss();
       return;
     }
     closeCommentsModal();
-  }, [keyboardVisible, closeCommentsModal]);
+  }, [keyboardVisible, draft, closeCommentsModal]);
+
+  const dismissKeyboardIfOpen = React.useCallback(() => {
+    if (keyboardVisible) Keyboard.dismiss();
+  }, [keyboardVisible]);
 
   const onModalPanGesture = React.useCallback(
     (e: { nativeEvent: { state: State; translationY: number; velocityY: number } }) => {
@@ -628,78 +634,77 @@ export function FeedPostEngagement({
         transparent
         statusBarTranslucent
         presentationStyle="overFullScreen"
-        onRequestClose={() => closeCommentsModal()}
+        onRequestClose={dismissSheetOrKeyboard}
       >
         <View style={styles.modalRoot}>
           <Pressable
             style={styles.modalBackdrop}
-            onPress={() => closeCommentsModal()}
+            onPress={dismissSheetOrKeyboard}
             accessibilityRole="button"
             accessibilityLabel="Close comments"
           />
-          <View style={styles.modalSheetHost} pointerEvents="box-none">
-            <Animated.View style={[styles.modalSheet, { height: baseSheetHeightAnim }]}>
-              <PanGestureHandler
-                onHandlerStateChange={onModalPanGesture}
-                activeOffsetY={10}
-                failOffsetX={[-28, 28]}
-              >
-                <View style={styles.modalTopPan} collapsable={false}>
-                  <View style={styles.modalGrabber} />
-                  <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>Comments</Text>
-                    <TouchableOpacity
-                      onPress={() => closeCommentsModal()}
-                      hitSlop={12}
-                      accessibilityRole="button"
-                      accessibilityLabel="Close comments"
-                    >
-                      <Ionicons name="close" size={26} color={colors.text} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </PanGestureHandler>
-              <View style={styles.modalBody}>
-                <FlatList
-                  data={commentDisplayList}
-                  extraData={expandedThreads}
-                  keyExtractor={(row) =>
-                    row.kind === 'comment' ? row.entry.comment.id : `collapsed-${row.threadRootId}`
-                  }
-                  renderItem={renderModalRow}
-                  ListEmptyComponent={
-                    comments.length === 0 ? (
-                      commentsQueryReady ? (
-                        <View style={styles.modalEmptyWrap}>
-                          <Text style={styles.modalEmpty}>No comments yet.</Text>
-                          <Text style={styles.modalHint}>Be the first to say something.</Text>
-                        </View>
-                      ) : (
-                        <View style={styles.modalLoadingWrap}>
-                          <ActivityIndicator size="large" color={colors.moss} />
-                        </View>
-                      )
-                    ) : null
-                  }
-                  style={styles.modalList}
-                  contentContainerStyle={[
-                    styles.modalListContent,
-                    comments.length === 0 ? styles.modalListContentEmpty : null,
-                    viewerUid && !keyboardVisible ? { paddingBottom: composerHeight } : null,
-                  ]}
-                  keyboardShouldPersistTaps="handled"
-                  keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-                  showsVerticalScrollIndicator={false}
-                  removeClippedSubviews={false}
-                  scrollEventThrottle={16}
-                  onScroll={onModalListScroll}
-                  bounces
-                  alwaysBounceVertical
-                  windowSize={10}
-                />
+          <Animated.View style={[styles.modalSheet, { height: baseSheetHeightAnim }]}>
+            <PanGestureHandler
+              onHandlerStateChange={onModalPanGesture}
+              activeOffsetY={10}
+              failOffsetX={[-28, 28]}
+            >
+              <View style={styles.modalTopPan} collapsable={false}>
+                <View style={styles.modalGrabber} />
+                <Pressable onPress={dismissKeyboardIfOpen} style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Comments</Text>
+                  <TouchableOpacity
+                    onPress={() => closeCommentsModal()}
+                    hitSlop={12}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close comments"
+                  >
+                    <Ionicons name="close" size={26} color={colors.text} />
+                  </TouchableOpacity>
+                </Pressable>
               </View>
-            </Animated.View>
-          </View>
+            </PanGestureHandler>
+            <View style={styles.modalBody}>
+              <FlatList
+                data={commentDisplayList}
+                extraData={expandedThreads}
+                keyExtractor={(row) =>
+                  row.kind === 'comment' ? row.entry.comment.id : `collapsed-${row.threadRootId}`
+                }
+                renderItem={renderModalRow}
+                ListEmptyComponent={
+                  comments.length === 0 ? (
+                    commentsQueryReady ? (
+                      <Pressable onPress={dismissKeyboardIfOpen} style={styles.modalEmptyWrap}>
+                        <Text style={styles.modalEmpty}>No comments yet.</Text>
+                        <Text style={styles.modalHint}>Be the first to say something.</Text>
+                      </Pressable>
+                    ) : (
+                      <View style={styles.modalLoadingWrap}>
+                        <ActivityIndicator size="large" color={colors.moss} />
+                      </View>
+                    )
+                  ) : null
+                }
+                style={styles.modalList}
+                contentContainerStyle={[
+                  styles.modalListContent,
+                  comments.length === 0 ? styles.modalListContentEmpty : null,
+                  viewerUid && !keyboardVisible ? { paddingBottom: composerHeight } : null,
+                ]}
+                keyboardShouldPersistTaps="always"
+                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                showsVerticalScrollIndicator={false}
+                removeClippedSubviews={false}
+                scrollEventThrottle={16}
+                onScroll={onModalListScroll}
+                onScrollBeginDrag={keyboardVisible ? Keyboard.dismiss : undefined}
+                bounces
+                alwaysBounceVertical
+                windowSize={10}
+              />
+            </View>
+          </Animated.View>
           {viewerUid ? (
             <Animated.View
               style={[
@@ -810,13 +815,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
+    flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  modalSheetHost: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
-    zIndex: 1,
   },
   modalComposerHost: {
     position: 'absolute',

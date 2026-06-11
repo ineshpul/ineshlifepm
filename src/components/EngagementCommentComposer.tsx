@@ -59,6 +59,11 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
     return () => clearTimeout(t);
   }, [replyTarget]);
 
+  const handleSend = () => {
+    if (!draft.trim() || sending) return;
+    onSend();
+  };
+
   return (
     <View
       style={[
@@ -120,10 +125,8 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
           ]}
           hitSlop={10}
           android_ripple={{ color: 'rgba(255,255,255,0.2)' }}
-          onPress={() => {
-            if (!draft.trim() || sending) return;
-            onSend();
-          }}
+          onPressIn={forModal ? handleSend : undefined}
+          onPress={forModal ? undefined : handleSend}
           accessibilityRole="button"
           accessibilityLabel="Post comment"
         >
