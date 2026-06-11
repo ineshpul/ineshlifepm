@@ -39,26 +39,9 @@ const DEFAULT_MAX_RECORDING_ATTEMPTS = 3;
 const POST_COLLECTION = 'videos';
 const PAGE = 500;
 
-/**
- * Shared idempotency guard for `awardLeapInchesOnPending` and `awardLeapInchesOnFullApproval`.
- * Sets `leapInchesAwarded` inside the same transaction before inch math so concurrent
- * `onVerticalScoreVideoCreated` / `onVerticalScoreVideoApprovedLeaper` runs cannot double-award.
- */
-function claimLeapInchesAwardInTransaction(
-  tx: admin.firestore.Transaction,
-  videoRef: admin.firestore.DocumentReference,
-  vd: Record<string, unknown>
-): boolean {
-  if (isAwardedLeapVideo(vd)) return false;
-  tx.set(
-    videoRef,
-    {
-      leapInchesAwarded: true,
-      leapInchesAwardedAt: admin.firestore.FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
-  return true;
+/** Idempotency guard — read-only; all writes happen after every transaction read. */
+function canClaimLeapInchesAward(vd: Record<string, unknown>): boolean {
+  return !isAwardedLeapVideo(vd);
 }
 
 function logStreakUpdate(args: {
@@ -238,16 +221,15 @@ async function awardLeapInchesOnPending(
 
   const br = await db.runTransaction(async (tx) => {
     const vSnap = await tx.get(videoRef);
+    const uSnap = await tx.get(userRef);
+    const attSnap = await tx.get(attemptRef);
     if (!vSnap.exists) return null;
     const vd = vSnap.data() as Record<string, unknown>;
-    if (isAwardedLeapVideo(vd)) return null;
+    if (!canClaimLeapInchesAward(vd)) return null;
     if (String(vd.moderationStatus ?? '') !== 'pending') return null;
-    if (!claimLeapInchesAwardInTransaction(tx, videoRef, vd)) return null;
 
-    const uSnap = await tx.get(userRef);
     const ud = uSnap.data() ?? {};
     const hasEver = ud.hasApprovedLeapEver === true;
-    const attSnap = await tx.get(attemptRef);
     const baseReduction = Math.max(
       0,
       Number(vd.leapBaseReductionInches ?? attSnap.data()?.leapBaseReductionInches ?? 0)
@@ -323,6 +305,42 @@ async function awardLeapInchesOnPending(
   }
 }
 
+/**
+ * Idempotent post-approval inch settlement. Re-reads live doc state so races between
+ * pending create awards, approval writes, and double-award hardening cannot skip finalize
+ * or leave approved leaps with zero credited inches.
+ */
+export async function ensureLeapInchesOnApproval(
+  db: admin.firestore.Firestore,
+  videoRef: admin.firestore.DocumentReference,
+  videoId: string
+): Promise<void> {
+  const snap = await videoRef.get();
+  if (!snap.exists) return;
+  let vd = snap.data() as Record<string, unknown>;
+  if (String(vd.moderationStatus ?? '') !== 'approved') return;
+
+  if (!isAwardedLeapVideo(vd)) {
+    await awardLeapInchesOnFullApproval(db, videoRef, videoId, vd);
+    const afterFullSnap = await videoRef.get();
+    if (!afterFullSnap.exists) return;
+    vd = afterFullSnap.data() as Record<string, unknown>;
+  }
+
+  if (vd.leapInchesPendingApproval === true) {
+    await finalizeLeapInchesOnApproval(db, videoRef, videoId, vd);
+    return;
+  }
+
+  if (isAwardedLeapVideo(vd) && leapInchesFromVideo(vd) <= 0) {
+    try {
+      await adminRetotalAwardedVideoLeapInches(db, videoId);
+    } catch (e) {
+      logger.warn('retotal zero-inch approved leap failed', { videoId, e });
+    }
+  }
+}
+
 /** Full award when a video is created or approved without a prior pending award. */
 async function awardLeapInchesOnFullApproval(
   db: admin.firestore.Firestore,
@@ -343,18 +361,17 @@ async function awardLeapInchesOnFullApproval(
 
   const br = await db.runTransaction(async (tx) => {
     const vSnap = await tx.get(videoRef);
+    const uSnap = await tx.get(userRef);
+    const attSnap = await tx.get(attemptRef);
+    const dayStatsSnap = await tx.get(dayStatsRef);
     if (!vSnap.exists) return null;
     const vd = vSnap.data() as Record<string, unknown>;
-    if (isAwardedLeapVideo(vd)) return null;
+    if (!canClaimLeapInchesAward(vd)) return null;
     if (String(vd.moderationStatus ?? '') !== 'approved') return null;
-    if (!claimLeapInchesAwardInTransaction(tx, videoRef, vd)) return null;
 
-    const uSnap = await tx.get(userRef);
     const ud = uSnap.data() ?? {};
     const hasEver = ud.hasApprovedLeapEver === true;
 
-    const attSnap = await tx.get(attemptRef);
-    const dayStatsSnap = await tx.get(dayStatsRef);
     const baseReduction = Math.max(
       0,
       Number(vd.leapBaseReductionInches ?? attSnap.data()?.leapBaseReductionInches ?? 0)
@@ -1073,6 +1090,63 @@ export async function retotalAllAwardedVideosForLeapDay(
   return retotaled;
 }
 
+/** Award / finalize / retotal approved leaps for a day (repair missed triggers or races). */
+export async function settleApprovedLeapInchesForLeapDay(
+  db: admin.firestore.Firestore,
+  challengeDate: string
+): Promise<string[]> {
+  const dayNorm = leapDayKeyFromStoredChallengeDate(challengeDate);
+  const inKeys = challengeDateKeysForFirestoreIn([challengeDate]).slice(0, 30);
+  if (!inKeys.length) return [];
+
+  const snap = await db
+    .collection(POST_COLLECTION)
+    .where('challengeDate', 'in', inKeys)
+    .where('moderationStatus', '==', 'approved')
+    .limit(120)
+    .get();
+
+  const settled: string[] = [];
+  const owners = new Set<string>();
+  for (const d of snap.docs) {
+    const data = d.data() as Record<string, unknown>;
+    if (data.deleted === true) continue;
+    const cd = leapDayKeyFromStoredChallengeDate(String(data.challengeDate ?? ''), Date.now());
+    if (cd !== dayNorm) continue;
+
+    const needsSettle =
+      !isAwardedLeapVideo(data) ||
+      data.leapInchesPendingApproval === true ||
+      leapInchesFromVideo(data) <= 0;
+    if (!needsSettle) continue;
+
+    const videoRef = db.doc(`${POST_COLLECTION}/${d.id}`);
+    try {
+      await ensureLeapInchesOnApproval(db, videoRef, d.id);
+      settled.push(d.id);
+      const owner = String(data.uid ?? '').trim();
+      if (owner) owners.add(owner);
+    } catch (e) {
+      const err = e as Error;
+      logger.warn('settle approved leap inches failed', {
+        videoId: d.id,
+        message: err?.message ?? String(e),
+        stack: err?.stack,
+      });
+    }
+  }
+
+  for (const owner of owners) {
+    try {
+      await recomputeUserLeapStatsAdmin(owner);
+    } catch (e) {
+      logger.warn('recompute after leap-day settle failed', { owner, challengeDate, e });
+    }
+  }
+
+  return settled;
+}
+
 /** Full user stats recompute from awarded videos (source of truth). */
 export async function recomputeUserLeapStatsAdmin(ownerId: string): Promise<void> {
   if (!ownerId) return;
@@ -1148,6 +1222,14 @@ export const onVerticalScoreVideoCreated = onDocumentCreated(
         await awardLeapInchesOnPending(db, videoRef, videoId, data);
       } catch (e) {
         logger.warn('pending leap inches award failed', { videoId, uid, e });
+      }
+      try {
+        const freshSnap = await videoRef.get();
+        if (freshSnap.exists && String(freshSnap.data()?.moderationStatus ?? '') === 'approved') {
+          await ensureLeapInchesOnApproval(db, videoRef, videoId);
+        }
+      } catch (e) {
+        logger.warn('leap inches settlement after pending create failed', { videoId, uid, e });
       }
       try {
         await notifyModeratorsPendingReview({
@@ -1333,18 +1415,10 @@ export const onVerticalScoreVideoApprovedLeaper = onDocumentWritten(
         logger.warn('approvedPostCount increment failed', { videoId, owner, e });
       }
       const db = admin.firestore();
-      if (!isAwardedLeapVideo(after)) {
-        try {
-          await awardLeapInchesOnFullApproval(db, videoRef, videoId, after);
-        } catch (e) {
-          logger.warn('award leap inches failed', { videoId, owner, e });
-        }
-      } else {
-        try {
-          await finalizeLeapInchesOnApproval(db, videoRef, videoId, after);
-        } catch (e) {
-          logger.warn('finalize leap inches on approval failed', { videoId, owner, e });
-        }
+      try {
+        await ensureLeapInchesOnApproval(db, videoRef, videoId);
+      } catch (e) {
+        logger.warn('ensure leap inches on approval failed', { videoId, owner, e });
       }
       return;
     }

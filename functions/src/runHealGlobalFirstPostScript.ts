@@ -8,7 +8,10 @@
 import * as admin from 'firebase-admin';
 
 import { healGlobalFirstPostStatsForDay } from './leapDayFirstPost';
-import { retotalAllAwardedVideosForLeapDay } from './verticalScoreRecompute';
+import {
+  retotalAllAwardedVideosForLeapDay,
+  settleApprovedLeapInchesForLeapDay,
+} from './verticalScoreRecompute';
 
 const DEFAULT_PROJECT =
   process.env.GCLOUD_PROJECT ||
@@ -28,6 +31,7 @@ async function main(): Promise<void> {
   const db = admin.firestore();
 
   const { newFirstVideoId } = await healGlobalFirstPostStatsForDay(db, dayKey);
+  const settledVideoIds = await settleApprovedLeapInchesForLeapDay(db, dayKey);
   const retotaledVideoIds = await retotalAllAwardedVideosForLeapDay(db, dayKey);
 
   // eslint-disable-next-line no-console
@@ -36,6 +40,7 @@ async function main(): Promise<void> {
       finished: true,
       dayKey,
       newFirstVideoId,
+      settledCount: settledVideoIds.length,
       retotaledCount: retotaledVideoIds.length,
     })
   );

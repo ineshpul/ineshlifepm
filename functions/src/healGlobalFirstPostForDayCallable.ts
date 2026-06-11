@@ -4,7 +4,10 @@ import * as admin from 'firebase-admin';
 
 import { getDayKey } from './leapDayKey';
 import { healGlobalFirstPostStatsForDay } from './leapDayFirstPost';
-import { retotalAllAwardedVideosForLeapDay } from './verticalScoreRecompute';
+import {
+  retotalAllAwardedVideosForLeapDay,
+  settleApprovedLeapInchesForLeapDay,
+} from './verticalScoreRecompute';
 
 
 /** Admin-only: fix stale global-first-post stats and retotal leap inches for a leap day. */
@@ -20,7 +23,13 @@ export const healGlobalFirstPostForDayCallable = onCall(CALLABLE_OPTIONS, async 
 
   const dayKey = String(request.data?.dayKey ?? '').trim() || getDayKey('America/New_York');
   const { newFirstVideoId } = await healGlobalFirstPostStatsForDay(db, dayKey);
+  const settledVideoIds = await settleApprovedLeapInchesForLeapDay(db, dayKey);
   const retotaledVideoIds = await retotalAllAwardedVideosForLeapDay(db, dayKey);
 
-  return { dayKey, newFirstVideoId, retotaledCount: retotaledVideoIds.length };
+  return {
+    dayKey,
+    newFirstVideoId,
+    settledCount: settledVideoIds.length,
+    retotaledCount: retotaledVideoIds.length,
+  };
 });

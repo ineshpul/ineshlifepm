@@ -2,9 +2,7 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   Alert,
-  AppState,
   InteractionManager,
-  Keyboard,
   LayoutChangeEvent,
   Platform,
   RefreshControl,
@@ -20,7 +18,16 @@ import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/n
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
-import { doc, onSnapshot, type QueryDocumentSnapshot } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
+  type QueryDocumentSnapshot,
+} from 'firebase/firestore';
 
 import { FeedCameraRollSaveBanner } from '../components/FeedCameraRollSaveBanner';
 import { FeedPreviewChoice } from '../components/FeedPreviewChoice';
@@ -62,14 +69,9 @@ import {
   persistFeedPreviewStarted,
 } from '../state/feedPreviewLock';
 import {
-  fetchFirstApprovedFeedPage,
-  fetchNewerApprovedFeedSince,
-  fetchNextApprovedFeedPage,
-  FEED_NEW_LEAPS_DETECT_LIMIT,
-  type FeedApprovedPageCursor,
-} from '../lib/feedApprovedPagination';
-import {
+  challengeDateKeysForFirestoreIn,
   computeFeedViewingFromNow,
+  groupDayKeysForFirestoreInQuery,
   normalizeNyDateKey,
   nyDateKey,
   nyDateKeyToSortUtcMs,
@@ -99,28 +101,8 @@ const REEL_BOTTOM_SHEET = 232;
 /** Prior days use {@link nyLeapDayChainBackward} → {@link prevNyDateKey} — **same stepping as streaks** (one NY calendar day per step). */
 const FEED_DAY_WINDOW = 14;
 const FEED_HYDRATE_SAFETY_MS = 8_000;
-/** Poll for new leaps while the feed tab is focused (no open listener). */
-const FEED_NEW_LEAPS_CHECK_MS = 90_000;
-const FEED_NEW_LEAPS_DISPLAY_CAP = 9;
-
-function newestLoadedCreatedAtOnNewestDay(
-  approved: readonly FeedVideo[],
-  newestDayKey: string
-): number {
-  const canon = normalizeNyDateKey(newestDayKey, newestDayKey);
-  let max = 0;
-  for (const v of approved) {
-    if (normalizeNyDateKey(v.challengeDate, canon) !== canon) continue;
-    max = Math.max(max, v.createdAtMs);
-  }
-  return max;
-}
-
-function formatNewLeapsBanner(count: number): string {
-  if (count > FEED_NEW_LEAPS_DISPLAY_CAP) return '9+ new leaps — tap to view';
-  if (count === 1) return '1 new leap — tap to view';
-  return `${count} new leaps — tap to view`;
-}
+/** Per batched approved-feed listener (same as 1.0.1). */
+const FEED_APPROVED_PER_BATCH_LIMIT = 80;
 
 /** Same visibility rules as the feed FlatList data (friends / block / mute / hidden; no preview slice). */
 function filterFeedVideosForViewer(
@@ -341,15 +323,14 @@ export function FeedScreen() {
     }, [])
   );
   const [showScrollTop, setShowScrollTop] = React.useState(false);
-  /** Lifts the reel bottom sheet above the keyboard (fixed-height KAV was ineffective here). */
-  const [keyboardSheetBottom, setKeyboardSheetBottom] = React.useState(0);
+  /** Measured bottom-sheet height per video so the video slot clears the sheet without extra whitespace. */
+  const [reelSheetHeights, setReelSheetHeights] = React.useState<Record<string, number>>({});
   const flatListRef = React.useRef<FlatList<FeedVideo>>(null);
   const activeScrollIndexRef = React.useRef(0);
   const displayVideosRef = React.useRef<FeedVideo[]>([]);
-  /** Measured bottom-sheet height per video so the video slot clears the sheet without extra whitespace. */
-  const [reelSheetHeights, setReelSheetHeights] = React.useState<Record<string, number>>({});
-  /** Reel sheet `bottom` must use overlap with keyboard vs this slot’s bottom (tab bar is below; window-height math over-lifts). */
   const feedSlotRef = React.useRef<View>(null);
+  const canViewEveryoneFeedRef = React.useRef(canViewEveryoneFeed);
+  canViewEveryoneFeedRef.current = canViewEveryoneFeed;
 
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -375,197 +356,13 @@ export function FeedScreen() {
     [viewingChallengeDateKey]
   );
 
-  const feedDayChain = React.useMemo(() => {
-    const calToday = nyDateKey();
-    const anchorKey = normalizeNyDateKey(viewingChallengeDateKey, calToday);
-    const leapChain = nyLeapDayChainBackward(anchorKey, FEED_DAY_WINDOW);
-    const calNorm = normalizeNyDateKey(calToday, calToday);
-    return calNorm && calNorm !== anchorKey ? [calNorm, ...leapChain] : leapChain;
-  }, [nyCalendarDay, viewingChallengeDateKey]);
-
-  const feedExpandRef = React.useRef<(() => void) | null>(null);
-  const feedApprovedRef = React.useRef<FeedVideo[]>([]);
-  const feedMineRef = React.useRef<FeedVideo[]>([]);
-  const pageCursorRef = React.useRef<FeedApprovedPageCursor>({ dayIndex: 0, lastDoc: null });
-  const hasMoreApprovedRef = React.useRef(true);
-  const loadMoreInFlightRef = React.useRef(false);
-  const pendingNewLeapsRef = React.useRef<FeedVideo[]>([]);
-  const newLeapsCheckInFlightRef = React.useRef(false);
   const [feedRefreshing, setFeedRefreshing] = React.useState(false);
-  const [newLeapsBannerCount, setNewLeapsBannerCount] = React.useState(0);
 
-  const docToFeedVideo = React.useCallback(
-    (d: QueryDocumentSnapshot): FeedVideo => {
-      const data: any = d.data();
-      const createdAtMs =
-        typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
-      const rawCd = data?.challengeDate;
-      const cdRaw =
-        rawCd && typeof (rawCd as { toDate?: () => Date }).toDate === 'function'
-          ? nyDateKey((rawCd as { toDate: () => Date }).toDate())
-          : String(rawCd ?? '');
-      const challengeDate = normalizeNyDateKey(cdRaw, viewingChallengeDateKey);
-      const secondaryUrlRaw = String(data?.secondaryUrl ?? '').trim();
-      const dualFrontIsPrimary = data?.dualFrontIsPrimary === true;
-      return {
-        id: d.id,
-        username: String(data?.username ?? 'user'),
-        prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
-        url: String(data?.url ?? ''),
-        ...(secondaryUrlRaw ? { secondaryUrl: secondaryUrlRaw } : {}),
-        ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
-        createdAtMs,
-        ownerUid: String(data?.uid ?? ''),
-        moderationStatus: String(data?.moderationStatus ?? 'approved'),
-        maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
-        challengeDate,
-      };
-    },
-    [viewingChallengeDateKey]
-  );
-
-  const mergeAndSetVideos = React.useCallback(() => {
-    const map = new Map<string, FeedVideo>();
-    for (const v of [...feedMineRef.current, ...feedApprovedRef.current]) {
-      if (!v.url) continue;
-      map.set(v.id, v);
-    }
-    const merged = Array.from(map.values()).sort((a, b) => {
-      const msB = nyDateKeyToSortUtcMs(b.challengeDate, 0);
-      const msA = nyDateKeyToSortUtcMs(a.challengeDate, 0);
-      if (msB !== msA) return msB - msA;
-      return b.createdAtMs - a.createdAtMs;
-    });
-    setVideos(merged);
-  }, []);
-
-  const refreshApprovedFeed = React.useCallback(async () => {
-    if (!isFirebaseConfigured()) return;
-    pendingNewLeapsRef.current = [];
-    setNewLeapsBannerCount(0);
-    feedApprovedRef.current = [];
-    pageCursorRef.current = { dayIndex: 0, lastDoc: null };
-    hasMoreApprovedRef.current = true;
-    const result = await fetchFirstApprovedFeedPage(feedDayChain, docToFeedVideo);
-    pageCursorRef.current = result.cursor;
-    hasMoreApprovedRef.current = result.hasMore;
-    feedApprovedRef.current = result.videos.filter((v) => v.url);
-    mergeAndSetVideos();
-  }, [feedDayChain, docToFeedVideo, mergeAndSetVideos]);
-
-  const loadNextApprovedPage = React.useCallback(async () => {
-    if (!isFirebaseConfigured() || loadMoreInFlightRef.current || !hasMoreApprovedRef.current) {
-      return;
-    }
-    loadMoreInFlightRef.current = true;
-    try {
-      const result = await fetchNextApprovedFeedPage(
-        feedDayChain,
-        pageCursorRef.current,
-        docToFeedVideo
-      );
-      pageCursorRef.current = result.cursor;
-      hasMoreApprovedRef.current = result.hasMore;
-      const ids = new Set(feedApprovedRef.current.map((v) => v.id));
-      for (const v of result.videos) {
-        if (!v.url || ids.has(v.id)) continue;
-        feedApprovedRef.current.push(v);
-        ids.add(v.id);
-      }
-      mergeAndSetVideos();
-    } finally {
-      loadMoreInFlightRef.current = false;
-    }
-  }, [feedDayChain, docToFeedVideo, mergeAndSetVideos]);
-
-  const onPullRefreshFeed = React.useCallback(async () => {
+  const onPullRefreshFeed = React.useCallback(() => {
     if (!isFirebaseConfigured() || !user?.uid || feedPreviewMode) return;
     setFeedRefreshing(true);
-    try {
-      await refreshApprovedFeed();
-    } finally {
-      setFeedRefreshing(false);
-    }
-  }, [user?.uid, feedPreviewMode, refreshApprovedFeed]);
-
-  const checkForNewLeaps = React.useCallback(async () => {
-    if (
-      !isFirebaseConfigured() ||
-      !user?.uid ||
-      feedPreviewMode ||
-      !canViewEveryoneFeed ||
-      newLeapsCheckInFlightRef.current
-    ) {
-      return;
-    }
-    const newestDayKey = feedDayChain[0];
-    if (!newestDayKey) return;
-    const afterMs = newestLoadedCreatedAtOnNewestDay(feedApprovedRef.current, newestDayKey);
-
-    newLeapsCheckInFlightRef.current = true;
-    try {
-      const newer = await fetchNewerApprovedFeedSince(
-        newestDayKey,
-        afterMs,
-        docToFeedVideo,
-        { limit: FEED_NEW_LEAPS_DETECT_LIMIT }
-      );
-      const loadedIds = new Set(feedApprovedRef.current.map((v) => v.id));
-      const notYetLoaded = newer.filter((v) => v.url && !loadedIds.has(v.id));
-      const followingUids = new Set(followingRows.map((f) => f.targetUid));
-      const visible = filterFeedVideosForViewer(notYetLoaded, {
-        viewerUid: user.uid,
-        feedType: preferences.feedType,
-        followingTargetUids: followingUids,
-        blockedUsernames: preferences.blockedUsernames,
-        mutedUsernames: preferences.mutedUsernames,
-        hiddenVideoIds: preferences.hiddenVideoIds,
-      });
-      pendingNewLeapsRef.current = visible;
-      setNewLeapsBannerCount(visible.length);
-    } catch {
-      // ignore poll errors
-    } finally {
-      newLeapsCheckInFlightRef.current = false;
-    }
-  }, [
-    user?.uid,
-    feedPreviewMode,
-    canViewEveryoneFeed,
-    feedDayChain,
-    docToFeedVideo,
-    followingRows,
-    preferences.feedType,
-    preferences.blockedUsernames,
-    preferences.mutedUsernames,
-    preferences.hiddenVideoIds,
-  ]);
-
-  const applyPendingNewLeaps = React.useCallback(() => {
-    const pending = pendingNewLeapsRef.current;
-    if (!pending.length) {
-      setNewLeapsBannerCount(0);
-      return;
-    }
-    const ids = new Set(feedApprovedRef.current.map((v) => v.id));
-    for (const v of pending) {
-      if (!v.url || ids.has(v.id)) continue;
-      feedApprovedRef.current.push(v);
-      ids.add(v.id);
-    }
-    feedApprovedRef.current.sort((a, b) => {
-      const msB = nyDateKeyToSortUtcMs(b.challengeDate, 0);
-      const msA = nyDateKeyToSortUtcMs(a.challengeDate, 0);
-      if (msB !== msA) return msB - msA;
-      return b.createdAtMs - a.createdAtMs;
-    });
-    pendingNewLeapsRef.current = [];
-    setNewLeapsBannerCount(0);
-    mergeAndSetVideos();
-    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-    const firstId = pending[0]?.id;
-    if (firstId) setActiveVideoId(firstId);
-  }, [mergeAndSetVideos]);
+    setTimeout(() => setFeedRefreshing(false), 400);
+  }, [user?.uid, feedPreviewMode]);
 
   const onReelSheetLayoutFor = React.useCallback((videoId: string) => (e: LayoutChangeEvent) => {
     const h = Math.ceil(e.nativeEvent.layout.height);
@@ -602,27 +399,6 @@ export function FeedScreen() {
     feedPreviewMode,
   ]);
 
-  React.useEffect(() => {
-    if (pendingNewLeapsRef.current.length === 0) return;
-    const visible = filterFeedVideosForViewer(pendingNewLeapsRef.current, {
-      viewerUid: user?.uid,
-      feedType: preferences.feedType,
-      followingTargetUids,
-      blockedUsernames: preferences.blockedUsernames,
-      mutedUsernames: preferences.mutedUsernames,
-      hiddenVideoIds: preferences.hiddenVideoIds,
-    });
-    pendingNewLeapsRef.current = visible;
-    setNewLeapsBannerCount(visible.length);
-  }, [
-    user?.uid,
-    followingTargetUids,
-    preferences.feedType,
-    preferences.blockedUsernames,
-    preferences.mutedUsernames,
-    preferences.hiddenVideoIds,
-  ]);
-
   displayVideosRef.current = displayVideos;
 
   const onFeedScroll = React.useCallback(
@@ -652,14 +428,6 @@ export function FeedScreen() {
       ) {
         flatListRef.current?.scrollToOffset({ offset: maxFeedPreviewOffset, animated: true });
         endFeedPreviewSession();
-      }
-
-      if (!feedPreviewMode && pageHeight > 40) {
-        const list = displayVideosRef.current;
-        const idx = Math.min(list.length - 1, Math.max(0, Math.round(y / pageHeight)));
-        if (list.length > 0 && idx >= list.length - 2) {
-          feedExpandRef.current?.();
-        }
       }
     },
     [
@@ -694,31 +462,6 @@ export function FeedScreen() {
     }),
     [pageHeight, activeVideoId, feedHydrated, isFocused, reelSheetHeights]
   );
-
-  React.useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvent, (e) => {
-      const ec = e.endCoordinates;
-      const top = typeof ec.screenY === 'number' ? ec.screenY : null;
-      const fallback =
-        top != null && windowHeight > 0 ? Math.max(0, windowHeight - top) : Math.max(0, ec.height);
-      const node = feedSlotRef.current;
-      if (node && top != null) {
-        node.measureInWindow((fx, fy, fw, fh) => {
-          const anchorBottom = fy + fh;
-          setKeyboardSheetBottom(Math.max(0, anchorBottom - top));
-        });
-      } else {
-        setKeyboardSheetBottom(fallback);
-      }
-    });
-    const hide = Keyboard.addListener(hideEvent, () => setKeyboardSheetBottom(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, [windowHeight]);
 
   React.useEffect(() => {
     return subscribeFollowing(user?.uid, setFollowingRows);
@@ -842,9 +585,6 @@ export function FeedScreen() {
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !user?.uid) {
-      feedExpandRef.current = null;
-      feedApprovedRef.current = [];
-      feedMineRef.current = [];
       setVideos([]);
       setFeedHydrated(true);
       return;
@@ -852,40 +592,141 @@ export function FeedScreen() {
 
     setFeedHydrated(false);
     let cancelled = false;
+    let approvedUnsubs: (() => void)[] = [];
     let mineUnsub: (() => void) | null = null;
-    let approvedInitialDone = false;
+    let approvedDocsByBatch: FeedVideo[][] = [];
+    let mineDocs: FeedVideo[] = [];
+    let approvedListenersDone = false;
     let mineListenerSeen = false;
 
     const bumpHydrated = () => {
       if (cancelled) return;
       const hasPosts =
-        feedMineRef.current.length > 0 || feedApprovedRef.current.length > 0;
-      if (hasPosts || (approvedInitialDone && mineListenerSeen)) {
+        mineDocs.length > 0 || approvedDocsByBatch.some((batch) => batch.length > 0);
+      if (hasPosts || (approvedListenersDone && mineListenerSeen)) {
         setFeedHydrated(true);
       }
     };
 
-    feedExpandRef.current = () => {
-      void loadNextApprovedPage();
+    const merge = () => {
+      if (cancelled) return;
+      /** Posted users: wait for mine + approved so the feed never flashes only their clip. */
+      if (
+        canViewEveryoneFeedRef.current &&
+        (!approvedListenersDone || !mineListenerSeen)
+      ) {
+        return;
+      }
+      const map = new Map<string, FeedVideo>();
+      const approvedFlat = approvedDocsByBatch.flat();
+      for (const v of [...mineDocs, ...approvedFlat]) {
+        if (!v.url) continue;
+        map.set(v.id, v);
+      }
+      const merged = Array.from(map.values()).sort((a, b) => {
+        const msB = nyDateKeyToSortUtcMs(b.challengeDate, 0);
+        const msA = nyDateKeyToSortUtcMs(a.challengeDate, 0);
+        if (msB !== msA) return msB - msA;
+        return b.createdAtMs - a.createdAtMs;
+      });
+      setVideos(merged);
+      if (merged.length > 0) bumpHydrated();
     };
 
     const safetyTimer = setTimeout(() => {
-      if (!cancelled) setFeedHydrated(true);
+      if (cancelled) return;
+      approvedListenersDone = true;
+      mineListenerSeen = true;
+      merge();
+      setFeedHydrated(true);
     }, FEED_HYDRATE_SAFETY_MS);
 
     void firebaseAuth()
       .authStateReady()
-      .then(async () => {
+      .then(() => {
         if (cancelled) return;
 
-        try {
-          await refreshApprovedFeed();
-        } catch {
-          // initial page failed — still unblock empty state
+        const calToday = nyDateKey();
+        const anchorKey = normalizeNyDateKey(viewingChallengeDateKey, calToday);
+        const leapChain = nyLeapDayChainBackward(anchorKey, FEED_DAY_WINDOW);
+        const calNorm = normalizeNyDateKey(calToday, calToday);
+        const dayChain =
+          calNorm && calNorm !== anchorKey ? [calNorm, ...leapChain] : leapChain;
+        const dayGroups = groupDayKeysForFirestoreInQuery(dayChain);
+        approvedDocsByBatch = dayGroups.map(() => []);
+
+        const docToFeedVideo = (d: QueryDocumentSnapshot): FeedVideo => {
+          const data: any = d.data();
+          const createdAtMs =
+            typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+          const rawCd = data?.challengeDate;
+          const cdRaw =
+            rawCd && typeof (rawCd as { toDate?: () => Date }).toDate === 'function'
+              ? nyDateKey((rawCd as { toDate: () => Date }).toDate())
+              : String(rawCd ?? '');
+          const challengeDate = normalizeNyDateKey(cdRaw, viewingChallengeDateKey);
+          const secondaryUrlRaw = String(data?.secondaryUrl ?? '').trim();
+          const dualFrontIsPrimary = data?.dualFrontIsPrimary === true;
+          return {
+            id: d.id,
+            username: String(data?.username ?? 'user'),
+            prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
+            url: String(data?.url ?? ''),
+            ...(secondaryUrlRaw ? { secondaryUrl: secondaryUrlRaw } : {}),
+            ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
+            createdAtMs,
+            ownerUid: String(data?.uid ?? ''),
+            moderationStatus: String(data?.moderationStatus ?? 'approved'),
+            maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
+            challengeDate,
+          };
+        };
+
+        const segmentSeen = dayGroups.map(() => false);
+        const markApprovedReady = () => {
+          approvedListenersDone = segmentSeen.length === 0 || segmentSeen.every(Boolean);
+          bumpHydrated();
+        };
+
+        if (dayGroups.length === 0) {
+          approvedListenersDone = true;
+          markApprovedReady();
+        } else {
+          approvedUnsubs = dayGroups.map((group, idx) => {
+            const inVals = challengeDateKeysForFirestoreIn(group);
+            if (inVals.length === 0) {
+              segmentSeen[idx] = true;
+              approvedDocsByBatch[idx] = [];
+              merge();
+              markApprovedReady();
+              return () => {};
+            }
+            const approvedQ = query(
+              collection(firestore(), 'videos'),
+              where('challengeDate', 'in', inVals),
+              where('moderationStatus', '==', 'approved'),
+              orderBy('createdAt', 'desc'),
+              limit(FEED_APPROVED_PER_BATCH_LIMIT)
+            );
+            return onSnapshot(
+              approvedQ,
+              (snap) => {
+                if (cancelled) return;
+                approvedDocsByBatch[idx] = snap.docs.map(docToFeedVideo);
+                merge();
+                segmentSeen[idx] = true;
+                markApprovedReady();
+              },
+              () => {
+                if (cancelled) return;
+                approvedDocsByBatch[idx] = [];
+                merge();
+                segmentSeen[idx] = true;
+                markApprovedReady();
+              }
+            );
+          });
         }
-        if (cancelled) return;
-        approvedInitialDone = true;
-        bumpHydrated();
 
         const mineRef = doc(
           firestore(),
@@ -897,7 +738,7 @@ export function FeedScreen() {
           (snap) => {
             if (cancelled) return;
             if (!snap.exists()) {
-              feedMineRef.current = [];
+              mineDocs = [];
             } else {
               const data: any = snap.data();
               const createdAtMs =
@@ -909,7 +750,7 @@ export function FeedScreen() {
                   : String(rawMineCd ?? '');
               const mineSecondaryUrl = String(data?.secondaryUrl ?? '').trim();
               const mineDualFrontIsPrimary = data?.dualFrontIsPrimary === true;
-              feedMineRef.current = [
+              mineDocs = [
                 {
                   id: snap.id,
                   username: String(data?.username ?? 'user'),
@@ -925,14 +766,14 @@ export function FeedScreen() {
                 },
               ];
             }
-            mergeAndSetVideos();
+            merge();
             mineListenerSeen = true;
             bumpHydrated();
           },
           () => {
             if (cancelled) return;
-            feedMineRef.current = [];
-            mergeAndSetVideos();
+            mineDocs = [];
+            merge();
             mineListenerSeen = true;
             bumpHydrated();
           }
@@ -944,41 +785,11 @@ export function FeedScreen() {
 
     return () => {
       cancelled = true;
-      feedExpandRef.current = null;
       clearTimeout(safetyTimer);
+      for (const u of approvedUnsubs) u();
       mineUnsub?.();
     };
-  }, [
-    nyCalendarDay,
-    viewingChallengeDateKey,
-    user?.uid,
-    refreshApprovedFeed,
-    loadNextApprovedPage,
-    mergeAndSetVideos,
-  ]);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      if (!canViewEveryoneFeed || feedPreviewMode) return;
-
-      void checkForNewLeaps();
-
-      const intervalId = setInterval(() => {
-        void checkForNewLeaps();
-      }, FEED_NEW_LEAPS_CHECK_MS);
-
-      const appStateSub = AppState.addEventListener('change', (nextState) => {
-        if (nextState === 'active') {
-          void checkForNewLeaps();
-        }
-      });
-
-      return () => {
-        clearInterval(intervalId);
-        appStateSub.remove();
-      };
-    }, [canViewEveryoneFeed, feedPreviewMode, checkForNewLeaps])
-  );
+  }, [nyCalendarDay, viewingChallengeDateKey, user?.uid]);
 
   if (!user?.uid) {
     return <TakeTheLeapGate variant="feed" />;
@@ -1162,11 +973,7 @@ export function FeedScreen() {
               </View>
 
               <View
-                style={[
-                  styles.reelSheet,
-                  { paddingBottom: tabBarClearance },
-                  keyboardSheetBottom > 0 ? { bottom: keyboardSheetBottom } : undefined,
-                ]}
+                style={[styles.reelSheet, { paddingBottom: tabBarClearance }]}
                 onLayout={onReelSheetLayoutFor(item.id)}
               >
                 <View style={styles.reelSheetTop}>
@@ -1289,23 +1096,9 @@ export function FeedScreen() {
           </TouchableOpacity>
         ) : null}
         {cameraRollSaveOffer ||
-        (newLeapsBannerCount > 0 && canViewEveryoneFeed && !feedPreviewMode) ||
         (feedPreviewMode && feedPreviewStarted && !feedPreviewConsumed) ||
         showReferralNudge ? (
           <View style={styles.feedBannerStack} pointerEvents="box-none">
-            {newLeapsBannerCount > 0 && canViewEveryoneFeed && !feedPreviewMode ? (
-              <TouchableOpacity
-                style={styles.newLeapsBanner}
-                onPress={applyPendingNewLeaps}
-                accessibilityRole="button"
-                accessibilityLabel={formatNewLeapsBanner(newLeapsBannerCount)}
-              >
-                <Ionicons name="arrow-up" size={14} color={colors.moss} />
-                <Text style={styles.newLeapsBannerText}>
-                  {formatNewLeapsBanner(newLeapsBannerCount)}
-                </Text>
-              </TouchableOpacity>
-            ) : null}
             {cameraRollSaveOffer ? (
               <FeedCameraRollSaveBanner
                 clipUri={cameraRollSaveOffer.uri}
@@ -1368,25 +1161,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardTint,
     borderWidth: 1,
     borderColor: '#E6F4D7',
-  },
-  newLeapsBanner: {
-    marginHorizontal: 12,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    backgroundColor: colors.cardTint,
-    borderWidth: 1,
-    borderColor: colors.moss,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    alignSelf: 'center',
-  },
-  newLeapsBannerText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.moss,
   },
   referralNudge: {
     marginHorizontal: 12,

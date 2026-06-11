@@ -105,7 +105,6 @@ export function FeedPostEngagement({
   const [expandedThreads, setExpandedThreads] = React.useState<Record<string, boolean>>({});
   const [commentsQueryReady, setCommentsQueryReady] = React.useState(false);
   const [savingToRoll, setSavingToRoll] = React.useState(false);
-  const [composerHeight, setComposerHeight] = React.useState(60);
   const postInFlightRef = React.useRef(false);
   const keyboardInset = React.useRef(new Animated.Value(0)).current;
   const baseSheetHeightAnim = React.useRef(new Animated.Value(0)).current;
@@ -138,10 +137,16 @@ export function FeedPostEngagement({
       }).start();
     };
     const onShow = (e: KeyboardEvent) => {
+      if (Platform.OS === 'ios') {
+        Keyboard.scheduleLayoutAnimation(e);
+      }
       setKeyboardVisible(true);
       animateInset(e.endCoordinates.height, e.duration ?? 250);
     };
     const onHide = (e: KeyboardEvent) => {
+      if (Platform.OS === 'ios') {
+        Keyboard.scheduleLayoutAnimation(e);
+      }
       setKeyboardVisible(false);
       animateInset(0, e.duration ?? 250);
     };
@@ -621,7 +626,7 @@ export function FeedPostEngagement({
             accessibilityRole="button"
             accessibilityLabel="Close comments"
           />
-          <View style={styles.modalSheetHost} pointerEvents="box-none">
+          <Animated.View style={[styles.modalSheetHost, { marginBottom: keyboardInset }]}>
             <Animated.View style={[styles.modalSheet, { height: baseSheetHeightAnim }]}>
               <PanGestureHandler
                 onHandlerStateChange={onModalPanGesture}
@@ -654,12 +659,24 @@ export function FeedPostEngagement({
                   ListEmptyComponent={
                     comments.length === 0 ? (
                       commentsQueryReady ? (
-                        <View style={styles.modalEmptyWrap}>
+                        <View
+                          style={[
+                            styles.modalEmptyWrap,
+                            keyboardVisible && styles.modalEmptyWrapCompact,
+                          ]}
+                        >
                           <Text style={styles.modalEmpty}>No comments yet.</Text>
-                          <Text style={styles.modalHint}>Be the first to say something.</Text>
+                          {!keyboardVisible ? (
+                            <Text style={styles.modalHint}>Be the first to say something.</Text>
+                          ) : null}
                         </View>
                       ) : (
-                        <View style={styles.modalLoadingWrap}>
+                        <View
+                          style={[
+                            styles.modalLoadingWrap,
+                            keyboardVisible && styles.modalLoadingWrapCompact,
+                          ]}
+                        >
                           <ActivityIndicator size="large" color={colors.moss} />
                         </View>
                       )
@@ -668,8 +685,7 @@ export function FeedPostEngagement({
                   style={styles.modalList}
                   contentContainerStyle={[
                     styles.modalListContent,
-                    comments.length === 0 ? styles.modalListContentEmpty : null,
-                    viewerUid && !keyboardVisible ? { paddingBottom: composerHeight } : null,
+                    comments.length === 0 && !keyboardVisible ? styles.modalListContentEmpty : null,
                   ]}
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -681,36 +697,22 @@ export function FeedPostEngagement({
                   alwaysBounceVertical
                   windowSize={10}
                 />
+                {viewerUid ? (
+                  <EngagementCommentComposer
+                    draft={draft}
+                    onChangeText={setDraft}
+                    replyTarget={replyTarget}
+                    onClearReply={() => setReplyTarget(null)}
+                    sending={sending}
+                    onSend={() => void onSendComment()}
+                    forModal
+                    reelLayout={reelLayout}
+                    bottomInset={keyboardVisible ? 8 : Math.max(insets.bottom, 8)}
+                  />
+                ) : null}
               </View>
             </Animated.View>
-          </View>
-          {viewerUid ? (
-            <Animated.View
-              style={[
-                styles.modalComposerHost,
-                {
-                  bottom: keyboardInset,
-                  paddingBottom: keyboardVisible ? 8 : Math.max(insets.bottom, 8),
-                },
-              ]}
-              onLayout={(e) => {
-                const next = Math.ceil(e.nativeEvent.layout.height);
-                setComposerHeight((prev) => (prev === next ? prev : next));
-              }}
-            >
-              <EngagementCommentComposer
-                draft={draft}
-                onChangeText={setDraft}
-                replyTarget={replyTarget}
-                onClearReply={() => setReplyTarget(null)}
-                sending={sending}
-                onSend={() => void onSendComment()}
-                forModal
-                reelLayout={reelLayout}
-                bottomInset={0}
-              />
-            </Animated.View>
-          ) : null}
+          </Animated.View>
         </View>
       </Modal>
 
@@ -798,15 +800,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
   modalSheetHost: {
-    ...StyleSheet.absoluteFillObject,
+    flex: 1,
     justifyContent: 'flex-end',
-  },
-  modalComposerHost: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    paddingHorizontal: 14,
-    backgroundColor: colors.white,
   },
   modalSheet: {
     backgroundColor: colors.white,
@@ -864,6 +859,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 24,
     paddingHorizontal: 8,
+  },
+  modalEmptyWrapCompact: {
+    minHeight: 0,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+  },
+  modalLoadingWrapCompact: {
+    minHeight: 0,
+    paddingVertical: 16,
   },
   modalEmpty: { fontSize: 16, fontWeight: '800', color: colors.text },
   modalHint: { marginTop: 6, fontSize: 14, fontWeight: '600', color: colors.muted },
