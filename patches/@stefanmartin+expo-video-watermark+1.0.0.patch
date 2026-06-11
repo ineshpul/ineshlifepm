@@ -1,8 +1,108 @@
+diff --git a/node_modules/@stefanmartin/expo-video-watermark/android/src/main/java/expo/modules/videowatermark/ExpoVideoWatermarkModule.kt b/node_modules/@stefanmartin/expo-video-watermark/android/src/main/java/expo/modules/videowatermark/ExpoVideoWatermarkModule.kt
+index 30a0587..47cfc37 100644
+--- a/node_modules/@stefanmartin/expo-video-watermark/android/src/main/java/expo/modules/videowatermark/ExpoVideoWatermarkModule.kt
++++ b/node_modules/@stefanmartin/expo-video-watermark/android/src/main/java/expo/modules/videowatermark/ExpoVideoWatermarkModule.kt
+@@ -137,6 +137,43 @@ class ExpoVideoWatermarkModule : Module() {
+     AsyncFunction("watermarkVideo") { videoPath: String, imagePath: String, outputPath: String, promise: Promise ->
+       processWatermark(videoPath, imagePath, outputPath, promise)
+     }
++
++    AsyncFunction("getVideoRenderSize") { videoPath: String, promise: Promise ->
++      resolveVideoRenderSize(videoPath, promise)
++    }
++  }
++
++  private fun resolveVideoRenderSize(videoPath: String, promise: Promise) {
++    val cleanVideoPath = videoPath.removePrefix("file://")
++    val videoFile = File(cleanVideoPath)
++    if (!videoFile.exists()) {
++      promise.reject("VIDEO_NOT_FOUND", "Video file not found at path: $cleanVideoPath", null)
++      return
++    }
++
++    val retriever = MediaMetadataRetriever()
++    try {
++      retriever.setDataSource(cleanVideoPath)
++      val rawVideoWidth = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
++      val rawVideoHeight = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
++      val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
++      val (width, height) = if (rotation == 90 || rotation == 270) {
++        rawVideoHeight to rawVideoWidth
++      } else {
++        rawVideoWidth to rawVideoHeight
++      }
++
++      if (width <= 0 || height <= 0) {
++        promise.reject("VIDEO_DIMENSIONS_ERROR", "Failed to get video dimensions (width=$width, height=$height)", null)
++        return
++      }
++
++      promise.resolve(mapOf("width" to width, "height" to height))
++    } catch (e: Exception) {
++      promise.reject("VIDEO_METADATA_ERROR", "Failed to read video metadata: ${e.message}", e)
++    } finally {
++      retriever.release()
++    }
+   }
+ 
+   @OptIn(UnstableApi::class)
+@@ -258,16 +295,16 @@ class ExpoVideoWatermarkModule : Module() {
+       rawVideoWidth to rawVideoHeight
+     }
+ 
+-    // Step 8: Pre-scale watermark bitmap to match video width if needed
++    // Step 8: Pre-scale watermark bitmap to match the upright video frame exactly.
+     val originalWidth = watermarkBitmap.width
+     val originalHeight = watermarkBitmap.height
+     val targetWidth = videoWidth.toInt()
++    val targetHeight = videoHeight.toInt()
+     val scale = targetWidth.toFloat() / originalWidth.toFloat()
+-    val targetHeight = (originalHeight * scale).toInt()
+ 
+-    // Skip scaling if watermark already matches video width
+-    val scaledWatermark: Bitmap = if (originalWidth == targetWidth) {
+-      Log.d(TAG, "[Step 8] Watermark already matches video width (${originalWidth}x${originalHeight}), skipping scale")
++    // Skip scaling if watermark already matches the render size
++    val scaledWatermark: Bitmap = if (originalWidth == targetWidth && originalHeight == targetHeight) {
++      Log.d(TAG, "[Step 8] Watermark already matches video size (${originalWidth}x${originalHeight}), skipping scale")
+       watermarkBitmap
+     } else {
+       Log.d(TAG, "[Step 8] Pre-scaling watermark: ${originalWidth}x${originalHeight} -> ${targetWidth}x${targetHeight} (scale: $scale)")
+@@ -285,13 +322,11 @@ class ExpoVideoWatermarkModule : Module() {
+       }
+     }
+ 
+-    // Step 9: Create overlay settings for bottom positioning (no GPU scaling needed)
+-    // In Media3, coordinates are normalized: (0,0) is center
+-    // x range [-1, 1] (left to right), y range [-1, 1] (bottom to top)
++    // Step 9: Full-frame overlay (transparent PNG with corner pill + bottom strip).
+     val overlaySettings = try {
+       StaticOverlaySettings.Builder()
+-        .setOverlayFrameAnchor(0f, -1f)  // Anchor at bottom-center of watermark
+-        .setBackgroundFrameAnchor(0f, -1f)  // Position at very bottom of video
++        .setOverlayFrameAnchor(0f, 0f)
++        .setBackgroundFrameAnchor(0f, 0f)
+         .build()
+     } catch (e: Exception) {
+       scaledWatermark.recycle()
 diff --git a/node_modules/@stefanmartin/expo-video-watermark/ios/ExpoVideoWatermarkModule.swift b/node_modules/@stefanmartin/expo-video-watermark/ios/ExpoVideoWatermarkModule.swift
-index 527145a..c53d9bf 100644
+index 527145a..745f579 100644
 --- a/node_modules/@stefanmartin/expo-video-watermark/ios/ExpoVideoWatermarkModule.swift
 +++ b/node_modules/@stefanmartin/expo-video-watermark/ios/ExpoVideoWatermarkModule.swift
-@@ -80,8 +80,10 @@ public class ExpoVideoWatermarkModule: Module {
+@@ -11,6 +11,12 @@ public class ExpoVideoWatermarkModule: Module {
+         self.processWatermark(videoPath: videoPath, imagePath: imagePath, outputPath: outputPath, promise: promise)
+       }
+     }
++
++    AsyncFunction("getVideoRenderSize") { (videoPath: String, promise: Promise) in
++      DispatchQueue.global(qos: .userInitiated).async {
++        self.resolveVideoRenderSize(videoPath: videoPath, promise: promise)
++      }
++    }
+   }
+ 
+   private func processWatermark(videoPath: String, imagePath: String, outputPath: String, promise: Promise) {
+@@ -80,8 +86,10 @@ public class ExpoVideoWatermarkModule: Module {
        return
      }
  
@@ -15,7 +115,32 @@ index 527145a..c53d9bf 100644
  
      // Create layer hierarchy for watermark overlay
      let parentLayer = CALayer()
-@@ -125,8 +127,6 @@ public class ExpoVideoWatermarkModule: Module {
+@@ -91,22 +99,10 @@ public class ExpoVideoWatermarkModule: Module {
+     videoLayer.frame = CGRect(origin: .zero, size: videoSize)
+     parentLayer.addSublayer(videoLayer)
+ 
+-    // Create watermark layer spanning full width at bottom
++    // Full-frame transparent PNG (corner pill + bottom strip) composited 1:1.
+     let watermarkLayer = CALayer()
+     watermarkLayer.contents = watermarkImage.cgImage
+-
+-    // Scale watermark to match video width, maintaining aspect ratio
+-    let watermarkWidth = videoSize.width
+-    let aspectRatio = watermarkImage.size.height / watermarkImage.size.width
+-    let watermarkHeight = watermarkWidth * aspectRatio
+-
+-    // Position at very bottom (Core Animation y=0 is bottom)
+-    watermarkLayer.frame = CGRect(
+-      x: 0,
+-      y: 0,
+-      width: watermarkWidth,
+-      height: watermarkHeight
+-    )
++    watermarkLayer.frame = CGRect(origin: .zero, size: videoSize)
+     watermarkLayer.opacity = 1.0
+     parentLayer.addSublayer(watermarkLayer)
+ 
+@@ -125,8 +121,6 @@ public class ExpoVideoWatermarkModule: Module {
  
      let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compositionVideoTrack)
  
@@ -24,7 +149,7 @@ index 527145a..c53d9bf 100644
      layerInstruction.setTransform(transform, at: .zero)
  
      instruction.layerInstructions = [layerInstruction]
-@@ -169,37 +169,24 @@ public class ExpoVideoWatermarkModule: Module {
+@@ -169,37 +163,44 @@ public class ExpoVideoWatermarkModule: Module {
      }
    }
  
@@ -32,21 +157,29 @@ index 527145a..c53d9bf 100644
 -  private func naturalSizeForTrack(_ track: AVAssetTrack) -> CGSize {
 -    let size = track.naturalSize
 -    let transform = track.preferredTransform
-+  /// Maps a track's stored pixel buffer into upright render-space coordinates.
-+  private func videoCompositionProperties(
-+    for track: AVAssetTrack
-+  ) -> (renderSize: CGSize, transform: CGAffineTransform) {
-+    let naturalSize = track.naturalSize
-+    let preferredTransform = track.preferredTransform
++  private func resolveVideoRenderSize(videoPath: String, promise: Promise) {
++    let cleanVideoPath = videoPath.hasPrefix("file://") ? String(videoPath.dropFirst(7)) : videoPath
++    guard FileManager.default.fileExists(atPath: cleanVideoPath) else {
++      promise.reject("VIDEO_NOT_FOUND", "Video file not found at path: \(cleanVideoPath)")
++      return
++    }
  
 -    // Check if video is rotated 90 or 270 degrees
 -    if abs(transform.a) == 0 && abs(transform.d) == 0 {
 -      return CGSize(width: size.height, height: size.width)
--    }
++    let asset = AVURLAsset(url: URL(fileURLWithPath: cleanVideoPath))
++    guard let videoTrack = asset.tracks(withMediaType: .video).first else {
++      promise.reject("INVALID_VIDEO", "No video track found in file: \(videoPath)")
++      return
+     }
 -    return size
--  }
-+    let transformedRect = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform)
-+    let renderSize = CGSize(width: abs(transformedRect.width), height: abs(transformedRect.height))
++
++    let (renderSize, _) = self.videoCompositionProperties(for: videoTrack)
++    promise.resolve([
++      "width": renderSize.width,
++      "height": renderSize.height,
++    ])
+   }
  
 -  // Get the transform needed to render the video correctly
 -  private func transformForTrack(_ track: AVAssetTrack) -> CGAffineTransform {
@@ -65,6 +198,16 @@ index 527145a..c53d9bf 100644
 -    } else if transform.a == -1.0 && transform.d == -1.0 {
 -      // 180 degrees rotation
 -      return CGAffineTransform(translationX: size.width, y: size.height).rotated(by: .pi)
++  /// Maps a track's stored pixel buffer into upright render-space coordinates.
++  private func videoCompositionProperties(
++    for track: AVAssetTrack
++  ) -> (renderSize: CGSize, transform: CGAffineTransform) {
++    let naturalSize = track.naturalSize
++    let preferredTransform = track.preferredTransform
++
++    let transformedRect = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform)
++    let renderSize = CGSize(width: abs(transformedRect.width), height: abs(transformedRect.height))
++
 +    var transform = preferredTransform
 +    if transformedRect.origin.x != 0 {
 +      transform.tx -= transformedRect.origin.x
@@ -77,3 +220,17 @@ index 527145a..c53d9bf 100644
 +    return (renderSize, transform)
    }
  }
+diff --git a/node_modules/@stefanmartin/expo-video-watermark/src/ExpoVideoWatermarkModule.ts b/node_modules/@stefanmartin/expo-video-watermark/src/ExpoVideoWatermarkModule.ts
+index 09cc59f..b87d805 100644
+--- a/node_modules/@stefanmartin/expo-video-watermark/src/ExpoVideoWatermarkModule.ts
++++ b/node_modules/@stefanmartin/expo-video-watermark/src/ExpoVideoWatermarkModule.ts
+@@ -9,6 +9,9 @@ declare class ExpoVideoWatermarkModule extends NativeModule {
+    * @returns A promise that resolves with the output path on success.
+    */
+   watermarkVideo(videoPath: string, imagePath: string, outputPath: string): Promise<string>;
++
++  /** Upright render dimensions for a local video file (rotation-aware). */
++  getVideoRenderSize(videoPath: string): Promise<{ width: number; height: number }>;
+ }
+ 
+ // This call loads the native module object from the JSI.

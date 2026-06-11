@@ -95,6 +95,7 @@ export async function saveVideoToCameraRoll(
   if (challenge?.title?.trim()) {
     watermarkedUri = await applyChallengeWatermarkToVideo(localUri, {
       title: challenge.title.trim(),
+      username: challenge.username?.trim() || 'user',
     });
     localUri = watermarkedUri;
   }

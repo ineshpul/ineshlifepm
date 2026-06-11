@@ -312,7 +312,12 @@ export function FeedPostEngagement({
     setSavingToRoll(true);
     try {
       const prompt = challengePrompt?.trim();
-      await saveRemoteVideoToCameraRoll(shareUrl, prompt ? { title: prompt } : undefined);
+      await saveRemoteVideoToCameraRoll(
+        shareUrl,
+        prompt
+          ? { title: prompt, username: viewerUsername.trim() || 'user' }
+          : undefined
+      );
       showInfo('Saved', 'Video saved to camera roll.');
     } catch (e) {
       showError('Could not save', e);

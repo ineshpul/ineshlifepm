@@ -1,24 +1,30 @@
 import * as React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import ViewShot, { type ViewShotRef } from 'react-native-view-shot';
 import * as FileSystem from 'expo-file-system/legacy';
+import { useFonts, Outfit_600SemiBold, Outfit_700Bold } from '@expo-google-fonts/outfit';
 
 import {
-  ChallengeWatermarkCard,
-  type ChallengeWatermarkCardProps,
-} from '../components/ChallengeWatermarkCard';
+  VideoWatermarkOverlay,
+  type VideoWatermarkOverlayProps,
+} from '../components/VideoWatermarkOverlay';
 
-export type ChallengeWatermarkInfo = ChallengeWatermarkCardProps;
+export type ChallengeWatermarkInfo = Pick<VideoWatermarkOverlayProps, 'title' | 'username'>;
+
+type ChallengeWatermarkCaptureRequest = ChallengeWatermarkInfo &
+  Pick<VideoWatermarkOverlayProps, 'width' | 'height'>;
 
 type PendingCapture = {
-  info: ChallengeWatermarkInfo;
+  info: ChallengeWatermarkCaptureRequest;
   resolve: (uri: string) => void;
   reject: (reason: unknown) => void;
 };
 
-let enqueueCapture: ((info: ChallengeWatermarkInfo) => Promise<string>) | null = null;
+let enqueueCapture: ((info: ChallengeWatermarkCaptureRequest) => Promise<string>) | null = null;
 
-export async function captureChallengeWatermarkPng(info: ChallengeWatermarkInfo): Promise<string> {
+export async function captureChallengeWatermarkPng(
+  info: ChallengeWatermarkCaptureRequest
+): Promise<string> {
   if (!enqueueCapture) {
     throw new Error('Challenge watermark capture is not ready yet. Try again in a moment.');
   }
@@ -29,6 +35,10 @@ export async function captureChallengeWatermarkPng(info: ChallengeWatermarkInfo)
 export function ChallengeWatermarkCaptureHost() {
   const shotRef = React.useRef<ViewShotRef>(null);
   const [pending, setPending] = React.useState<PendingCapture | null>(null);
+  const [fontsLoaded] = useFonts({
+    Outfit_600SemiBold,
+    Outfit_700Bold,
+  });
 
   React.useEffect(() => {
     enqueueCapture = (info) =>
@@ -41,7 +51,7 @@ export function ChallengeWatermarkCaptureHost() {
   }, []);
 
   React.useEffect(() => {
-    if (!pending) return;
+    if (!pending || !fontsLoaded) return;
 
     let cancelled = false;
     const run = async () => {
@@ -67,14 +77,27 @@ export function ChallengeWatermarkCaptureHost() {
     return () => {
       cancelled = true;
     };
-  }, [pending]);
+  }, [pending, fontsLoaded]);
 
   if (!pending) return null;
 
+  if (!fontsLoaded) {
+    return (
+      <View style={styles.offscreen} pointerEvents="none">
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
+  const { title, username, width, height } = pending.info;
+
   return (
     <View style={styles.offscreen} pointerEvents="none" collapsable={false}>
-      <ViewShot ref={shotRef} options={{ format: 'png', quality: 1, result: 'tmpfile' }}>
-        <ChallengeWatermarkCard title={pending.info.title} />
+      <ViewShot
+        ref={shotRef}
+        options={{ format: 'png', quality: 1, result: 'tmpfile', width, height }}
+      >
+        <VideoWatermarkOverlay title={title} username={username} width={width} height={height} />
       </ViewShot>
     </View>
   );

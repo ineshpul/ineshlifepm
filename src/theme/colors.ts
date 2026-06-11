@@ -17,6 +17,8 @@ export const colors = {
   white: '#FFFFFF',
   danger: '#FF6B54',
   overlay: 'rgba(0,0,0,0.55)',
+  /** Second line on exported video watermarks (@user · taketheleap.app). */
+  watermarkMeta: '#A5D6A7',
 };
 
 export type ColorName = keyof typeof colors;

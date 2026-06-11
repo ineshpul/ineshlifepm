@@ -58,10 +58,14 @@ export type PlayerFacingChallenge = {
 
 export function getChallengeWatermarkInfo(
   challenge: Challenge,
-  window: ChallengeWindow
-): { title: string } {
+  window: ChallengeWindow,
+  username: string
+): { title: string; username: string } {
   const facing = getPlayerFacingChallenge(challenge, window);
-  return { title: facing.title };
+  return {
+    title: facing.title,
+    username: username.trim() || 'user',
+  };
 }
 
 export function getPlayerFacingChallenge(challenge: Challenge, window: ChallengeWindow): PlayerFacingChallenge {

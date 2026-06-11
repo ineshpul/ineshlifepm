@@ -293,7 +293,7 @@ export function RecordScreen() {
     async (opts: {
       recordedForSave: boolean;
       clipUriForOffer: string | null;
-      watermarkInfo: { title: string };
+      watermarkInfo: { title: string; username: string };
     }) => {
       const { recordedForSave, clipUriForOffer, watermarkInfo } = opts;
       if (
@@ -573,7 +573,11 @@ export function RecordScreen() {
         await navigateAfterPost({
           recordedForSave: clipSource === 'recorded',
           clipUriForOffer,
-          watermarkInfo: getChallengeWatermarkInfo(challenge, window),
+          watermarkInfo: getChallengeWatermarkInfo(
+            challenge,
+            window,
+            String(user?.username ?? 'user')
+          ),
         });
         return;
       }
@@ -730,7 +734,11 @@ export function RecordScreen() {
       const recordedForSave = clipSource === 'recorded';
       const autoSaveClip = preferences.autoSavePosts;
       const clipUriForOffer = recordedForSave ? clipUri : null;
-      const watermarkInfo = getChallengeWatermarkInfo(challenge, window);
+      const watermarkInfo = getChallengeWatermarkInfo(
+        challenge,
+        window,
+        String(user.username ?? 'user')
+      );
 
       markPostedToday();
       void logEngagementMetric('posting', { challenge_date: viewingChallengeDateKey });
