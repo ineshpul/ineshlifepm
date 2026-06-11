@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { colors } from '../theme/colors';
@@ -105,13 +106,16 @@ function CornerPill({ layout }: { layout: VideoWatermarkLayout }) {
     >
       <Image
         accessibilityIgnoresInvertColors
-        source={require('../../assets/leap-logo-white.png')}
+        accessibilityLabel="Leap logo"
+        source={require('../../assets/brandmark.png')}
         style={{
           width: pill.logoHeight,
           height: pill.logoHeight,
           backgroundColor: 'transparent',
+          ...(Platform.OS !== 'web' ? { blendMode: 'darken' as const } : {}),
         }}
-        resizeMode="contain"
+        contentFit="contain"
+        transition={0}
       />
       <Text
         style={{
