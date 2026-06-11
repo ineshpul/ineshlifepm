@@ -25,6 +25,8 @@ type Props = {
   reelLayout: boolean;
   onComposerFocus?: () => void;
   bottomInset?: number;
+  /** Modal send reads draft from ref so Post works on first tap while keyboard is up. */
+  draftTextRef?: React.MutableRefObject<string>;
 };
 
 const MIN_INPUT_HEIGHT = 44;
@@ -42,6 +44,7 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
   reelLayout,
   onComposerFocus,
   bottomInset = 0,
+  draftTextRef,
 }: Props) {
   const inputRef = React.useRef<TextInput>(null);
   const [inputHeight, setInputHeight] = React.useState(MIN_INPUT_HEIGHT);
@@ -59,8 +62,12 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
     return () => clearTimeout(t);
   }, [replyTarget]);
 
+  const currentDraft = forModal && draftTextRef ? draftTextRef.current : draft;
+  const canSend = Boolean(currentDraft.trim()) && !sending;
+
   const handleSend = () => {
-    if (!draft.trim() || sending) return;
+    const text = (forModal && draftTextRef ? draftTextRef.current : draft).trim();
+    if (!text || sending) return;
     onSend();
   };
 
@@ -113,29 +120,41 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
                 }
           }
           onFocus={() => onComposerFocus?.()}
+          blurOnSubmit={false}
           autoCorrect
           spellCheck
           textContentType="none"
         />
-        <Pressable
-          style={({ pressed }) => [
-            styles.sendBtn,
-            !draft.trim() && styles.sendBtnDisabled,
-            pressed && draft.trim() && !sending && styles.sendBtnPressed,
-          ]}
-          hitSlop={10}
-          android_ripple={{ color: 'rgba(255,255,255,0.2)' }}
-          onPressIn={forModal ? handleSend : undefined}
-          onPress={forModal ? undefined : handleSend}
-          accessibilityRole="button"
-          accessibilityLabel="Post comment"
-        >
-          {sending ? (
-            <ActivityIndicator color={colors.white} />
-          ) : (
-            <Text style={styles.sendText}>Post</Text>
-          )}
-        </Pressable>
+        {forModal ? (
+          <Pressable
+            style={[styles.sendBtn, !canSend && styles.sendBtnDisabled]}
+            hitSlop={10}
+            onPressIn={handleSend}
+            accessibilityRole="button"
+            accessibilityLabel="Post comment"
+          >
+            {sending ? (
+              <ActivityIndicator color={colors.white} />
+            ) : (
+              <Text style={styles.sendText}>Post</Text>
+            )}
+          </Pressable>
+        ) : (
+          <TouchableOpacity
+            style={[styles.sendBtn, !canSend && styles.sendBtnDisabled]}
+            hitSlop={10}
+            activeOpacity={0.88}
+            onPress={handleSend}
+            accessibilityRole="button"
+            accessibilityLabel="Post comment"
+          >
+            {sending ? (
+              <ActivityIndicator color={colors.white} />
+            ) : (
+              <Text style={styles.sendText}>Post</Text>
+            )}
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -214,9 +233,6 @@ const styles = StyleSheet.create({
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  sendBtnPressed: {
-    opacity: 0.88,
   },
   sendBtnDisabled: {
     opacity: 0.45,

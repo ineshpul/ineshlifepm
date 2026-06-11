@@ -12,6 +12,7 @@ import {
   NativeSyntheticEvent,
   Platform,
   Pressable,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -22,7 +23,11 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { PanGestureHandler, State } from 'react-native-gesture-handler';
+import {
+  PanGestureHandler,
+  State,
+  TouchableOpacity as GestureTouchableOpacity,
+} from 'react-native-gesture-handler';
 import {
   addDoc,
   collection,
@@ -105,8 +110,9 @@ export function FeedPostEngagement({
   const [expandedThreads, setExpandedThreads] = React.useState<Record<string, boolean>>({});
   const [commentsQueryReady, setCommentsQueryReady] = React.useState(false);
   const [savingToRoll, setSavingToRoll] = React.useState(false);
-  const [composerHeight, setComposerHeight] = React.useState(60);
+  const draftRef = React.useRef('');
   const postInFlightRef = React.useRef(false);
+  const ActionTouchable = reelLayout ? GestureTouchableOpacity : TouchableOpacity;
   const keyboardInset = React.useRef(new Animated.Value(0)).current;
   const baseSheetHeightAnim = React.useRef(new Animated.Value(0)).current;
   const safeComposerBottom = Math.max(insets.bottom, 8);
@@ -372,8 +378,8 @@ export function FeedPostEngagement({
     }
   };
 
-  const onSendComment = async () => {
-    const text = draft.trim();
+  const onSendComment = React.useCallback(async () => {
+    const text = draftRef.current.trim();
     if (!viewerUid) {
       showError('Sign in required', new Error('Log in to comment.'));
       return;
@@ -397,6 +403,7 @@ export function FeedPostEngagement({
       }
       await addDoc(collection(firestore(), 'videos', videoId, 'comments'), payload);
       await notifyCommentRecipients(text, reply);
+      draftRef.current = '';
       setDraft('');
       setReplyTarget(null);
       setKeyboardVisible(false);
@@ -408,7 +415,7 @@ export function FeedPostEngagement({
       setSending(false);
       postInFlightRef.current = false;
     }
-  };
+  }, [viewerUid, viewerUsername, videoId, replyTarget]);
 
   const confirmDeleteComment = React.useCallback(
     (commentId: string) => {
@@ -542,7 +549,7 @@ export function FeedPostEngagement({
     [keyboardVisible, closeCommentsModal]
   );
 
-  const onOpenCommentsModal = () => {
+  const onOpenCommentsModal = React.useCallback(() => {
     if (!viewerUid) {
       showError('Sign in required', new Error('Log in to view comments.'));
       return;
@@ -551,15 +558,16 @@ export function FeedPostEngagement({
       Math.round(Dimensions.get('window').height * COMMENTS_SHEET_HEIGHT_RATIO)
     );
     setCommentsModalOpen(true);
-  };
+  }, [viewerUid, baseSheetHeightAnim]);
 
   return (
     <View style={[styles.wrap, reelLayout && styles.wrapReelCompact]}>
       <View style={styles.actions}>
-        <TouchableOpacity
+        <ActionTouchable
           style={styles.actionBtn}
           onPress={onToggleLike}
           disabled={likeBusy}
+          activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel={liked ? 'Unlike' : 'Like'}
         >
@@ -569,19 +577,20 @@ export function FeedPostEngagement({
             <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={colors.coral} />
           )}
           <Text style={styles.actionCount}>{displayLikes}</Text>
-        </TouchableOpacity>
+        </ActionTouchable>
 
-        <TouchableOpacity
+        <ActionTouchable
           style={styles.actionBtn}
           onPress={onOpenCommentsModal}
+          activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="View comments"
         >
           <Ionicons name="chatbubble-outline" size={20} color={colors.text} />
           <Text style={styles.actionCount}>{displayComments}</Text>
-        </TouchableOpacity>
+        </ActionTouchable>
 
-        <TouchableOpacity
+        <ActionTouchable
           style={styles.actionBtn}
           onPress={() => {
             if (!viewerUid) {
@@ -596,16 +605,18 @@ export function FeedPostEngagement({
               ownerUsername: videoOwnerUsername,
             });
           }}
+          activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="Send this clip to someone in Leap"
         >
           <Ionicons name="paper-plane-outline" size={21} color={colors.text} />
-        </TouchableOpacity>
+        </ActionTouchable>
 
-        <TouchableOpacity
+        <ActionTouchable
           style={styles.actionBtn}
           onPress={onShare}
           disabled={savingToRoll}
+          activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="Share video"
         >
@@ -614,17 +625,18 @@ export function FeedPostEngagement({
           ) : (
             <Ionicons name="share-outline" size={22} color={colors.text} />
           )}
-        </TouchableOpacity>
+        </ActionTouchable>
 
         {viewerUid && viewerUid !== videoOwnerUid ? (
-          <TouchableOpacity
+          <ActionTouchable
             style={styles.actionBtn}
             onPress={openSafety}
+            activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="Report or block"
           >
             <Ionicons name="flag-outline" size={21} color={colors.text} />
-          </TouchableOpacity>
+          </ActionTouchable>
         ) : null}
       </View>
 
@@ -690,7 +702,6 @@ export function FeedPostEngagement({
                 contentContainerStyle={[
                   styles.modalListContent,
                   comments.length === 0 ? styles.modalListContentEmpty : null,
-                  viewerUid && !keyboardVisible ? { paddingBottom: composerHeight } : null,
                 ]}
                 keyboardShouldPersistTaps="always"
                 keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -703,35 +714,41 @@ export function FeedPostEngagement({
                 alwaysBounceVertical
                 windowSize={10}
               />
+              {viewerUid ? (
+                <Animated.View
+                  style={[
+                    styles.modalComposerHost,
+                    {
+                      transform: [{ translateY: composerTranslateY }],
+                      paddingBottom: keyboardVisible ? 8 : safeComposerBottom,
+                    },
+                  ]}
+                >
+                  <ScrollView
+                    keyboardShouldPersistTaps="always"
+                    scrollEnabled={false}
+                    keyboardDismissMode="none"
+                  >
+                    <EngagementCommentComposer
+                      draft={draft}
+                      draftTextRef={draftRef}
+                      onChangeText={(text) => {
+                        draftRef.current = text;
+                        setDraft(text);
+                      }}
+                      replyTarget={replyTarget}
+                      onClearReply={() => setReplyTarget(null)}
+                      sending={sending}
+                      onSend={onSendComment}
+                      forModal
+                      reelLayout={reelLayout}
+                      bottomInset={0}
+                    />
+                  </ScrollView>
+                </Animated.View>
+              ) : null}
             </View>
           </Animated.View>
-          {viewerUid ? (
-            <Animated.View
-              style={[
-                styles.modalComposerHost,
-                {
-                  transform: [{ translateY: composerTranslateY }],
-                  paddingBottom: keyboardVisible ? 8 : safeComposerBottom,
-                },
-              ]}
-              onLayout={(e) => {
-                const next = Math.ceil(e.nativeEvent.layout.height);
-                setComposerHeight((prev) => (prev === next ? prev : next));
-              }}
-            >
-              <EngagementCommentComposer
-                draft={draft}
-                onChangeText={setDraft}
-                replyTarget={replyTarget}
-                onClearReply={() => setReplyTarget(null)}
-                sending={sending}
-                onSend={() => void onSendComment()}
-                forModal
-                reelLayout={reelLayout}
-                bottomInset={0}
-              />
-            </Animated.View>
-          ) : null}
         </View>
       </Modal>
 
@@ -819,20 +836,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
   modalComposerHost: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 2,
-    paddingHorizontal: 14,
     backgroundColor: colors.white,
+    zIndex: 2,
   },
   modalSheet: {
     backgroundColor: colors.white,
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
     paddingHorizontal: 14,
-    overflow: 'hidden',
+    overflow: 'visible',
     shadowColor: '#000',
     shadowOpacity: 0.12,
     shadowRadius: 16,
