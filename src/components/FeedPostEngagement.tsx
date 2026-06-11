@@ -89,7 +89,6 @@ export function FeedPostEngagement({
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { preferences, patch } = useSettingsPreferences();
-  const [likeCount, setLikeCount] = React.useState(0);
   const [liked, setLiked] = React.useState(false);
   const [docLikeCount, setDocLikeCount] = React.useState<number | null>(null);
   const [docCommentCount, setDocCommentCount] = React.useState<number | null>(null);
@@ -157,45 +156,16 @@ export function FeedPostEngagement({
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !viewerUid) return;
-    let unsub: (() => void) | undefined;
+    let unsubVideo: (() => void) | undefined;
+    let unsubViewerLike: (() => void) | undefined;
     let cancelled = false;
 
     void firebaseAuth()
       .authStateReady()
       .then(() => {
         if (cancelled || !firebaseAuth().currentUser) return;
-        const likesCol = collection(firestore(), 'videos', videoId, 'likes');
-        unsub = onSnapshot(
-          likesCol,
-          (snap) => {
-            setLikeCount(snap.size);
-            setLiked(snap.docs.some((d) => d.id === viewerUid));
-          },
-          () => {
-            setLikeCount(0);
-            setLiked(false);
-          }
-        );
-      });
-
-    return () => {
-      cancelled = true;
-      unsub?.();
-    };
-  }, [videoId, viewerUid]);
-
-  React.useEffect(() => {
-    if (!isFirebaseConfigured() || !viewerUid) return;
-    let unsub: (() => void) | undefined;
-    let cancelled = false;
-
-    void firebaseAuth()
-      .authStateReady()
-      .then(() => {
-        if (cancelled || !firebaseAuth().currentUser) return;
-        const vref = doc(firestore(), 'videos', videoId);
-        unsub = onSnapshot(
-          vref,
+        unsubVideo = onSnapshot(
+          doc(firestore(), 'videos', videoId),
           (snap) => {
             if (!snap.exists()) {
               setDocLikeCount(null);
@@ -213,11 +183,17 @@ export function FeedPostEngagement({
             setDocCommentCount(null);
           }
         );
+        unsubViewerLike = onSnapshot(
+          doc(firestore(), 'videos', videoId, 'likes', viewerUid),
+          (snap) => setLiked(snap.exists()),
+          () => setLiked(false)
+        );
       });
 
     return () => {
       cancelled = true;
-      unsub?.();
+      unsubVideo?.();
+      unsubViewerLike?.();
     };
   }, [videoId, viewerUid]);
 
@@ -479,7 +455,7 @@ export function FeedPostEngagement({
     [videoId, viewerUid, videoOwnerUid, deletingCommentId, onReply, confirmDeleteComment, onExpandThread]
   );
 
-  const displayLikes = Math.max(likeCount, docLikeCount ?? 0);
+  const displayLikes = docLikeCount ?? 0;
   const displayComments = Math.max(comments.length, docCommentCount ?? 0);
 
   const openSafety = () => {
