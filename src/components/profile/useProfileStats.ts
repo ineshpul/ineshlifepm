@@ -1,6 +1,7 @@
 import * as React from 'react';
 
 import {
+  activeLeapStreakForDisplay,
   dailyLeapInchesFromProfileVideos,
   weeklyLeapInchesFromProfileVideos,
   type ProfileLeapVideo,
@@ -32,7 +33,11 @@ export function useProfileStats(
   );
   const weeklyLeapIn = Math.max(weeklyFromVideos, weeklyLeapInchesFromUser(profile, weekKey));
   const highestDayIn = highestDayLeapInchesFromUser(profile);
-  const streakDays = Math.max(0, Math.floor(Number(profile?.activeLeapStreakDays ?? 0)));
+  const streakDays = activeLeapStreakForDisplay({
+    profile,
+    videos,
+    todayLeapDayKey: viewingChallengeDateKey,
+  });
 
   const hasPostedTodayLeap = React.useMemo(
     () =>

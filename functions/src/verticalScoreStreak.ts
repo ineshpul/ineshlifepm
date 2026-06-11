@@ -46,3 +46,36 @@ export function updateStreakState(args: {
     longestLeapStreakDays: Math.max(longest0, active),
   };
 }
+
+/**
+ * Active streak is alive only when the last approved leap day is today or yesterday
+ * (leap `challengeDate` keys). Older last-post days mean the chain is broken → display 0.
+ */
+export function isActiveLeapStreakAlive(
+  lastApprovedLeapDateKey: string,
+  todayLeapDayKey: string
+): boolean {
+  const last = String(lastApprovedLeapDateKey ?? '').trim();
+  const today = String(todayLeapDayKey ?? '').trim();
+  if (!last || !today) return false;
+  return leapDateKeyGapDays(last, today) <= 1;
+}
+
+/** Zero stored active streak when the user has not posted today or yesterday. */
+export function expireActiveStreakIfBroken(args: {
+  activeLeapStreakDays: number;
+  lastApprovedLeapDateKey: string;
+  todayLeapDayKey: string;
+}): number {
+  const active = Math.max(0, Math.floor(Number(args.activeLeapStreakDays ?? 0)));
+  if (active <= 0) return 0;
+  if (
+    !isActiveLeapStreakAlive(
+      String(args.lastApprovedLeapDateKey ?? ''),
+      String(args.todayLeapDayKey ?? '')
+    )
+  ) {
+    return 0;
+  }
+  return active;
+}

@@ -19,6 +19,7 @@ import { isAdminUid, parseProfileIsAdmin, parseProfileIsModerator } from '../con
 import { unregisterPushDevice } from '../services/pushNotifications';
 import { bootstrapUserDocWithUsername, syncAuthDisplayNameIfNeeded } from '../services/usernameClaim';
 import { claimReferral } from '../services/referral';
+import { scheduleLeapStatsHealOnSession } from '../services/verticalScore';
 
 export type AuthUser = {
   uid: string;
@@ -242,15 +243,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       commitIfCurrent(u, needsEmailVerification);
+      scheduleLeapStatsHealOnSession(u.uid);
       return true;
     } catch {
       try {
         const live = firebaseAuth().currentUser;
         if (live && live.uid === raw.uid) {
           commitIfCurrent(live, hasPasswordProvider(live) && !live.emailVerified);
+          scheduleLeapStatsHealOnSession(live.uid);
           return true;
         }
         commitIfCurrent(raw, hasPasswordProvider(raw) && !raw.emailVerified);
+        scheduleLeapStatsHealOnSession(raw.uid);
         return true;
       } catch {
         return false;

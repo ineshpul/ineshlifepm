@@ -6,7 +6,10 @@ import { recomputeUserLeapStatsAdmin } from './verticalScoreRecompute';
 
 import { CALLABLE_OPTIONS } from './callableOptions';
 
-/** Authenticated users may recompute their own leap stats (admin SDK write). */
+/**
+ * Authenticated users may recompute their own leap stats (admin SDK write).
+ * Also used as the session heal callable on login / app foreground (`scheduleLeapStatsHealOnSession`).
+ */
 export const recomputeVerticalScoreCallable = onCall(CALLABLE_OPTIONS, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in required.');

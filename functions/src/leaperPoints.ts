@@ -2,6 +2,7 @@ import * as admin from 'firebase-admin';
 import { leapChallengeDateKeyFromMs } from './timeKeys';
 import { getCurrentWeekKey, weekStartKeyFromChallengeDate } from './getCurrentWeekKey';
 import { computeWeeklyLeaperFields } from './weeklyLeaperWeek';
+import { logLeapStatsMutation } from './leapStatsLogging';
 
 /** Build user-doc leaper fields for an inch delta (lifetime, daily, weekly). */
 export function buildLeaperPointsPatch(
@@ -48,7 +49,8 @@ export async function incrementUserLeapInches(
   inchDelta: number,
   challengeDayKey: string,
   awardMs: number,
-  nowMs: number
+  nowMs: number,
+  reason = 'incrementUserLeapInches'
 ): Promise<void> {
   if (!ownerId) return;
   const inch = Math.round(Number(inchDelta ?? 0) * 10) / 10;
@@ -59,7 +61,29 @@ export async function incrementUserLeapInches(
 
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
-    const patch = buildLeaperPointsPatch(snap.data(), inch, dayKey, nowMs);
+    const stored = snap.data() ?? {};
+    const oldLifetime = Math.max(0, Number(stored.leaperLifetimePoints ?? 0));
+    const oldDayKey = String(stored.leaperDayKey ?? '');
+    const oldDayPoints =
+      oldDayKey === dayKey ? Math.max(0, Number(stored.leaperDayPoints ?? 0)) : 0;
+    const patch = buildLeaperPointsPatch(stored, inch, dayKey, nowMs);
     tx.set(ref, patch, { merge: true });
+    logLeapStatsMutation({
+      kind: 'incrementUserLeapInches',
+      uid: ownerId,
+      dayKey,
+      reason,
+      delta: inch,
+      oldValue: {
+        leaperLifetimePoints: oldLifetime,
+        leaperDayPoints: oldDayPoints,
+        leaperWeekPoints: Number(stored.leaperWeekPoints ?? 0),
+      },
+      newValue: {
+        leaperLifetimePoints: Number(patch.leaperLifetimePoints ?? oldLifetime),
+        leaperDayPoints: Number(patch.leaperDayPoints ?? oldDayPoints),
+        leaperWeekPoints: Number(patch.leaperWeekPoints ?? stored.leaperWeekPoints ?? 0),
+      },
+    });
   });
 }

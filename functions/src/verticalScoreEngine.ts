@@ -1,9 +1,14 @@
 /**
  * Leap vertical scoring — inches only (mirrors `src/lib/verticalScore.ts`).
  */
-import { leapDateKeyGapDays, updateStreakState } from './verticalScoreStreak';
+import {
+  expireActiveStreakIfBroken,
+  isActiveLeapStreakAlive,
+  leapDateKeyGapDays,
+  updateStreakState,
+} from './verticalScoreStreak';
 
-export { leapDateKeyGapDays, updateStreakState };
+export { expireActiveStreakIfBroken, isActiveLeapStreakAlive, leapDateKeyGapDays, updateStreakState };
 
 export const LEAP_BASE_INCHES = 5;
 export const LEAP_FIRST_BONUS_BASE_INCHES = 10;

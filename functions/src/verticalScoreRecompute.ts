@@ -10,6 +10,7 @@ import {
   countsForStreak,
   isAwardedLeapVideo,
   leapInchesFromVideo,
+  expireActiveStreakIfBroken,
   updateStreakState,
 } from './verticalScoreEngine';
 import {
@@ -31,11 +32,64 @@ import {
 } from './videoModerationNotifications';
 import { cancelModerationJob } from './videoModerationCore';
 import { processReferralRewardsOnApproval } from './referralRewards';
+import { logLeapStatsMutation } from './leapStatsLogging';
 
 const REGION = 'us-central1';
 const DEFAULT_MAX_RECORDING_ATTEMPTS = 3;
 const POST_COLLECTION = 'videos';
 const PAGE = 500;
+
+/**
+ * Shared idempotency guard for `awardLeapInchesOnPending` and `awardLeapInchesOnFullApproval`.
+ * Sets `leapInchesAwarded` inside the same transaction before inch math so concurrent
+ * `onVerticalScoreVideoCreated` / `onVerticalScoreVideoApprovedLeaper` runs cannot double-award.
+ */
+function claimLeapInchesAwardInTransaction(
+  tx: admin.firestore.Transaction,
+  videoRef: admin.firestore.DocumentReference,
+  vd: Record<string, unknown>
+): boolean {
+  if (isAwardedLeapVideo(vd)) return false;
+  tx.set(
+    videoRef,
+    {
+      leapInchesAwarded: true,
+      leapInchesAwardedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  return true;
+}
+
+function logStreakUpdate(args: {
+  uid: string;
+  videoId?: string;
+  dayKey: string;
+  reason: string;
+  priorActive: number;
+  priorLongest: number;
+  lastKey: string;
+  next: { activeLeapStreakDays: number; longestLeapStreakDays: number };
+}): void {
+  logLeapStatsMutation({
+    kind: 'updateStreakState',
+    uid: args.uid,
+    videoId: args.videoId,
+    dayKey: args.dayKey,
+    reason: args.reason,
+    oldValue: {
+      activeLeapStreakDays: args.priorActive,
+      longestLeapStreakDays: args.priorLongest,
+      lastApprovedLeapDateKey: args.lastKey,
+    },
+    newValue: {
+      activeLeapStreakDays: args.next.activeLeapStreakDays,
+      longestLeapStreakDays: args.next.longestLeapStreakDays,
+      lastApprovedLeapDateKey: args.dayKey,
+    },
+    delta: args.next.activeLeapStreakDays - args.priorActive,
+  });
+}
 
 function toMillis(v: unknown): number {
   if (v && typeof (v as { toMillis?: () => number }).toMillis === 'function') {
@@ -188,6 +242,7 @@ async function awardLeapInchesOnPending(
     const vd = vSnap.data() as Record<string, unknown>;
     if (isAwardedLeapVideo(vd)) return null;
     if (String(vd.moderationStatus ?? '') !== 'pending') return null;
+    if (!claimLeapInchesAwardInTransaction(tx, videoRef, vd)) return null;
 
     const uSnap = await tx.get(userRef);
     const ud = uSnap.data() ?? {};
@@ -232,8 +287,30 @@ async function awardLeapInchesOnPending(
       { merge: true }
     );
 
+    const oldLifetime = Math.max(0, Number(ud.leaperLifetimePoints ?? 0));
     const leaperPatch = buildLeaperPointsPatch(ud, computed.leapInches, challengeDate, nowMs);
     tx.set(userRef, leaperPatch, { merge: true });
+
+    logLeapStatsMutation({
+      kind: 'awardLeapInchesOnPending',
+      uid: owner,
+      videoId,
+      dayKey: challengeDate,
+      reason: 'awardLeapInchesOnPending',
+      delta: computed.leapInches,
+      oldValue: {
+        leaperLifetimePoints: oldLifetime,
+        leapInches: 0,
+        activeLeapStreakDays: priorStreak,
+      },
+      newValue: {
+        leaperLifetimePoints: Number(leaperPatch.leaperLifetimePoints ?? oldLifetime),
+        leapInches: computed.leapInches,
+        activeLeapStreakDays: priorStreak,
+      },
+      extra: { leapInchesPendingApproval: true },
+    });
+
     return computed;
   });
 
@@ -270,6 +347,7 @@ async function awardLeapInchesOnFullApproval(
     const vd = vSnap.data() as Record<string, unknown>;
     if (isAwardedLeapVideo(vd)) return null;
     if (String(vd.moderationStatus ?? '') !== 'approved') return null;
+    if (!claimLeapInchesAwardInTransaction(tx, videoRef, vd)) return null;
 
     const uSnap = await tx.get(userRef);
     const ud = uSnap.data() ?? {};
@@ -313,6 +391,17 @@ async function awardLeapInchesOnFullApproval(
       priorLongest: priorLongest,
     });
 
+    logStreakUpdate({
+      uid: owner,
+      videoId,
+      dayKey: challengeDate,
+      reason: 'awardLeapInchesOnFullApproval',
+      priorActive: priorStreak,
+      priorLongest,
+      lastKey,
+      next: streakNext,
+    });
+
     tx.set(
       videoRef,
       {
@@ -336,6 +425,7 @@ async function awardLeapInchesOnFullApproval(
       { merge: true }
     );
 
+    const oldLifetime = Math.max(0, Number(ud.leaperLifetimePoints ?? 0));
     const leaperPatch = buildLeaperPointsPatch(ud, computed.leapInches, challengeDate, nowMs);
 
     tx.set(
@@ -349,6 +439,26 @@ async function awardLeapInchesOnFullApproval(
       },
       { merge: true }
     );
+
+    logLeapStatsMutation({
+      kind: 'awardLeapInchesOnFullApproval',
+      uid: owner,
+      videoId,
+      dayKey: challengeDate,
+      reason: 'awardLeapInchesOnFullApproval',
+      delta: computed.leapInches,
+      oldValue: {
+        leaperLifetimePoints: oldLifetime,
+        leapInches: 0,
+        activeLeapStreakDays: priorStreak,
+      },
+      newValue: {
+        leaperLifetimePoints: Number(leaperPatch.leaperLifetimePoints ?? oldLifetime),
+        leapInches: computed.leapInches,
+        activeLeapStreakDays: streakNext.activeLeapStreakDays,
+      },
+      extra: { isGlobalFirstOfDay, isFirstEverLeap: !hasEver },
+    });
 
     return {
       computed,
@@ -418,6 +528,7 @@ async function finalizeLeapInchesOnApproval(
     const vd = vSnap.data() as Record<string, unknown>;
     if (!isAwardedLeapVideo(vd)) return;
     if (String(vd.moderationStatus ?? '') !== 'approved') return;
+    if (vd.leapInchesPendingApproval !== true) return;
 
     const uSnap = await tx.get(userRef);
     const ud = uSnap.data() ?? {};
@@ -445,6 +556,17 @@ async function finalizeLeapInchesOnApproval(
       priorLongest: priorLongest,
     });
 
+    logStreakUpdate({
+      uid: owner,
+      videoId,
+      dayKey: challengeDate,
+      reason: 'finalizeLeapInchesOnApproval',
+      priorActive: priorStreak,
+      priorLongest,
+      lastKey,
+      next: streakNext,
+    });
+
     const videoPatch: Record<string, unknown> = {
       leapInchesPendingApproval: false,
       approvedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -467,6 +589,25 @@ async function finalizeLeapInchesOnApproval(
       },
       { merge: true }
     );
+
+    logLeapStatsMutation({
+      kind: 'finalizeLeapInchesOnApproval',
+      uid: owner,
+      videoId,
+      dayKey: challengeDate,
+      reason: 'finalizeLeapInchesOnApproval',
+      oldValue: {
+        activeLeapStreakDays: priorStreak,
+        hasApprovedLeapEver: hasEver,
+        leapInchesPendingApproval: true,
+      },
+      newValue: {
+        activeLeapStreakDays: streakNext.activeLeapStreakDays,
+        hasApprovedLeapEver: true,
+        leapInchesPendingApproval: false,
+      },
+      extra: { organicInchesGranted, isGlobalFirstOfDay, isFirstApprovedLeap },
+    });
   });
 
   if (needsRetotal) {
@@ -559,7 +700,35 @@ async function revokeLeapInchesForVideo(
   const dayKey = challengeDate || leapChallengeDateKeyFromMs(awardMs > 0 ? awardMs : nowMs);
   const dayStatsKey = leapDayKeyFromStoredChallengeDate(dayKey, awardMs > 0 ? awardMs : nowMs);
 
-  await incrementUserLeapInches(db, owner, -inches, dayKey, awardMs > 0 ? awardMs : nowMs, nowMs);
+  const userSnap = await db.doc(`users/${owner}`).get();
+  const ud = userSnap.data() ?? {};
+  const oldLifetime = Math.max(0, Number(ud.leaperLifetimePoints ?? 0));
+  const oldStreak = Math.max(0, Math.floor(Number(ud.activeLeapStreakDays ?? 0)));
+
+  logLeapStatsMutation({
+    kind: 'revokeLeapInchesForVideo',
+    uid: owner,
+    videoId,
+    dayKey,
+    reason: 'revokeLeapInchesForVideo',
+    delta: -inches,
+    oldValue: {
+      leapInches: inches,
+      leaperLifetimePoints: oldLifetime,
+      activeLeapStreakDays: oldStreak,
+    },
+    extra: { revertStreak },
+  });
+
+  await incrementUserLeapInches(
+    db,
+    owner,
+    -inches,
+    dayKey,
+    awardMs > 0 ? awardMs : nowMs,
+    nowMs,
+    'revokeLeapInchesForVideo'
+  );
 
   try {
     await decrementApprovedPostCountForLeap(db, beforeData, videoId);
@@ -585,6 +754,23 @@ async function revokeLeapInchesForVideo(
 
   try {
     await recomputeUserLeapStatsAdmin(owner);
+    const afterSnap = await db.doc(`users/${owner}`).get();
+    const after = afterSnap.data() ?? {};
+    logLeapStatsMutation({
+      kind: 'revokeLeapInchesForVideo',
+      uid: owner,
+      videoId,
+      dayKey,
+      reason: 'revokeLeapInchesForVideo:afterRecompute',
+      oldValue: {
+        leaperLifetimePoints: oldLifetime,
+        activeLeapStreakDays: oldStreak,
+      },
+      newValue: {
+        leaperLifetimePoints: Number(after.leaperLifetimePoints ?? 0),
+        activeLeapStreakDays: Number(after.activeLeapStreakDays ?? 0),
+      },
+    });
   } catch (e) {
     logger.error('recompute after revoke failed', { owner, videoId, e });
   }
@@ -747,7 +933,8 @@ async function maxDayLeapInchesForOwner(db: admin.firestore.Firestore, ownerId: 
 
 async function rebuildStreakFromVideos(
   db: admin.firestore.Firestore,
-  ownerId: string
+  ownerId: string,
+  todayLeapDayKey?: string
 ): Promise<{ active: number; longest: number; lastKey: string }> {
   const days: string[] = [];
   let last: admin.firestore.QueryDocumentSnapshot | undefined;
@@ -784,6 +971,37 @@ async function rebuildStreakFromVideos(
     longest = next.longestLeapStreakDays;
     lastKey = k;
   }
+
+  const todayKey = String(todayLeapDayKey ?? '').trim() || leapChallengeDateKeyFromMs(Date.now());
+  const rebuiltActive = active;
+  active = expireActiveStreakIfBroken({
+    activeLeapStreakDays: active,
+    lastApprovedLeapDateKey: lastKey,
+    todayLeapDayKey: todayKey,
+  });
+
+  logLeapStatsMutation({
+    kind: 'rebuildStreakFromVideos',
+    uid: ownerId,
+    dayKey: lastKey || undefined,
+    reason:
+      rebuiltActive !== active
+        ? 'rebuildStreakFromVideos:expiredBrokenStreak'
+        : 'rebuildStreakFromVideos',
+    oldValue: {
+      activeLeapStreakDays: rebuiltActive,
+      lastApprovedLeapDateKey: lastKey,
+    },
+    newValue: {
+      activeLeapStreakDays: active,
+      longestLeapStreakDays: longest,
+      lastApprovedLeapDateKey: lastKey,
+      qualifyingDayCount: days.length,
+      todayLeapDayKey: todayKey,
+    },
+    extra: { qualifyingDays: days },
+  });
+
   return { active, longest, lastKey };
 }
 
@@ -872,7 +1090,7 @@ export async function recomputeUserLeapStatsAdmin(ownerId: string): Promise<void
   });
   const weeklyFields = await recomputeUserWeeklyLeaperFields(db, ownerId, now);
   const highestDay = await maxDayLeapInchesForOwner(db, ownerId);
-  const streak = await rebuildStreakFromVideos(db, ownerId);
+  const streak = await rebuildStreakFromVideos(db, ownerId, todayKey);
   const uSnap = await userRef.get();
   const ud = uSnap.data() ?? {};
 
@@ -1104,6 +1322,11 @@ export const onVerticalScoreVideoApprovedLeaper = onDocumentWritten(
     }
 
     if (afterStatus === 'approved' && beforeStatus !== 'approved') {
+      // Document create is handled exclusively by onVerticalScoreVideoCreated (avoids double-award race).
+      if (!beforeSnap?.exists) {
+        return;
+      }
+
       try {
         await incrementApprovedPostCountForLeap(admin.firestore(), after, videoId);
       } catch (e) {
