@@ -109,7 +109,7 @@ function CornerPill({ layout }: { layout: VideoWatermarkLayout }) {
         style={{
           width: pill.logoHeight,
           height: pill.logoHeight,
-          tintColor: colors.white,
+          backgroundColor: 'transparent',
         }}
         resizeMode="contain"
       />
