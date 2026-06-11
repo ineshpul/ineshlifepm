@@ -2,7 +2,8 @@ import * as React from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import ViewShot, { type ViewShotRef } from 'react-native-view-shot';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useFonts, Outfit_600SemiBold, Outfit_700Bold } from '@expo-google-fonts/outfit';
+import { loadAsync } from 'expo-font';
+import { Outfit_600SemiBold, Outfit_700Bold } from '@expo-google-fonts/outfit';
 
 import {
   VideoWatermarkOverlay,
@@ -21,6 +22,16 @@ type PendingCapture = {
 };
 
 let enqueueCapture: ((info: ChallengeWatermarkCaptureRequest) => Promise<string>) | null = null;
+let watermarkFontsLoaded = false;
+
+async function ensureWatermarkFontsLoaded(): Promise<void> {
+  if (watermarkFontsLoaded) return;
+  await loadAsync({
+    Outfit_600SemiBold,
+    Outfit_700Bold,
+  });
+  watermarkFontsLoaded = true;
+}
 
 export async function captureChallengeWatermarkPng(
   info: ChallengeWatermarkCaptureRequest
@@ -35,10 +46,7 @@ export async function captureChallengeWatermarkPng(
 export function ChallengeWatermarkCaptureHost() {
   const shotRef = React.useRef<ViewShotRef>(null);
   const [pending, setPending] = React.useState<PendingCapture | null>(null);
-  const [fontsLoaded] = useFonts({
-    Outfit_600SemiBold,
-    Outfit_700Bold,
-  });
+  const [fontsReady, setFontsReady] = React.useState(false);
 
   React.useEffect(() => {
     enqueueCapture = (info) =>
@@ -51,7 +59,28 @@ export function ChallengeWatermarkCaptureHost() {
   }, []);
 
   React.useEffect(() => {
-    if (!pending || !fontsLoaded) return;
+    if (!pending) {
+      setFontsReady(false);
+      return;
+    }
+
+    let cancelled = false;
+    void ensureWatermarkFontsLoaded()
+      .then(() => {
+        if (!cancelled) setFontsReady(true);
+      })
+      .catch((e) => {
+        pending.reject(e);
+        if (!cancelled) setPending(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pending]);
+
+  React.useEffect(() => {
+    if (!pending || !fontsReady) return;
 
     let cancelled = false;
     const run = async () => {
@@ -77,11 +106,11 @@ export function ChallengeWatermarkCaptureHost() {
     return () => {
       cancelled = true;
     };
-  }, [pending, fontsLoaded]);
+  }, [pending, fontsReady]);
 
   if (!pending) return null;
 
-  if (!fontsLoaded) {
+  if (!fontsReady) {
     return (
       <View style={styles.offscreen} pointerEvents="none">
         <ActivityIndicator />

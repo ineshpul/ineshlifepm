@@ -6,8 +6,13 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { NativeAnalyticsSync } from './src/components/NativeAnalyticsSync';
-import { ChallengeWatermarkCaptureHost } from './src/services/challengeWatermarkCapture';
 import { RootNavigator } from './src/navigation/RootNavigator';
+
+const ChallengeWatermarkCaptureHost = React.lazy(() =>
+  import('./src/services/challengeWatermarkCapture').then((mod) => ({
+    default: mod.ChallengeWatermarkCaptureHost,
+  }))
+);
 import { AuthProvider, useAuth } from './src/state/auth';
 import { AppStateProvider } from './src/state/appState';
 import { SettingsPreferencesProvider, useSettingsPreferences } from './src/state/settingsPreferences';
@@ -123,7 +128,9 @@ export default function App() {
             <PushTokenRegistrar />
             <AppStateProvider>
               <RootNavigator />
-              <ChallengeWatermarkCaptureHost />
+              <React.Suspense fallback={null}>
+                <ChallengeWatermarkCaptureHost />
+              </React.Suspense>
               <StatusBar style="dark" />
             </AppStateProvider>
           </SettingsPreferencesProvider>
