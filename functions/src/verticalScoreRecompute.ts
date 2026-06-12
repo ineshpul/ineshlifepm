@@ -921,7 +921,10 @@ async function sumLeapInchesForOwner(
   return Math.round(total * 10) / 10;
 }
 
-async function maxDayLeapInchesForOwner(db: admin.firestore.Firestore, ownerId: string): Promise<number> {
+async function highestLeapDayStatsForOwner(
+  db: admin.firestore.Firestore,
+  ownerId: string
+): Promise<{ highestDay: number; bestPostId: string }> {
   const byDay = new Map<string, number>();
   let last: admin.firestore.QueryDocumentSnapshot | undefined;
   for (;;) {
@@ -943,9 +946,17 @@ async function maxDayLeapInchesForOwner(db: admin.firestore.Firestore, ownerId: 
     if (snap.size < PAGE) break;
     last = snap.docs[snap.docs.length - 1];
   }
-  let max = 0;
-  for (const v of byDay.values()) max = Math.max(max, v);
-  return Math.round(max * 10) / 10;
+  let bestDay = '';
+  let bestTotal = 0;
+  for (const [day, total] of byDay) {
+    if (total > bestTotal) {
+      bestTotal = total;
+      bestDay = day;
+    }
+  }
+  const highestDay = Math.round(bestTotal * 10) / 10;
+  const bestPostId = bestDay ? `${ownerId}_${bestDay}` : '';
+  return { highestDay, bestPostId };
 }
 
 async function rebuildStreakFromVideos(
@@ -1163,7 +1174,7 @@ export async function recomputeUserLeapStatsAdmin(ownerId: string): Promise<void
     return todayKeys.has(k);
   });
   const weeklyFields = await recomputeUserWeeklyLeaperFields(db, ownerId, now);
-  const highestDay = await maxDayLeapInchesForOwner(db, ownerId);
+  const { highestDay, bestPostId } = await highestLeapDayStatsForOwner(db, ownerId);
   const streak = await rebuildStreakFromVideos(db, ownerId, todayKey);
   const uSnap = await userRef.get();
   const ud = uSnap.data() ?? {};
@@ -1181,6 +1192,10 @@ export async function recomputeUserLeapStatsAdmin(ownerId: string): Promise<void
     lastApprovedLeapDateKey: streak.lastKey || String(ud.lastApprovedLeapDateKey ?? ''),
     leapStatsUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
+
+  if (bestPostId) {
+    patch.bestVerticalGainPostId = bestPostId;
+  }
 
   if (todayDayPoints > 0) {
     patch.leaperDayKey = todayKey;

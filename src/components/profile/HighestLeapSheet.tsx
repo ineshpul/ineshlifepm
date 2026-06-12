@@ -69,6 +69,11 @@ export function HighestLeapSheet({ visible, onClose, postId, fallbackInches }: P
         setUrl(String(data.url ?? '').trim());
         setDateLabel(formatLeapDate(String(data.challengeDate ?? '')));
       })
+      .catch(() => {
+        if (!alive) return;
+        setUrl('');
+        setDateLabel('');
+      })
       .finally(() => {
         if (alive) setLoading(false);
       });

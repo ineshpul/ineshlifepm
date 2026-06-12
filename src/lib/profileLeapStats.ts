@@ -2,6 +2,7 @@ import { normalizeWeekKey } from './getCurrentWeekKey';
 import { normalizeNyDateKey, nyLeapWeekChallengeDateKeys } from '../utils/nyTime';
 
 export type ProfileLeapVideo = {
+  id?: string;
   challengeDate: string;
   moderationStatus: string;
   leapInches?: number;
@@ -96,6 +97,57 @@ export function dailyLeapInchesFromProfileVideos(
     sum += inchFromVideo(v);
   }
   return Math.round(sum * 10) / 10;
+}
+
+function dayTotalsFromQualifyingVideos(
+  videos: readonly ProfileLeapVideo[]
+): Map<string, number> {
+  const byDay = new Map<string, number>();
+  for (const v of videos) {
+    if (!countsForStreakFromProfileVideo(v)) continue;
+    const k = normalizeNyDateKey(v.challengeDate, '');
+    if (!k) continue;
+    byDay.set(k, (byDay.get(k) ?? 0) + inchFromVideo(v));
+  }
+  return byDay;
+}
+
+/** Best single-day leap total from awarded, approved profile videos (fallback when user doc is stale). */
+export function highestDayLeapInchesFromProfileVideos(videos: readonly ProfileLeapVideo[]): number {
+  const byDay = dayTotalsFromQualifyingVideos(videos);
+  let max = 0;
+  for (const total of byDay.values()) max = Math.max(max, total);
+  return Math.round(max * 10) / 10;
+}
+
+/** Video id for the user's highest leap day — used when `bestVerticalGainPostId` is missing on the user doc. */
+export function bestVerticalGainPostIdFromProfileVideos(
+  videos: readonly ProfileLeapVideo[]
+): string | null {
+  const byDay = dayTotalsFromQualifyingVideos(videos);
+  let bestDay = '';
+  let bestTotal = 0;
+  for (const [day, total] of byDay) {
+    if (total > bestTotal) {
+      bestTotal = total;
+      bestDay = day;
+    }
+  }
+  if (!bestDay || bestTotal <= 0) return null;
+
+  let bestId = '';
+  let bestInch = -1;
+  for (const v of videos) {
+    if (!countsForStreakFromProfileVideo(v)) continue;
+    if (normalizeNyDateKey(v.challengeDate, '') !== bestDay) continue;
+    const inch = inchFromVideo(v);
+    const id = String(v.id ?? '').trim();
+    if (id && inch >= bestInch) {
+      bestInch = inch;
+      bestId = id;
+    }
+  }
+  return bestId || null;
 }
 
 /** Running week total: all approved leap days in the current leap week, summed together. */

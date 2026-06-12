@@ -2,7 +2,9 @@ import * as React from 'react';
 
 import {
   activeLeapStreakForDisplay,
+  bestVerticalGainPostIdFromProfileVideos,
   dailyLeapInchesFromProfileVideos,
+  highestDayLeapInchesFromProfileVideos,
   weeklyLeapInchesFromProfileVideos,
   type ProfileLeapVideo,
 } from '../../lib/profileLeapStats';
@@ -32,7 +34,8 @@ export function useProfileStats(
     dailyLeapInchesFromUser(profile, viewingChallengeDateKey)
   );
   const weeklyLeapIn = Math.max(weeklyFromVideos, weeklyLeapInchesFromUser(profile, weekKey));
-  const highestDayIn = highestDayLeapInchesFromUser(profile);
+  const highestFromVideos = highestDayLeapInchesFromProfileVideos(videos);
+  const highestDayIn = Math.max(highestDayLeapInchesFromUser(profile), highestFromVideos);
   const streakDays = activeLeapStreakForDisplay({
     profile,
     videos,
@@ -47,7 +50,11 @@ export function useProfileStats(
     [videos, viewingChallengeDateKey]
   );
 
-  const bestPostId = String(profile?.bestVerticalGainPostId ?? '').trim() || null;
+  const bestPostId = React.useMemo(() => {
+    const fromProfile = String(profile?.bestVerticalGainPostId ?? '').trim();
+    if (fromProfile) return fromProfile;
+    return bestVerticalGainPostIdFromProfileVideos(videos);
+  }, [profile?.bestVerticalGainPostId, videos]);
 
   return {
     weekKey,
