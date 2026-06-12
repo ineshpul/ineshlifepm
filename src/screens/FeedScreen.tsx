@@ -990,17 +990,16 @@ export function FeedScreen() {
               activeVideoId === item.id &&
               firstPreviousLeapsIndex >= 0 &&
               index === firstPreviousLeapsIndex;
-            const reelActive = isFocused && activeVideoId === item.id;
             return (
             <View style={[styles.reelPage, { height: pageHeight }]}>
               <View style={[styles.reelVideoSlot, { bottom: sheetBottom }]}>
-                {reelActive ? (
+                {isFocused ? (
                   <FeedPostVideo
                     reel
                     url={item.url}
                     secondaryUrl={item.secondaryUrl}
                     dualFrontIsPrimary={item.dualFrontIsPrimary}
-                    shouldPlay
+                    shouldPlay={activeVideoId === item.id}
                     isMuted={false}
                     useNativeControls
                     maxDurationSeconds={item.maxDurationSeconds}

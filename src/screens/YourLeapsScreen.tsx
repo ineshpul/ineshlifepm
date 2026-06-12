@@ -232,18 +232,16 @@ export function YourLeapsScreen() {
                   })
                 : undefined
             }
-            renderItem={({ item }) => {
-              const reelActive = isFocused && activeVideoId === item.id;
-              return (
+            renderItem={({ item }) => (
               <View style={[styles.reelPage, { height: pageHeight }]}>
                 <View style={[styles.reelVideoSlot, { bottom: REEL_BOTTOM_SHEET }]}>
-                  {reelActive ? (
+                  {isFocused ? (
                     <FeedPostVideo
                       reel
                       url={item.url}
                       secondaryUrl={item.secondaryUrl}
                       dualFrontIsPrimary={item.dualFrontIsPrimary}
-                      shouldPlay
+                      shouldPlay={activeVideoId === item.id}
                       isMuted={false}
                       useNativeControls
                       maxDurationSeconds={item.maxDurationSeconds}
@@ -313,8 +311,7 @@ export function YourLeapsScreen() {
                   ) : null}
                 </View>
               </View>
-            );
-            }}
+            )}
           />
         )}
       </View>

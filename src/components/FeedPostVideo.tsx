@@ -17,15 +17,27 @@ function formatTimeLeft(totalSeconds: number) {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
-/** Pause and release native AV resources when a reel slot deactivates or unmounts. */
-async function releaseVideoPlayer(player: Video | null, resetPosition: boolean, unload = false) {
+/** Pause a reel neighbor so the next swipe can resume instantly (keep the native buffer). */
+async function pauseVideoPlayer(player: Video | null, resetPosition: boolean) {
   if (!player) return;
   try {
     await player.pauseAsync();
     await player.setIsMutedAsync(true);
     await player.setVolumeAsync(0);
     if (resetPosition) await player.setPositionAsync(0);
-    if (unload) await player.unloadAsync();
+  } catch {
+    // native race
+  }
+}
+
+/** Full teardown when the player unmounts (e.g. leaving the feed tab). */
+async function unloadVideoPlayer(player: Video | null) {
+  if (!player) return;
+  try {
+    await player.pauseAsync();
+    await player.setIsMutedAsync(true);
+    await player.setVolumeAsync(0);
+    await player.unloadAsync();
   } catch {
     // native race
   }
@@ -111,8 +123,8 @@ function FeedPostVideoInner(props: {
     () => () => {
       if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
       heartAnimRef.current?.stop();
-      void releaseVideoPlayer(videoRef.current, false, true);
-      void releaseVideoPlayer(secondaryVideoRef.current, false, true);
+      void unloadVideoPlayer(videoRef.current);
+      void unloadVideoPlayer(secondaryVideoRef.current);
     },
     []
   );
@@ -174,8 +186,8 @@ function FeedPostVideoInner(props: {
 
     if (effectivePlay || !wasPlaying) return;
 
-    void releaseVideoPlayer(player, reel, reel);
-    void releaseVideoPlayer(secondary, false, true);
+    void pauseVideoPlayer(player, reel);
+    void pauseVideoPlayer(secondary, false);
   }, [effectivePlay, reel]);
 
   // Dual-camera PIP must follow the main reel on every play/replay/loop.
