@@ -77,6 +77,9 @@ type Props = {
   viewerUsername: string;
   onCommentComposerFocus?: () => void;
   reelLayout?: boolean;
+  /** Seed from feed row so counts render before the per-video listener attaches. */
+  initialLikesCount?: number;
+  initialCommentsCount?: number;
 };
 
 export function FeedPostEngagement({
@@ -90,6 +93,8 @@ export function FeedPostEngagement({
   viewerUsername,
   onCommentComposerFocus,
   reelLayout = false,
+  initialLikesCount,
+  initialCommentsCount,
 }: Props) {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
@@ -137,7 +142,15 @@ export function FeedPostEngagement({
     setExpandedThreads({});
     setComments([]);
     setCommentsQueryReady(false);
-  }, [videoId]);
+    setDocLikeCount(
+      initialLikesCount != null && Number.isFinite(initialLikesCount) ? initialLikesCount : null
+    );
+    setDocCommentCount(
+      initialCommentsCount != null && Number.isFinite(initialCommentsCount)
+        ? initialCommentsCount
+        : null
+    );
+  }, [videoId, initialLikesCount, initialCommentsCount]);
 
   React.useEffect(() => {
     if (!commentsModalOpen) {
@@ -275,15 +288,21 @@ export function FeedPostEngagement({
       showError('Sign in required', new Error('Log in to like posts.'));
       return;
     }
+    if (likeBusy) return;
+    const nextLiked = !liked;
+    const prevLiked = liked;
+    const prevCount = docLikeCount ?? 0;
+    setLiked(nextLiked);
+    setDocLikeCount(Math.max(0, prevCount + (nextLiked ? 1 : -1)));
     setLikeBusy(true);
     try {
       const likeRef = doc(firestore(), 'videos', videoId, 'likes', viewerUid);
-      if (liked) {
+      if (prevLiked) {
         await deleteDoc(likeRef);
       } else {
         await setDoc(likeRef, { createdAt: serverTimestamp() });
         if (viewerUid !== videoOwnerUid) {
-          await createInAppNotification({
+          void createInAppNotification({
             recipientUid: videoOwnerUid,
             type: 'like',
             fromUid: viewerUid,
@@ -293,6 +312,8 @@ export function FeedPostEngagement({
         }
       }
     } catch (e) {
+      setLiked(prevLiked);
+      setDocLikeCount(prevCount);
       showError('Like failed', e);
     } finally {
       setLikeBusy(false);

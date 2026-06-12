@@ -94,6 +94,8 @@ type FeedVideo = {
   maxDurationSeconds: number;
   /** NY calendar day for this post (`videos.challengeDate`). */
   challengeDate: string;
+  likesCount: number;
+  commentsCount: number;
 };
 
 /** Bottom sheet height (instructions + engagement) per reel page — matches Tabs tab bar feel. */
@@ -718,6 +720,8 @@ export function FeedScreen() {
             moderationStatus: String(data?.moderationStatus ?? 'approved'),
             maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
             challengeDate,
+            likesCount: Math.max(0, Number(data?.likesCount ?? 0)),
+            commentsCount: Math.max(0, Number(data?.commentsCount ?? 0)),
           };
         };
 
@@ -1094,6 +1098,8 @@ export function FeedScreen() {
                       challengePrompt={item.prompt}
                       viewerUid={user.uid}
                       viewerUsername={user.username}
+                      initialLikesCount={item.likesCount}
+                      initialCommentsCount={item.commentsCount}
                     />
                   </View>
                 ) : null}

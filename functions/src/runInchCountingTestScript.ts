@@ -8,7 +8,7 @@
  *   cd functions && npm run build
  *   GOOGLE_APPLICATION_CREDENTIALS=... or gcloud auth application-default login
  *   Functions deployed (onVerticalScoreVideoCreated, onVerticalScoreVideoApprovedLeaper,
- *   onVerticalScoreLikeWrite, onVerticalScoreVideoDeleted)
+ *   onVideoLikeCreated, onVideoLikeDeleted, onVerticalScoreVideoDeleted)
  *
  * Usage:
  *   TEST_UID=<firebase-uid> npm run test:inches
@@ -420,7 +420,7 @@ async function main(): Promise<void> {
     );
     if (likeCountOk && !likeEngagementOk) {
       console.log(
-        '       NOTE: likesCount updated but lifetime/video inches did not — onVerticalScoreLikeWrite does not call engagement retotal (only comments do). This is a known trigger gap.'
+        '       NOTE: likesCount updated but lifetime/video inches did not — onVideoLikeCreated does not call engagement retotal (only comments do). This is a known trigger gap.'
       );
     }
 

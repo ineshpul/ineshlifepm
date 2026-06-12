@@ -5,11 +5,12 @@ import * as admin from 'firebase-admin';
 import { sendLoginOtp, verifyLoginOtp } from './loginOtp';
 import {
   onVerticalScoreCommentWrite,
-  onVerticalScoreLikeWrite,
   onVerticalScoreVideoApprovedLeaper,
   onVerticalScoreVideoCreated,
   onVerticalScoreVideoDeleted,
 } from './verticalScoreRecompute';
+import { onVideoLikeCreated, onVideoLikeDeleted } from './likeEngagement';
+import { backfillLikesCountCallable } from './backfillLikesCountCallable';
 import { recomputeVerticalScoreCallable } from './verticalScoreCallable';
 import { backfillVerticalScoresCallable } from './backfillVerticalScoresCallable';
 import { backfillAllVerticalScoresOnceCallable } from './backfillAllVerticalScoresOnceCallable';
@@ -39,10 +40,12 @@ admin.initializeApp();
 export { sendLoginOtp, verifyLoginOtp };
 export {
   onVerticalScoreCommentWrite,
-  onVerticalScoreLikeWrite,
+  onVideoLikeCreated,
+  onVideoLikeDeleted,
   onVerticalScoreVideoApprovedLeaper,
   onVerticalScoreVideoCreated,
   onVerticalScoreVideoDeleted,
+  backfillLikesCountCallable,
   recomputeVerticalScoreCallable,
   backfillVerticalScoresCallable,
   backfillAllVerticalScoresOnceCallable,

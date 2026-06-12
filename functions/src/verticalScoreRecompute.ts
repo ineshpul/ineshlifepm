@@ -1446,28 +1446,6 @@ export const onVerticalScoreVideoApprovedLeaper = onDocumentWritten(
   }
 );
 
-export const onVerticalScoreLikeWrite = onDocumentWritten(
-  { document: `${POST_COLLECTION}/{videoId}/likes/{likerId}`, region: REGION },
-  async (event) => {
-    const videoId = event.params.videoId as string;
-    const likerId = String(event.params.likerId ?? '');
-    const before = event.data?.before?.exists ?? false;
-    const after = event.data?.after?.exists ?? false;
-    let delta = 0;
-    if (!before && after) delta = 1;
-    else if (before && !after) delta = -1;
-    if (delta !== 0) {
-      try {
-        await admin.firestore().doc(`${POST_COLLECTION}/${videoId}`).update({
-          likesCount: admin.firestore.FieldValue.increment(delta),
-        });
-      } catch (e) {
-        logger.warn('likesCount sync failed', { videoId, e });
-      }
-    }
-  }
-);
-
 export const onVerticalScoreCommentWrite = onDocumentWritten(
   { document: `${POST_COLLECTION}/{videoId}/comments/{commentId}`, region: REGION },
   async (event) => {
