@@ -7,6 +7,24 @@ import { CALLABLE_OPTIONS } from './callableOptions';
 const VIEW_THROTTLE_MS = 6 * 60 * 60 * 1000;
 const ADMIN_NOTIFY_EVERY = 25;
 
+/** Server-only counter — kept off the main video doc so feed listeners don't re-fire on every view. */
+function viewStatsRef(videoRef: admin.firestore.DocumentReference) {
+  return videoRef.collection('private').doc('stats');
+}
+
+async function readViewCount(
+  videoRef: admin.firestore.DocumentReference,
+  legacyData?: Record<string, unknown>
+): Promise<number> {
+  const statsSnap = await viewStatsRef(videoRef).get();
+  if (statsSnap.exists) {
+    const n = Number(statsSnap.data()?.viewCount ?? 0);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  const legacy = Number(legacyData?.viewCount ?? 0);
+  return Number.isFinite(legacy) && legacy >= 0 ? legacy : 0;
+}
+
 /**
  * Counts a single authenticated view per viewer per video, throttled server-side.
  * Writes a milestone row to each admin inbox (server-side) on coarse view counts.
@@ -26,7 +44,7 @@ export const recordVideoViewCallable = onCall(CALLABLE_OPTIONS, async (request) 
   const preData = pre.data() as Record<string, unknown>;
   const owner = String(preData.uid ?? '');
   if (!owner || owner === uid) {
-    return { ok: true, viewCount: Number(preData.viewCount ?? 0) };
+    return { ok: true, viewCount: await readViewCount(vref, preData) };
   }
 
   await db.runTransaction(async (tx) => {
@@ -45,12 +63,18 @@ export const recordVideoViewCallable = onCall(CALLABLE_OPTIONS, async (request) 
       if (prevMs && now - prevMs < VIEW_THROTTLE_MS) return;
     }
 
+    const statsRef = viewStatsRef(vref);
+    const statsSnap = await tx.get(statsRef);
+    const legacyCount = Number(d.viewCount ?? 0);
+    if (!statsSnap.exists && Number.isFinite(legacyCount) && legacyCount > 0) {
+      tx.set(statsRef, { viewCount: legacyCount }, { merge: true });
+    }
+
     tx.set(markRef, { at: admin.firestore.FieldValue.serverTimestamp() });
-    tx.update(vref, { viewCount: admin.firestore.FieldValue.increment(1) });
+    tx.set(statsRef, { viewCount: admin.firestore.FieldValue.increment(1) }, { merge: true });
   });
 
-  const after = await vref.get();
-  const newViewCount = after.exists ? Number(after.data()?.viewCount ?? 0) : 0;
+  const newViewCount = await readViewCount(vref);
 
   if (newViewCount > 0 && newViewCount % ADMIN_NOTIFY_EVERY === 0) {
     try {

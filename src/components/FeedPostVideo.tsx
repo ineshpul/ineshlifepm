@@ -17,17 +17,23 @@ function formatTimeLeft(totalSeconds: number) {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
-/** Pause and mute a player when it leaves the active reel slot. */
-async function stopVideoPlayer(player: Video | null, resetPosition: boolean) {
+/** Pause and release native AV resources when a reel slot deactivates or unmounts. */
+async function releaseVideoPlayer(player: Video | null, resetPosition: boolean, unload = false) {
   if (!player) return;
   try {
     await player.pauseAsync();
     await player.setIsMutedAsync(true);
     await player.setVolumeAsync(0);
     if (resetPosition) await player.setPositionAsync(0);
+    if (unload) await player.unloadAsync();
   } catch {
     // native race
   }
+}
+
+/** Empty reel slot — same footprint as the player, without holding a native decoder. */
+export function ReelVideoPlaceholder() {
+  return <View style={styles.videoStageReel} />;
 }
 
 function FeedPostVideoInner(props: {
@@ -49,7 +55,7 @@ function FeedPostVideoInner(props: {
   maxDurationSeconds: number;
   dataSaver: boolean;
   reel?: boolean;
-  onReelActivate?: () => void;
+  onReelActivate?: (videoId: string) => void;
   analyticsVideoId?: string;
   videoOwnerUid?: string;
   viewerUid?: string;
@@ -105,8 +111,8 @@ function FeedPostVideoInner(props: {
     () => () => {
       if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
       heartAnimRef.current?.stop();
-      void stopVideoPlayer(videoRef.current, false);
-      void stopVideoPlayer(secondaryVideoRef.current, false);
+      void releaseVideoPlayer(videoRef.current, false, true);
+      void releaseVideoPlayer(secondaryVideoRef.current, false, true);
     },
     []
   );
@@ -168,8 +174,8 @@ function FeedPostVideoInner(props: {
 
     if (effectivePlay || !wasPlaying) return;
 
-    void stopVideoPlayer(player, reel);
-    void stopVideoPlayer(secondary, false);
+    void releaseVideoPlayer(player, reel, reel);
+    void releaseVideoPlayer(secondary, false, true);
   }, [effectivePlay, reel]);
 
   // Dual-camera PIP must follow the main reel on every play/replay/loop.
@@ -238,12 +244,12 @@ function FeedPostVideoInner(props: {
   }, []);
 
   const doSingleTap = React.useCallback(() => {
-    if (!shouldPlay && onReelActivate) {
-      onReelActivate();
+    if (!shouldPlay && onReelActivate && analyticsVideoId) {
+      onReelActivate(analyticsVideoId);
       return;
     }
     // TikTok-style: single tap does not pause; only used to activate a non-playing reel.
-  }, [shouldPlay, onReelActivate]);
+  }, [shouldPlay, onReelActivate, analyticsVideoId]);
 
   const longPressActiveRef = React.useRef(false);
   const [longPressing, setLongPressing] = React.useState(false);

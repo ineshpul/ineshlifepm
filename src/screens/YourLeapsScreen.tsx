@@ -24,7 +24,7 @@ import { useAuth } from '../state/auth';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { showError } from '../utils/ui';
-import { FeedPostVideo } from '../components/FeedPostVideo';
+import { FeedPostVideo, ReelVideoPlaceholder } from '../components/FeedPostVideo';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 
 type LeapVideo = {
@@ -141,6 +141,10 @@ export function YourLeapsScreen() {
     []
   );
 
+  const activateReelVideo = React.useCallback((videoId: string) => {
+    setActiveVideoId(videoId);
+  }, []);
+
   React.useEffect(() => {
     if (videos.length === 0) {
       setActiveVideoId(null);
@@ -228,25 +232,31 @@ export function YourLeapsScreen() {
                   })
                 : undefined
             }
-            renderItem={({ item }) => (
+            renderItem={({ item }) => {
+              const reelActive = isFocused && activeVideoId === item.id;
+              return (
               <View style={[styles.reelPage, { height: pageHeight }]}>
                 <View style={[styles.reelVideoSlot, { bottom: REEL_BOTTOM_SHEET }]}>
-                  <FeedPostVideo
-                    reel
-                    url={item.url}
-                    secondaryUrl={item.secondaryUrl}
-                    dualFrontIsPrimary={item.dualFrontIsPrimary}
-                    shouldPlay={isFocused && activeVideoId === item.id}
-                    isMuted={false}
-                    useNativeControls
-                    maxDurationSeconds={item.maxDurationSeconds}
-                    dataSaver={preferences.dataSaver}
-                    analyticsVideoId={item.id}
-                    videoOwnerUid={item.ownerUid}
-                    viewerUid={user?.uid}
-                    viewerUsername={user?.username}
-                    onReelActivate={() => setActiveVideoId(item.id)}
-                  />
+                  {reelActive ? (
+                    <FeedPostVideo
+                      reel
+                      url={item.url}
+                      secondaryUrl={item.secondaryUrl}
+                      dualFrontIsPrimary={item.dualFrontIsPrimary}
+                      shouldPlay
+                      isMuted={false}
+                      useNativeControls
+                      maxDurationSeconds={item.maxDurationSeconds}
+                      dataSaver={preferences.dataSaver}
+                      analyticsVideoId={item.id}
+                      videoOwnerUid={item.ownerUid}
+                      viewerUid={user?.uid}
+                      viewerUsername={user?.username}
+                      onReelActivate={activateReelVideo}
+                    />
+                  ) : (
+                    <ReelVideoPlaceholder />
+                  )}
                 </View>
 
                 <View style={[styles.reelSheet, { height: REEL_BOTTOM_SHEET }]}>
@@ -303,7 +313,8 @@ export function YourLeapsScreen() {
                   ) : null}
                 </View>
               </View>
-            )}
+            );
+            }}
           />
         )}
       </View>

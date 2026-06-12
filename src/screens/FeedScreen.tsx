@@ -36,7 +36,7 @@ import { UsernameLink } from '../components/UsernameLink';
 import { Brandmark } from '../components/Brandmark';
 import { FollowButton } from '../components/FollowButton';
 import { FeedPostEngagement } from '../components/FeedPostEngagement';
-import { FeedPostVideo } from '../components/FeedPostVideo';
+import { FeedPostVideo, ReelVideoPlaceholder } from '../components/FeedPostVideo';
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors } from '../theme/colors';
@@ -134,6 +134,31 @@ const FEED_VIEWABILITY_CONFIG = {
   minimumViewTime: 40,
   waitForInteraction: false,
 } as const;
+
+/** Fields that affect reel playback / row UI — ignore engagement-only doc churn (viewCount, likesCount, …). */
+function feedVideoRowKey(v: FeedVideo): string {
+  return [
+    v.id,
+    v.url,
+    v.secondaryUrl ?? '',
+    v.dualFrontIsPrimary ? '1' : '0',
+    v.maxDurationSeconds,
+    v.moderationStatus,
+    v.challengeDate,
+    v.prompt,
+    v.username,
+    v.ownerUid,
+    v.createdAtMs,
+  ].join('|');
+}
+
+function feedVideosRowEqual(a: readonly FeedVideo[], b: readonly FeedVideo[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (feedVideoRowKey(a[i]) !== feedVideoRowKey(b[i])) return false;
+  }
+  return true;
+}
 
 /** Pick the feed item that should play: prefer highest reported visible %, else bottom-most row. */
 function pickPrimaryViewable(viewableItems: ViewToken[]): FeedVideo | null {
@@ -446,6 +471,20 @@ export function FeedScreen() {
     if (firstId) setActiveVideoId(firstId);
   }, [displayVideos]);
 
+  const activateReelVideo = React.useCallback((videoId: string) => {
+    setActiveVideoId(videoId);
+  }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const list = displayVideosRef.current;
+      if (list.length === 0) return;
+      const idx = Math.min(list.length - 1, Math.max(0, activeScrollIndexRef.current));
+      const id = list[idx]?.id;
+      if (id) setActiveVideoId(id);
+    }, [])
+  );
+
   /** First reel for the immediate prior leap day (T−1) — do not jump to older days. */
   const firstPreviousLeapsIndex = React.useMemo(
     () => displayVideos.findIndex((v) => v.challengeDate === previousChallengeDateKey),
@@ -629,7 +668,7 @@ export function FeedScreen() {
         if (msB !== msA) return msB - msA;
         return b.createdAtMs - a.createdAtMs;
       });
-      setVideos(merged);
+      setVideos((prev) => (feedVideosRowEqual(prev, merged) ? prev : merged));
       if (merged.length > 0) bumpHydrated();
     };
 
@@ -951,25 +990,30 @@ export function FeedScreen() {
               activeVideoId === item.id &&
               firstPreviousLeapsIndex >= 0 &&
               index === firstPreviousLeapsIndex;
+            const reelActive = isFocused && activeVideoId === item.id;
             return (
             <View style={[styles.reelPage, { height: pageHeight }]}>
               <View style={[styles.reelVideoSlot, { bottom: sheetBottom }]}>
-                <FeedPostVideo
-                  reel
-                  url={item.url}
-                  secondaryUrl={item.secondaryUrl}
-                  dualFrontIsPrimary={item.dualFrontIsPrimary}
-                  shouldPlay={isFocused && activeVideoId === item.id}
-                  isMuted={false}
-                  useNativeControls
-                  maxDurationSeconds={item.maxDurationSeconds}
-                  dataSaver={preferences.dataSaver}
-                  analyticsVideoId={item.id}
-                  videoOwnerUid={item.ownerUid}
-                  viewerUid={user?.uid}
-                  viewerUsername={user?.username}
-                  onReelActivate={() => setActiveVideoId(item.id)}
-                />
+                {reelActive ? (
+                  <FeedPostVideo
+                    reel
+                    url={item.url}
+                    secondaryUrl={item.secondaryUrl}
+                    dualFrontIsPrimary={item.dualFrontIsPrimary}
+                    shouldPlay
+                    isMuted={false}
+                    useNativeControls
+                    maxDurationSeconds={item.maxDurationSeconds}
+                    dataSaver={preferences.dataSaver}
+                    analyticsVideoId={item.id}
+                    videoOwnerUid={item.ownerUid}
+                    viewerUid={user?.uid}
+                    viewerUsername={user?.username}
+                    onReelActivate={activateReelVideo}
+                  />
+                ) : (
+                  <ReelVideoPlaceholder />
+                )}
               </View>
 
               <View

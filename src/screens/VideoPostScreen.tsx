@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useIsFocused, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { doc, getDoc } from 'firebase/firestore';
 
@@ -143,12 +143,33 @@ export function VideoPostScreen({ route }: Props) {
     setPrimaryPlaying(false);
     void (async () => {
       try {
+        await primaryVideoRef.current?.pauseAsync();
+        await primaryVideoRef.current?.unloadAsync();
         await secondaryVideoRef.current?.pauseAsync();
+        await secondaryVideoRef.current?.unloadAsync();
       } catch {
         // ignore
       }
     })();
   }, [isFocused]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      return () => {
+        setPrimaryPlaying(false);
+        void (async () => {
+          try {
+            await primaryVideoRef.current?.pauseAsync();
+            await primaryVideoRef.current?.unloadAsync();
+            await secondaryVideoRef.current?.pauseAsync();
+            await secondaryVideoRef.current?.unloadAsync();
+          } catch {
+            // ignore
+          }
+        })();
+      };
+    }, [])
+  );
 
   React.useEffect(() => {
     setPrimaryPlaying(false);

@@ -533,6 +533,11 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // Server-only view counter (kept off the main doc to avoid feed snapshot churn).
+      match /private/stats {
+        allow read, write: if false;
+      }
+
       match /likes/{likerId} {
         allow read: if canReadVideoDoc(videoId);
         allow create: if canReadVideoDoc(videoId) && signedIn() && request.auth.uid == likerId;

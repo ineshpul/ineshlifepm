@@ -25,7 +25,7 @@ import { useAuth } from '../state/auth';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { showError } from '../utils/ui';
-import { FeedPostVideo } from '../components/FeedPostVideo';
+import { FeedPostVideo, ReelVideoPlaceholder } from '../components/FeedPostVideo';
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
 import { UsernameLink } from '../components/UsernameLink';
 import { useSettingsPreferences } from '../state/settingsPreferences';
@@ -47,6 +47,29 @@ type LeapVideo = {
 };
 
 const REEL_BOTTOM_SHEET = 232;
+
+function leapVideoRowKey(v: LeapVideo): string {
+  return [
+    v.id,
+    v.url,
+    v.secondaryUrl ?? '',
+    v.dualFrontIsPrimary ? '1' : '0',
+    v.maxDurationSeconds,
+    v.moderationStatus,
+    v.prompt,
+    v.username,
+    v.ownerUid,
+    v.createdAtMs,
+  ].join('|');
+}
+
+function leapVideosRowEqual(a: readonly LeapVideo[], b: readonly LeapVideo[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (leapVideoRowKey(a[i]) !== leapVideoRowKey(b[i])) return false;
+  }
+  return true;
+}
 
 type Props = NativeStackScreenProps<MainStackParamList, 'UserLeaps'>;
 
@@ -127,7 +150,8 @@ export function UserLeapsScreen({ route }: Props) {
           })
           .filter(Boolean) as LeapVideo[];
         rows.sort((a, b) => b.createdAtMs - a.createdAtMs);
-        setVideos(rows.slice(0, 30));
+        const next = rows.slice(0, 30);
+        setVideos((prev) => (leapVideosRowEqual(prev, next) ? prev : next));
         setHydrated(true);
       },
       () => {
@@ -163,6 +187,10 @@ export function UserLeapsScreen({ route }: Props) {
     },
     []
   );
+
+  const activateReelVideo = React.useCallback((videoId: string) => {
+    setActiveVideoId(videoId);
+  }, []);
 
   React.useEffect(() => {
     if (videos.length === 0) {
@@ -262,25 +290,31 @@ export function UserLeapsScreen({ route }: Props) {
                   })
                 : undefined
             }
-            renderItem={({ item }) => (
+            renderItem={({ item }) => {
+              const reelActive = isFocused && activeVideoId === item.id;
+              return (
               <View style={[styles.reelPage, { height: pageHeight }]}>
                 <View style={[styles.reelVideoSlot, { bottom: REEL_BOTTOM_SHEET }]}>
-                  <FeedPostVideo
-                    reel
-                    url={item.url}
-                    secondaryUrl={item.secondaryUrl}
-                    dualFrontIsPrimary={item.dualFrontIsPrimary}
-                    shouldPlay={isFocused && activeVideoId === item.id}
-                    isMuted={false}
-                    useNativeControls
-                    maxDurationSeconds={item.maxDurationSeconds}
-                    dataSaver={preferences.dataSaver}
-                    analyticsVideoId={item.id}
-                    videoOwnerUid={item.ownerUid}
-                    viewerUid={user?.uid}
-                    viewerUsername={user?.username}
-                    onReelActivate={() => setActiveVideoId(item.id)}
-                  />
+                  {reelActive ? (
+                    <FeedPostVideo
+                      reel
+                      url={item.url}
+                      secondaryUrl={item.secondaryUrl}
+                      dualFrontIsPrimary={item.dualFrontIsPrimary}
+                      shouldPlay
+                      isMuted={false}
+                      useNativeControls
+                      maxDurationSeconds={item.maxDurationSeconds}
+                      dataSaver={preferences.dataSaver}
+                      analyticsVideoId={item.id}
+                      videoOwnerUid={item.ownerUid}
+                      viewerUid={user?.uid}
+                      viewerUsername={user?.username}
+                      onReelActivate={activateReelVideo}
+                    />
+                  ) : (
+                    <ReelVideoPlaceholder />
+                  )}
                 </View>
 
                 <View style={[styles.reelSheet, { height: REEL_BOTTOM_SHEET }]}>
@@ -341,7 +375,8 @@ export function UserLeapsScreen({ route }: Props) {
                   ) : null}
                 </View>
               </View>
-            )}
+            );
+            }}
           />
         )}
       </View>
