@@ -1,10 +1,10 @@
 import * as React from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { colors } from '../theme/colors';
+import { useThemedStyles } from '../theme/ThemeProvider';
 import { LEGAL_DOCS } from '../content/settingsLegal';
 import { useAuth } from '../state/auth';
 import { acceptTerms } from '../state/termsAcceptance';
@@ -14,6 +14,27 @@ export function TermsGateScreen() {
   const { user, signOut } = useAuth();
   const [busy, setBusy] = React.useState(false);
   const insets = useSafeAreaInsets();
+  const styles = useThemedStyles((colors) => ({
+    screen: { flex: 1, paddingHorizontal: 16, paddingBottom: 14 },
+    header: { gap: 6 },
+    title: { fontSize: 22, fontWeight: '900', color: colors.text },
+    sub: { fontSize: 13, lineHeight: 18, fontWeight: '700', color: colors.muted },
+    card: {
+      marginTop: 12,
+      flex: 1,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      overflow: 'hidden',
+    },
+    body: { padding: 14, paddingBottom: 18 },
+    h: { fontSize: 14, fontWeight: '900', color: colors.text, marginBottom: 8 },
+    p: { fontSize: 13, lineHeight: 18, fontWeight: '600', color: colors.text },
+    div: { height: 1, backgroundColor: colors.border2, marginVertical: 14 },
+    footer: { paddingTop: 12, gap: 10, alignItems: 'center' },
+    decline: { fontSize: 14, fontWeight: '800', color: colors.muted },
+  }));
 
   const onAccept = async () => {
     if (!user?.uid) return;
@@ -66,26 +87,4 @@ export function TermsGateScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, paddingHorizontal: 16, paddingBottom: 14 },
-  header: { gap: 6 },
-  title: { fontSize: 22, fontWeight: '900', color: colors.text },
-  sub: { fontSize: 13, lineHeight: 18, fontWeight: '700', color: colors.muted },
-  card: {
-    marginTop: 12,
-    flex: 1,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    overflow: 'hidden',
-  },
-  body: { padding: 14, paddingBottom: 18 },
-  h: { fontSize: 14, fontWeight: '900', color: colors.text, marginBottom: 8 },
-  p: { fontSize: 13, lineHeight: 18, fontWeight: '600', color: colors.text },
-  div: { height: 1, backgroundColor: colors.border2, marginVertical: 14 },
-  footer: { paddingTop: 12, gap: 10, alignItems: 'center' },
-  decline: { fontSize: 14, fontWeight: '800', color: colors.muted },
-});
 

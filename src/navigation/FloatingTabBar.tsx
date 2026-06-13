@@ -1,9 +1,9 @@
 import * as React from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 import type { MaterialTopTabBarProps } from '@react-navigation/material-top-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors } from '../theme/colors';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import {
   FLOATING_TAB_BOTTOM_GAP,
   FLOATING_TAB_PILL_HEIGHT,
@@ -13,6 +13,61 @@ import {
 export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTabBarProps) {
   const insets = useSafeAreaInsets();
   const bottom = Math.max(insets.bottom, FLOATING_TAB_BOTTOM_GAP);
+  const { colors } = useTheme();
+  const styles = useThemedStyles((c) => ({
+    host: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      alignItems: 'center',
+      paddingHorizontal: FLOATING_TAB_SIDE_INSET,
+    },
+    pill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      width: '100%',
+      maxWidth: 420,
+      height: FLOATING_TAB_PILL_HEIGHT,
+      paddingHorizontal: 10,
+      borderRadius: FLOATING_TAB_PILL_HEIGHT / 2,
+      backgroundColor: c.tabBarPill,
+      borderWidth: 1,
+      borderColor: c.border,
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOpacity: 0.08,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: 4 },
+        },
+        android: {
+          elevation: 6,
+        },
+        default: {},
+      }),
+    },
+    tab: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 44,
+    },
+    tabPressed: {
+      opacity: 0.82,
+    },
+    iconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    iconWrapFocused: {
+      backgroundColor: c.cardTint,
+    },
+  }));
 
   return (
     <View pointerEvents="box-none" style={[styles.host, { paddingBottom: bottom }]}>
@@ -62,58 +117,3 @@ export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTa
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  host: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    paddingHorizontal: FLOATING_TAB_SIDE_INSET,
-  },
-  pill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-    maxWidth: 420,
-    height: FLOATING_TAB_PILL_HEIGHT,
-    paddingHorizontal: 10,
-    borderRadius: FLOATING_TAB_PILL_HEIGHT / 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.96)',
-    borderWidth: 1,
-    borderColor: colors.border,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOpacity: 0.08,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 4 },
-      },
-      android: {
-        elevation: 6,
-      },
-      default: {},
-    }),
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 44,
-  },
-  tabPressed: {
-    opacity: 0.82,
-  },
-  iconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconWrapFocused: {
-    backgroundColor: colors.cardTint,
-  },
-});

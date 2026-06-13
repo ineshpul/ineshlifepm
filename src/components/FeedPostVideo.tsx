@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
-import { colors } from '../theme/colors';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { recordVideoView } from '../services/recordVideoView';
 import { ensureVideoLiked } from '../services/videoLikes';
 
@@ -45,7 +45,113 @@ async function unloadVideoPlayer(player: Video | null) {
 
 /** Empty reel slot — same footprint as the player, without holding a native decoder. */
 export function ReelVideoPlaceholder() {
+  const styles = useFeedPostVideoStyles();
   return <View style={styles.videoStageReel} />;
+}
+
+function useFeedPostVideoStyles() {
+  return useThemedStyles((colors) => ({
+    videoStageReel: {
+      ...StyleSheet.absoluteFillObject,
+      overflow: 'hidden',
+      backgroundColor: '#0B1020',
+    },
+    reelLoading: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(0,0,0,0.35)',
+    },
+    reelTouchLayer: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 2,
+    },
+    heartBurst: {
+      position: 'absolute',
+      zIndex: 5,
+      width: HEART_BURST_SIZE,
+      height: HEART_BURST_SIZE,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOpacity: 0.35,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 2 },
+    },
+    reelIconCenter: {
+      ...StyleSheet.absoluteFillObject,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: 'rgba(0,0,0,0.32)',
+    },
+    reelPlayCircle: {
+      width: 82,
+      height: 82,
+      borderRadius: 41,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      borderWidth: 2,
+      borderColor: 'rgba(255,255,255,0.4)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    videoStage: {
+      marginTop: 6,
+      borderRadius: 12,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: '#0B1020',
+      width: '100%',
+      aspectRatio: 9 / 16,
+    },
+    video: {
+      ...StyleSheet.absoluteFillObject,
+    },
+    pip: {
+      position: 'absolute',
+      top: 10,
+      right: 10,
+      width: 96,
+      height: 132,
+      borderRadius: 12,
+      overflow: 'hidden',
+      backgroundColor: '#0B1020',
+      borderWidth: 2,
+      borderColor: 'rgba(255,255,255,0.7)',
+      zIndex: 3,
+    },
+    pipReel: {
+      position: 'absolute',
+      top: 16,
+      right: 12,
+      width: 118,
+      height: 162,
+      borderRadius: 14,
+      overflow: 'hidden',
+      backgroundColor: '#0B1020',
+      borderWidth: 2,
+      borderColor: 'rgba(255,255,255,0.75)',
+      zIndex: 3,
+    },
+    timerBar: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 4,
+      paddingVertical: 8,
+      paddingHorizontal: 10,
+      backgroundColor: 'rgba(0,0,0,0.55)',
+    },
+    timerText: {
+      color: colors.white,
+      fontSize: 12,
+      fontWeight: '800',
+      letterSpacing: 0.4,
+      textAlign: 'center',
+    },
+  }));
 }
 
 function FeedPostVideoInner(props: {
@@ -89,6 +195,8 @@ function FeedPostVideoInner(props: {
     viewerUid,
     viewerUsername,
   } = props;
+  const { colors } = useTheme();
+  const styles = useFeedPostVideoStyles();
   const videoRef = React.useRef<Video>(null);
   const secondaryVideoRef = React.useRef<Video>(null);
   const secondarySyncPosRef = React.useRef(0);
@@ -415,109 +523,3 @@ function FeedPostVideoInner(props: {
 
 /** Memoized so parent feed re-renders don’t recreate expo-av instances unless props meaningfully change. */
 export const FeedPostVideo = React.memo(FeedPostVideoInner);
-
-const styles = StyleSheet.create({
-  videoStageReel: {
-    ...StyleSheet.absoluteFillObject,
-    overflow: 'hidden',
-    backgroundColor: '#0B1020',
-  },
-  reelLoading: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  reelTouchLayer: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 2,
-  },
-  heartBurst: {
-    position: 'absolute',
-    zIndex: 5,
-    width: HEART_BURST_SIZE,
-    height: HEART_BURST_SIZE,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  reelIconCenter: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.32)',
-  },
-  reelPlayCircle: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  videoStage: {
-    marginTop: 6,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: '#0B1020',
-    width: '100%',
-    aspectRatio: 9 / 16,
-  },
-  video: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  // PIP overlays for BeReal-style dual posts. The reel variant sits just above
-  // the timer bar so it doesn't get clipped by the safe-area; the inline
-  // (non-reel) variant uses a slightly smaller tile to match the boxed layout.
-  pip: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 96,
-    height: 132,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#0B1020',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.7)',
-    zIndex: 3,
-  },
-  pipReel: {
-    position: 'absolute',
-    top: 16,
-    right: 12,
-    width: 118,
-    height: 162,
-    borderRadius: 14,
-    overflow: 'hidden',
-    backgroundColor: '#0B1020',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.75)',
-    zIndex: 3,
-  },
-  timerBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  timerText: {
-    color: colors.white,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.4,
-    textAlign: 'center',
-  },
-});

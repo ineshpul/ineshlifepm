@@ -14,10 +14,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { collection, doc, getDoc, limit, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { colors } from '../theme/colors';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
@@ -37,6 +37,100 @@ type QueueItem = {
 };
 
 export function AdminVideoModerationScreen() {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+  screen: { flex: 1, paddingHorizontal: 18, paddingTop: 18 },
+  kicker: { fontSize: 11, fontWeight: '900', letterSpacing: 2, color: colors.muted },
+  title: { fontSize: 22, fontWeight: '900', color: colors.text, marginTop: 4 },
+  helper: { fontSize: 13, fontWeight: '600', color: colors.muted, lineHeight: 18, marginTop: 8, marginBottom: 8 },
+  modSettingsCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+    gap: 8,
+  },
+  modSettingsKicker: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    color: colors.muted,
+  },
+  modSettingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  modSettingsTextCol: { flex: 1, minWidth: 0, gap: 4 },
+  modSettingsLabel: { fontSize: 15, fontWeight: '800', color: colors.text },
+  modSettingsSub: { fontSize: 12, fontWeight: '600', color: colors.muted, lineHeight: 17 },
+  list: { flex: 1 },
+  center: { paddingVertical: 40, alignItems: 'center', gap: 12 },
+  loadingText: { fontSize: 14, fontWeight: '700', color: colors.muted },
+  listContent: { paddingBottom: 120, gap: 12 },
+  emptyBox: {
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    marginTop: 8,
+  },
+  emptyTitle: { fontSize: 16, fontWeight: '900', color: colors.text },
+  emptyBody: { marginTop: 8, fontSize: 13, fontWeight: '600', color: colors.muted, lineHeight: 19 },
+  card: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    padding: 14,
+    gap: 12,
+  },
+  cardTop: { flexDirection: 'row', gap: 12 },
+  thumbWrap: {
+    width: 88,
+    height: 120,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+  },
+  thumbVideo: { width: '100%', height: '100%' },
+  thumbPlaceholder: { alignItems: 'center', justifyContent: 'center' },
+  thumbPlaceholderText: { fontSize: 11, fontWeight: '800', color: colors.muted },
+  cardBody: { flex: 1, minWidth: 0 },
+  userLine: { fontSize: 15, fontWeight: '900', color: colors.moss },
+  prompt: { marginTop: 4, fontSize: 14, fontWeight: '700', color: colors.text, lineHeight: 19 },
+  meta: { marginTop: 6, fontSize: 11, fontWeight: '700', color: colors.muted },
+  actions: { flexDirection: 'row', gap: 10 },
+  actionBtn: { flex: 1 },
+  manualSection: { marginTop: 28, paddingTop: 20, borderTopWidth: 1, borderTopColor: colors.border, gap: 10 },
+  manualKicker: { fontSize: 11, fontWeight: '900', letterSpacing: 1.2, color: colors.muted },
+  manualHint: { fontSize: 12, fontWeight: '600', color: colors.muted, lineHeight: 17 },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+    backgroundColor: colors.card,
+  },
+  metaBox: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+    padding: 12,
+    backgroundColor: colors.cardTint,
+  },
+  metaText: { fontSize: 12, fontWeight: '700', color: colors.text, lineHeight: 18 },
+  manualActions: { flexDirection: 'row', gap: 10 },
+  backBtn: { marginTop: 16, marginBottom: 24 },
+}));
   const nav = useNavigation<any>();
   const { user } = useAuth();
   const canMod = Boolean(user?.isAdmin || user?.isModerator);
@@ -430,97 +524,3 @@ export function AdminVideoModerationScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, paddingHorizontal: 18, paddingTop: 18 },
-  kicker: { fontSize: 11, fontWeight: '900', letterSpacing: 2, color: colors.muted },
-  title: { fontSize: 22, fontWeight: '900', color: colors.text, marginTop: 4 },
-  helper: { fontSize: 13, fontWeight: '600', color: colors.muted, lineHeight: 18, marginTop: 8, marginBottom: 8 },
-  modSettingsCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 12,
-    gap: 8,
-  },
-  modSettingsKicker: {
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 1.2,
-    color: colors.muted,
-  },
-  modSettingsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  modSettingsTextCol: { flex: 1, minWidth: 0, gap: 4 },
-  modSettingsLabel: { fontSize: 15, fontWeight: '800', color: colors.text },
-  modSettingsSub: { fontSize: 12, fontWeight: '600', color: colors.muted, lineHeight: 17 },
-  list: { flex: 1 },
-  center: { paddingVertical: 40, alignItems: 'center', gap: 12 },
-  loadingText: { fontSize: 14, fontWeight: '700', color: colors.muted },
-  listContent: { paddingBottom: 120, gap: 12 },
-  emptyBox: {
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    marginTop: 8,
-  },
-  emptyTitle: { fontSize: 16, fontWeight: '900', color: colors.text },
-  emptyBody: { marginTop: 8, fontSize: 13, fontWeight: '600', color: colors.muted, lineHeight: 19 },
-  card: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    padding: 14,
-    gap: 12,
-  },
-  cardTop: { flexDirection: 'row', gap: 12 },
-  thumbWrap: {
-    width: 88,
-    height: 120,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#000',
-  },
-  thumbVideo: { width: '100%', height: '100%' },
-  thumbPlaceholder: { alignItems: 'center', justifyContent: 'center' },
-  thumbPlaceholderText: { fontSize: 11, fontWeight: '800', color: colors.muted },
-  cardBody: { flex: 1, minWidth: 0 },
-  userLine: { fontSize: 15, fontWeight: '900', color: colors.moss },
-  prompt: { marginTop: 4, fontSize: 14, fontWeight: '700', color: colors.text, lineHeight: 19 },
-  meta: { marginTop: 6, fontSize: 11, fontWeight: '700', color: colors.muted },
-  actions: { flexDirection: 'row', gap: 10 },
-  actionBtn: { flex: 1 },
-  manualSection: { marginTop: 28, paddingTop: 20, borderTopWidth: 1, borderTopColor: colors.border, gap: 10 },
-  manualKicker: { fontSize: 11, fontWeight: '900', letterSpacing: 1.2, color: colors.muted },
-  manualHint: { fontSize: 12, fontWeight: '600', color: colors.muted, lineHeight: 17 },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.text,
-    backgroundColor: colors.white,
-  },
-  metaBox: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    padding: 12,
-    backgroundColor: colors.cardTint,
-  },
-  metaText: { fontSize: 12, fontWeight: '700', color: colors.text, lineHeight: 18 },
-  manualActions: { flexDirection: 'row', gap: 10 },
-  backBtn: { marginTop: 16, marginBottom: 24 },
-});

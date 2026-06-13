@@ -1,8 +1,8 @@
 import * as React from 'react';
-import { Pressable, StyleSheet, Text, type StyleProp, type TextStyle } from 'react-native';
+import { Pressable, Text, type StyleProp, type TextStyle } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
-import { colors } from '../theme/colors';
+import { useThemedStyles } from '../theme/ThemeProvider';
 import { navigateToUserProfile } from '../navigation/navigationHelpers';
 
 export type UsernameLinkProps = {
@@ -16,6 +16,12 @@ export type UsernameLinkProps = {
 
 export function UsernameLink({ uid, username, showAt = true, style, disabled }: UsernameLinkProps) {
   const navigation = useNavigation<any>();
+  const styles = useThemedStyles((colors) => ({
+    /** Only tint — preserves font weight/size from `style`. */
+    linkTint: { color: colors.coral },
+    fallback: { fontWeight: '800', color: colors.text },
+  }));
+
   const clean = String(username ?? '')
     .replace(/^@+/u, '')
     .trim();
@@ -43,9 +49,3 @@ export function UsernameLink({ uid, username, showAt = true, style, disabled }: 
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  /** Only tint — preserves font weight/size from `style`. */
-  linkTint: { color: colors.coral },
-  fallback: { fontWeight: '800', color: colors.text },
-});

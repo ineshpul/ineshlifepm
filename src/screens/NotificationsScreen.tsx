@@ -5,7 +5,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { FollowButton } from '../components/FollowButton';
 import { UsernameLink } from '../components/UsernameLink';
 import { Screen } from '../components/Screen';
-import { colors } from '../theme/colors';
+import { useThemedStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../state/auth';
 import {
   markAllNotificationsRead,
@@ -44,6 +44,79 @@ function bodyFor(n: InAppNotification) {
 export function NotificationsScreen() {
   const nav = useNavigation<any>();
   const { user } = useAuth();
+  const styles = useThemedStyles((colors) => ({
+    screen: {
+      paddingHorizontal: 16,
+      paddingTop: 0,
+      flex: 1,
+    },
+    list: {
+      paddingBottom: 80,
+      gap: 8,
+    },
+    empty: {
+      textAlign: 'center',
+      marginTop: 40,
+      color: colors.muted,
+      fontWeight: '600',
+      fontSize: 15,
+    },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+    },
+    rowMain: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 8,
+      minWidth: 0,
+    },
+    rowBody: {
+      flex: 1,
+      minWidth: 0,
+    },
+    rowTextRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+    },
+    rowBodyTail: {
+      flexShrink: 1,
+      minWidth: 0,
+    },
+    rowUnread: {
+      backgroundColor: 'rgba(255, 107, 84, 0.06)',
+      borderColor: 'rgba(255, 107, 84, 0.25)',
+    },
+    dotWrap: {
+      width: 12,
+      paddingTop: 4,
+    },
+    dot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.coral,
+    },
+    line: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: colors.muted,
+      lineHeight: 20,
+    },
+    name: {
+      fontWeight: '900',
+      fontSize: 14,
+    },
+  }));
   const [items, setItems] = React.useState<InAppNotification[]>([]);
 
   React.useEffect(() => {
@@ -155,77 +228,3 @@ export function NotificationsScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    paddingHorizontal: 16,
-    paddingTop: 0,
-    flex: 1,
-  },
-  list: {
-    paddingBottom: 80,
-    gap: 8,
-  },
-  empty: {
-    textAlign: 'center',
-    marginTop: 40,
-    color: colors.muted,
-    fontWeight: '600',
-    fontSize: 15,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-  },
-  rowMain: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    minWidth: 0,
-  },
-  rowBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  rowTextRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-  },
-  rowBodyTail: {
-    flexShrink: 1,
-    minWidth: 0,
-  },
-  rowUnread: {
-    backgroundColor: 'rgba(255, 107, 84, 0.06)',
-    borderColor: 'rgba(255, 107, 84, 0.25)',
-  },
-  dotWrap: {
-    width: 12,
-    paddingTop: 4,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.coral,
-  },
-  line: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.muted,
-    lineHeight: 20,
-  },
-  name: {
-    fontWeight: '900',
-    fontSize: 14,
-  },
-});

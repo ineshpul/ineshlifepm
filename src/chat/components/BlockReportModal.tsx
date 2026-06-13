@@ -1,14 +1,13 @@
 import * as React from 'react';
 import {
   Modal,
-  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 
-import { colors } from '../../theme/colors';
+import { useTheme, useThemedStyles } from '../../theme/ThemeProvider';
 import { PrimaryButton } from '../../components/PrimaryButton';
 
 type Props = {
@@ -30,6 +29,35 @@ export function BlockReportModal({
   onClose,
   onConfirm,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+    back: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', padding: 24 },
+    card: {
+      borderRadius: 18,
+      backgroundColor: colors.card,
+      padding: 18,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: 10,
+    },
+    title: { fontSize: 18, fontWeight: '900', color: colors.text },
+    sub: { fontSize: 14, color: colors.muted, fontWeight: '600', lineHeight: 20 },
+    input: {
+      minHeight: 80,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 12,
+      textAlignVertical: 'top',
+      fontWeight: '600',
+      color: colors.text,
+      backgroundColor: colors.inputBg,
+    },
+    row: { flexDirection: 'row', gap: 10, marginTop: 6 },
+    cancel: { justifyContent: 'center', paddingHorizontal: 12 },
+    cancelTxt: { fontSize: 16, fontWeight: '800', color: colors.muted },
+  }));
+
   const [reason, setReason] = React.useState('');
 
   return (
@@ -42,8 +70,8 @@ export function BlockReportModal({
           <Text style={styles.sub}>
             {subtitleOverride ??
               (mode === 'block'
-                ? 'They won’t be able to message you and you won’t see their DMs.'
-                : 'Tell us briefly what’s wrong. Our moderation queue reviews reports.')}
+                ? "They won't be able to message you and you won't see their DMs."
+                : "Tell us briefly what's wrong. Our moderation queue reviews reports.")}
           </Text>
           {mode === 'report' ? (
             <TextInput
@@ -75,30 +103,3 @@ export function BlockReportModal({
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  back: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', padding: 24 },
-  card: {
-    borderRadius: 18,
-    backgroundColor: colors.white,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 10,
-  },
-  title: { fontSize: 18, fontWeight: '900', color: colors.text },
-  sub: { fontSize: 14, color: colors.muted, fontWeight: '600', lineHeight: 20 },
-  input: {
-    minHeight: 80,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 12,
-    textAlignVertical: 'top',
-    fontWeight: '600',
-    color: colors.text,
-  },
-  row: { flexDirection: 'row', gap: 10, marginTop: 6 },
-  cancel: { justifyContent: 'center', paddingHorizontal: 12 },
-  cancelTxt: { fontSize: 16, fontWeight: '800', color: colors.muted },
-});

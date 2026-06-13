@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
+import { Text, TextInput, TextInputProps, View } from 'react-native';
 
-import { colors } from '../theme/colors';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 type Props = {
   label: string;
@@ -9,6 +9,29 @@ type Props = {
 };
 
 export function TextField({ label, inputProps }: Props) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((c) => ({
+    wrap: {
+      gap: 8,
+    },
+    label: {
+      fontSize: 12,
+      letterSpacing: 1.4,
+      fontWeight: '800',
+      color: c.muted2,
+    },
+    input: {
+      height: 54,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: c.border,
+      paddingHorizontal: 16,
+      fontSize: 16,
+      color: c.text,
+      backgroundColor: c.inputBg,
+    },
+  }));
+
   return (
     <View style={styles.wrap}>
       <Text style={styles.label}>{label}</Text>
@@ -21,26 +44,3 @@ export function TextField({ label, inputProps }: Props) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  wrap: {
-    gap: 8,
-  },
-  label: {
-    fontSize: 12,
-    letterSpacing: 1.4,
-    fontWeight: '800',
-    color: colors.muted2,
-  },
-  input: {
-    height: 54,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    color: colors.text,
-    backgroundColor: '#FAFBFC',
-  },
-});
-

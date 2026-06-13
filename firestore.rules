@@ -735,6 +735,7 @@ service cloud.firestore {
         && !request.resource.data.keys().hasAny([
           'isAdmin',
           'isModerator',
+          'bypassFeedGate',
           'email',
           'verticalScore',
           'verticalScoreBreakdown',
@@ -768,6 +769,7 @@ service cloud.firestore {
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'isAdmin',
           'isModerator',
+          'bypassFeedGate',
           'email',
           'verticalScore',
           'verticalScoreBreakdown',

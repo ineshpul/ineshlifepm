@@ -20,8 +20,9 @@ import type {
   Recorder,
 } from 'react-native-vision-camera';
 
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+
 import { MIN_TASK_DURATION_SECONDS } from '../state/challenge';
-import { colors } from '../theme/colors';
 
 export type DualCameraCapture = {
   /** Primary clip (the camera shown full-screen at capture time, usually back). */
@@ -83,6 +84,67 @@ export function DualCameraRecorder({
   onError,
   controllerRef,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+  fallback: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    gap: 10,
+  },
+  fallbackTitle: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+  fallbackBody: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  loading: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  loadingText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  pipWrap: {
+    position: 'absolute',
+    top: PIP_INSET,
+    right: PIP_INSET,
+    width: PIP_WIDTH,
+    height: PIP_HEIGHT,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#0F172A',
+    zIndex: 30,
+  },
+  pipWrapRecording: {
+    opacity: 0.92,
+  },
+  pipBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.7)',
+  },
+}));
   const boundedMaxSec = Math.max(MIN_TASK_DURATION_SECONDS, Math.round(maxDurationSec));
   const backDevice = useCameraDevice('back');
   const frontDevice = useCameraDevice('front');
@@ -464,64 +526,3 @@ export function DualCameraRecorder({
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  fallback: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    gap: 10,
-  },
-  fallbackTitle: {
-    color: colors.white,
-    fontSize: 16,
-    fontWeight: '900',
-    letterSpacing: 0.4,
-  },
-  fallbackBody: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  loading: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  loadingText: {
-    color: 'rgba(255,255,255,0.85)',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  pipWrap: {
-    position: 'absolute',
-    top: PIP_INSET,
-    right: PIP_INSET,
-    width: PIP_WIDTH,
-    height: PIP_HEIGHT,
-    borderRadius: 14,
-    overflow: 'hidden',
-    backgroundColor: '#0F172A',
-    zIndex: 30,
-  },
-  pipWrapRecording: {
-    opacity: 0.92,
-  },
-  pipBorder: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.7)',
-  },
-});

@@ -19,9 +19,10 @@ import {
   where,
 } from 'firebase/firestore';
 
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+
 import { Brandmark } from '../components/Brandmark';
 import { Screen } from '../components/Screen';
-import { colors } from '../theme/colors';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
@@ -101,6 +102,128 @@ function pickMostImproved(acc: AccRow[]): {
 }
 
 export function TopScreen() {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+  screen: { paddingHorizontal: 18, flex: 1 },
+  header: { paddingTop: 12, paddingBottom: 6 },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerText: { flex: 1, minWidth: 0 },
+  title: { fontSize: 22, fontWeight: '900', color: colors.text },
+  sub: { marginTop: 2, fontSize: 11, fontWeight: '600', color: colors.muted },
+  segment: {
+    flexDirection: 'row',
+    gap: 4,
+    marginBottom: 12,
+    padding: 4,
+    borderRadius: 14,
+    backgroundColor: colors.cardTint,
+  },
+  segBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 11,
+    alignItems: 'center',
+  },
+  segBtnOn: {
+    backgroundColor: colors.card,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  segLabel: { fontSize: 12, fontWeight: '800', color: colors.muted },
+  segLabelOn: { color: colors.text },
+  mostImprovedCard: {
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#E67E22',
+    backgroundColor: 'rgba(255, 152, 0, 0.12)',
+  },
+  mostImprovedBadge: { fontSize: 13, fontWeight: '900', color: '#C0392B' },
+  mostImprovedName: { marginTop: 4, fontSize: 17, fontWeight: '900', color: colors.text },
+  mostImprovedMeta: { marginTop: 4, fontSize: 12, fontWeight: '700', color: colors.muted },
+  errorBanner: {
+    marginBottom: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(231, 76, 60, 0.12)',
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  list: { paddingBottom: 24, gap: 10 },
+  empty: { marginTop: 24, fontSize: 14, fontWeight: '600', color: colors.muted },
+  emptyLoading: { marginTop: 48, alignItems: 'center', gap: 14 },
+  emptyLoadingText: { fontSize: 14, fontWeight: '700', color: colors.muted },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  rowGold: {
+    borderColor: '#C9A227',
+    borderWidth: 2,
+    backgroundColor: 'rgba(255, 215, 0, 0.16)',
+  },
+  rowMe: {
+    borderColor: colors.moss,
+    borderWidth: 2,
+    backgroundColor: 'rgba(39, 174, 96, 0.08)',
+  },
+  rankCol: {
+    width: 40,
+    flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rank: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: colors.muted,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+  },
+  rankMe: { color: colors.moss },
+  rankGold: { color: '#B8860B' },
+  avatarWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: colors.cardTint,
+  },
+  avatarImg: { width: 40, height: 40, borderRadius: 20 },
+  avatarFallback: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.cardTint,
+  },
+  avatarInitials: { fontSize: 14, fontWeight: '900', color: colors.text },
+  rowBody: { flex: 1, minWidth: 0 },
+  nameScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  name: { flex: 1, fontSize: 15, fontWeight: '800', color: colors.text, minWidth: 0 },
+  handle: { fontSize: 12, fontWeight: '700', color: colors.muted },
+  score: { fontSize: 15, fontWeight: '900', color: colors.moss },
+  scoreMe: { color: colors.moss },
+}));
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const tabBarClearance = floatingTabContentClearance(insets.bottom);
@@ -510,125 +633,3 @@ export function TopScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { paddingHorizontal: 18, flex: 1 },
-  header: { paddingTop: 12, paddingBottom: 6 },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  headerText: { flex: 1, minWidth: 0 },
-  title: { fontSize: 22, fontWeight: '900', color: colors.text },
-  sub: { marginTop: 2, fontSize: 11, fontWeight: '600', color: colors.muted },
-  segment: {
-    flexDirection: 'row',
-    gap: 4,
-    marginBottom: 12,
-    padding: 4,
-    borderRadius: 14,
-    backgroundColor: colors.cardTint,
-  },
-  segBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 11,
-    alignItems: 'center',
-  },
-  segBtnOn: {
-    backgroundColor: colors.white,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
-  },
-  segLabel: { fontSize: 12, fontWeight: '800', color: colors.muted },
-  segLabelOn: { color: colors.text },
-  mostImprovedCard: {
-    marginBottom: 12,
-    padding: 14,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: '#E67E22',
-    backgroundColor: 'rgba(255, 152, 0, 0.12)',
-  },
-  mostImprovedBadge: { fontSize: 13, fontWeight: '900', color: '#C0392B' },
-  mostImprovedName: { marginTop: 4, fontSize: 17, fontWeight: '900', color: colors.text },
-  mostImprovedMeta: { marginTop: 4, fontSize: 12, fontWeight: '700', color: colors.muted },
-  errorBanner: {
-    marginBottom: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: 'rgba(231, 76, 60, 0.12)',
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  list: { paddingBottom: 24, gap: 10 },
-  empty: { marginTop: 24, fontSize: 14, fontWeight: '600', color: colors.muted },
-  emptyLoading: { marginTop: 48, alignItems: 'center', gap: 14 },
-  emptyLoadingText: { fontSize: 14, fontWeight: '700', color: colors.muted },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-  },
-  rowGold: {
-    borderColor: '#C9A227',
-    borderWidth: 2,
-    backgroundColor: 'rgba(255, 215, 0, 0.16)',
-  },
-  rowMe: {
-    borderColor: colors.moss,
-    borderWidth: 2,
-    backgroundColor: 'rgba(39, 174, 96, 0.08)',
-  },
-  rankCol: {
-    width: 40,
-    flexShrink: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rank: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: colors.muted,
-    textAlign: 'center',
-    fontVariant: ['tabular-nums'],
-  },
-  rankMe: { color: colors.moss },
-  rankGold: { color: '#B8860B' },
-  avatarWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    overflow: 'hidden',
-    backgroundColor: colors.cardTint,
-  },
-  avatarImg: { width: 40, height: 40, borderRadius: 20 },
-  avatarFallback: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.cardTint,
-  },
-  avatarInitials: { fontSize: 14, fontWeight: '900', color: colors.text },
-  rowBody: { flex: 1, minWidth: 0 },
-  nameScoreRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  name: { flex: 1, fontSize: 15, fontWeight: '800', color: colors.text, minWidth: 0 },
-  handle: { fontSize: 12, fontWeight: '700', color: colors.muted },
-  score: { fontSize: 15, fontWeight: '900', color: colors.moss },
-  scoreMe: { color: colors.moss },
-});

@@ -1,10 +1,10 @@
 import * as React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 
 import { PrimaryButton } from './PrimaryButton';
-import { colors } from '../theme/colors';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { showInfo } from '../utils/ui';
 import { shareReferralInvite } from '../utils/shareReferralInvite';
 type Props = {
@@ -12,6 +12,52 @@ type Props = {
 };
 
 export function ReferralInviteCard({ username }: Props) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+    card: {
+      gap: 12,
+      padding: 16,
+    },
+    title: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: colors.text,
+    },
+    sub: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.muted,
+      lineHeight: 18,
+    },
+    codeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 14,
+      backgroundColor: colors.inputBg,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+    },
+    code: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: colors.text,
+      letterSpacing: 0.3,
+    },
+    copyBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    copyText: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: colors.moss,
+    },
+  }));
+
   const handle = username.trim().replace(/^@+/u, '') || 'you';
 
   const onCopy = async () => {
@@ -38,48 +84,3 @@ export function ReferralInviteCard({ username }: Props) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    gap: 12,
-    padding: 16,
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  sub: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.muted,
-    lineHeight: 18,
-  },
-  codeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    backgroundColor: colors.inputBg,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  code: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.text,
-    letterSpacing: 0.3,
-  },
-  copyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  copyText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.moss,
-  },
-});

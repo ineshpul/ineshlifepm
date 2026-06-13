@@ -21,7 +21,8 @@
     "heal:leap-day": "npm run build && node lib/runHealLeapDayPostAndAttemptsScript.js",
     "check:referral": "npm run build && node lib/runReferralRewardsSelfCheck.js",
     "heal:stale-streaks": "npm run build && node lib/runHealStaleStreaksScript.js",
-    "test:inches": "npm run build && node lib/runInchCountingTestScript.js"
+    "test:inches": "npm run build && node lib/runInchCountingTestScript.js",
+    "grant:app-review": "npm run build && node lib/scripts/grantAppReviewAccess.js"
   },
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.758.0",

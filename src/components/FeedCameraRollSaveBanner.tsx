@@ -1,8 +1,8 @@
 import * as React from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { colors } from '../theme/colors';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import type { ChallengeWatermarkInfo } from '../services/challengeWatermarkCapture';
 import { cleanupStagedCameraRollFile, saveVideoToCameraRoll } from '../services/saveVideoToCameraRoll';
 import { showError, showInfo } from '../utils/ui';
@@ -14,6 +14,47 @@ type Props = {
 };
 
 export function FeedCameraRollSaveBanner({ clipUri, challenge, onDismiss }: Props) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+    wrap: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 10,
+      marginHorizontal: 12,
+      marginBottom: 8,
+      padding: 12,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+    },
+    iconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      backgroundColor: colors.cardTint,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    body: { flex: 1, gap: 4 },
+    title: { fontSize: 14, fontWeight: '900', color: colors.text },
+    sub: { fontSize: 12, fontWeight: '600', color: colors.muted, lineHeight: 17 },
+    actions: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 },
+    saveBtn: {
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 999,
+      backgroundColor: colors.moss,
+      minWidth: 64,
+      alignItems: 'center',
+    },
+    saveBtnText: { fontSize: 13, fontWeight: '900', color: colors.white },
+    notNowBtn: { paddingVertical: 8, paddingHorizontal: 4 },
+    notNowText: { fontSize: 13, fontWeight: '800', color: colors.muted },
+    btnDisabled: { opacity: 0.65 },
+    closeBtn: { padding: 2 },
+  }));
+
   const [busy, setBusy] = React.useState(false);
 
   const dismissAndCleanup = () => {
@@ -83,43 +124,3 @@ export function FeedCameraRollSaveBanner({ clipUri, challenge, onDismiss }: Prop
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  wrap: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginHorizontal: 12,
-    marginBottom: 8,
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-  },
-  iconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.cardTint,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  body: { flex: 1, gap: 4 },
-  title: { fontSize: 14, fontWeight: '900', color: colors.text },
-  sub: { fontSize: 12, fontWeight: '600', color: colors.muted, lineHeight: 17 },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 },
-  saveBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: colors.moss,
-    minWidth: 64,
-    alignItems: 'center',
-  },
-  saveBtnText: { fontSize: 13, fontWeight: '900', color: colors.white },
-  notNowBtn: { paddingVertical: 8, paddingHorizontal: 4 },
-  notNowText: { fontSize: 13, fontWeight: '800', color: colors.muted },
-  btnDisabled: { opacity: 0.65 },
-  closeBtn: { padding: 2 },
-});

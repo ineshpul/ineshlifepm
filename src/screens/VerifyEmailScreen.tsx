@@ -1,9 +1,9 @@
 import * as React from 'react';
-import { Alert, AppState, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, AppState, Text, TouchableOpacity, View } from 'react-native';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { colors } from '../theme/colors';
+import { useThemedStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../state/auth';
 import { friendlySignInError } from '../utils/authErrors';
 
@@ -13,6 +13,37 @@ import { friendlySignInError } from '../utils/authErrors';
  */
 export function VerifyEmailScreen() {
   const { user, resendEmailVerification, refreshEmailVerification, signOut } = useAuth();
+  const styles = useThemedStyles((colors) => ({
+    screen: {
+      paddingHorizontal: 20,
+      justifyContent: 'center',
+    },
+    card: {
+      padding: 20,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      gap: 12,
+    },
+    title: { fontSize: 20, fontWeight: '900', color: colors.text },
+    body: { fontSize: 14, lineHeight: 20, fontWeight: '600', color: colors.muted },
+    emph: { color: colors.text, fontWeight: '800' },
+    row: { flexDirection: 'row', gap: 10, marginTop: 4 },
+    btn: {
+      flex: 1,
+      height: 44,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+    },
+    btnDisabled: { opacity: 0.55 },
+    btnText: { fontSize: 13, fontWeight: '900', color: colors.text },
+    signOut: { marginTop: 8, borderRadius: 14 },
+  }));
   const [busy, setBusy] = React.useState(false);
   const [resendCooldownSec, setResendCooldownSec] = React.useState(0);
 
@@ -110,35 +141,3 @@ export function VerifyEmailScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    paddingHorizontal: 20,
-    justifyContent: 'center',
-  },
-  card: {
-    padding: 20,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    gap: 12,
-  },
-  title: { fontSize: 20, fontWeight: '900', color: colors.text },
-  body: { fontSize: 14, lineHeight: 20, fontWeight: '600', color: colors.muted },
-  emph: { color: colors.text, fontWeight: '800' },
-  row: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  btn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-  },
-  btnDisabled: { opacity: 0.55 },
-  btnText: { fontSize: 13, fontWeight: '900', color: colors.text },
-  signOut: { marginTop: 8, borderRadius: 14 },
-});

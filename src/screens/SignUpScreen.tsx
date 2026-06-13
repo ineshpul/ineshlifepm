@@ -1,12 +1,12 @@
 import * as React from 'react';
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
 import { AuthHero } from '../components/AuthHero';
 import { KeyboardScreen } from '../components/KeyboardScreen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { TextField } from '../components/TextField';
-import { colors } from '../theme/colors';
+import { useThemedStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../state/auth';
 import { friendlySignInError } from '../utils/authErrors';
 import { isValidEmail, isValidPassword, PASSWORD_MIN_LENGTH } from '../utils/authValidation';
@@ -15,6 +15,66 @@ import { resolveReferrerUsername } from '../services/referral';
 export function SignUpScreen() {
   const nav = useNavigation<any>();
   const { signUp } = useAuth();
+  const styles = useThemedStyles((colors) => ({
+    screen: {
+      paddingHorizontal: 24,
+      paddingVertical: 28,
+    },
+    form: {
+      gap: 14,
+      paddingBottom: 18,
+    },
+    rules: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.muted,
+      lineHeight: 17,
+    },
+    error: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.coral,
+      marginTop: -6,
+    },
+    inviteToggle: {
+      paddingVertical: 4,
+    },
+    inviteToggleText: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.moss,
+    },
+    inviteBlock: {
+      gap: 6,
+    },
+    inviteHint: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.muted,
+      marginTop: -4,
+    },
+    inviteOk: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.moss,
+      marginTop: -4,
+    },
+    cta: {
+      marginTop: 4,
+    },
+    bottomLink: {
+      paddingVertical: 10,
+      alignItems: 'center',
+    },
+    bottomText: {
+      fontSize: 13,
+      color: colors.muted,
+    },
+    bottomTextStrong: {
+      color: colors.text,
+      fontWeight: '800',
+    },
+  }));
 
   const [username, setUsername] = React.useState('');
   const [email, setEmail] = React.useState('');
@@ -183,64 +243,3 @@ export function SignUpScreen() {
     </KeyboardScreen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    paddingHorizontal: 24,
-    paddingVertical: 28,
-  },
-  form: {
-    gap: 14,
-    paddingBottom: 18,
-  },
-  rules: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.muted,
-    lineHeight: 17,
-  },
-  error: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.coral,
-    marginTop: -6,
-  },
-  inviteToggle: {
-    paddingVertical: 4,
-  },
-  inviteToggleText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.moss,
-  },
-  inviteBlock: {
-    gap: 6,
-  },
-  inviteHint: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.muted,
-    marginTop: -4,
-  },
-  inviteOk: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.moss,
-    marginTop: -4,
-  },
-  cta: {
-    marginTop: 4,
-  },
-  bottomLink: {
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  bottomText: {
-    fontSize: 13,
-    color: colors.muted,
-  },
-  bottomTextStrong: {
-    color: colors.text,
-    fontWeight: '800',
-  },
-});

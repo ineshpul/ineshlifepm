@@ -36,6 +36,7 @@ import { logNativeScreenView } from '../services/nativeAnalytics';
 import { hasAcceptedTerms, subscribeTermsAcceptance } from '../state/termsAcceptance';
 import { ReferralIntroHost } from '../components/ReferralIntroHost';
 import { AppReviewHost } from '../components/AppReviewHost';
+import { useTheme } from '../theme/ThemeProvider';
 
 const MainStack = createNativeStackNavigator<MainStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -163,6 +164,15 @@ function LoggedOutStack() {
   );
 }
 
+function AuthBootSpinner() {
+  const { colors } = useTheme();
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
+      <ActivityIndicator />
+    </View>
+  );
+}
+
 export function RootNavigator() {
   const { user, authReady } = useAuth();
   const authed = Boolean(user?.uid);
@@ -226,11 +236,7 @@ export function RootNavigator() {
   }, []);
 
   if (!authReady) {
-    return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f7f8f6' }}>
-        <ActivityIndicator />
-      </View>
-    );
+    return <AuthBootSpinner />;
   }
 
   return (

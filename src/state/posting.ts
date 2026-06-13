@@ -58,7 +58,8 @@ export function useCanViewEveryoneFeed(uid: string | undefined) {
 /**
  * Centralized gate for viewing other users' video content.
  * Primary rule: must have posted for the current noon→noon cycle (`useCanViewEveryoneFeed`).
- * Staff override: admins/moderators may view regardless (moderation/support).
+ * Staff override: admins/moderators may view on profile/leap screens (moderation/support).
+ * Feed tab uses {@link AuthUser.bypassFeedGate} for review demo accounts only.
  */
 export function useCanViewOtherUsersVideos(args: {
   uid: string | undefined;

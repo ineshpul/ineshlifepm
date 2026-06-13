@@ -6,7 +6,7 @@ import { deleteField, doc, getDoc, serverTimestamp, setDoc } from 'firebase/fire
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { colors } from '../theme/colors';
+import { useThemedStyles } from '../theme/ThemeProvider';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import {
   DEFAULT_MAX_RECORDING_ATTEMPTS,
@@ -26,6 +26,96 @@ const ATTEMPT_PRESETS = [1, 2, 3, 5, 10] as const;
 export function ChallengeAdminScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const styles = useThemedStyles((colors) => ({
+    screenOuter: {
+      flex: 1,
+    },
+    scrollContent: {
+      flexGrow: 1,
+      paddingHorizontal: 18,
+      paddingTop: 10,
+      gap: 12,
+    },
+    kicker: {
+      fontSize: 11,
+      letterSpacing: 2.2,
+      fontWeight: '900',
+      color: colors.muted,
+    },
+    title: {
+      fontSize: 22,
+      fontWeight: '900',
+      color: colors.text,
+    },
+    meta: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.muted,
+      marginBottom: 6,
+    },
+    field: { gap: 8 },
+    label: {
+      fontSize: 12,
+      letterSpacing: 1.4,
+      fontWeight: '900',
+      color: colors.muted2,
+    },
+    subLabel: {
+      marginTop: 4,
+      fontSize: 11,
+      fontWeight: '700',
+      color: colors.muted,
+    },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      fontSize: 15,
+      fontWeight: '600',
+      color: colors.text,
+      backgroundColor: colors.inputBg,
+    },
+    helper: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.muted,
+      lineHeight: 17,
+    },
+    durationRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 10,
+    },
+    durationChip: {
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.inputBg,
+    },
+    durationChipActive: {
+      borderColor: colors.coral,
+      backgroundColor: 'rgba(255, 107, 84, 0.1)',
+    },
+    durationChipText: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: colors.muted,
+    },
+    durationChipTextActive: {
+      color: colors.coral,
+    },
+    durationHint: {
+      marginTop: 6,
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.muted,
+    },
+  }));
+
   useChallengeWindow();
   const publishChallengeDateKey = getAdminPublishChallengeDateKey(Date.now());
 
@@ -192,93 +282,3 @@ export function ChallengeAdminScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screenOuter: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 18,
-    paddingTop: 10,
-    gap: 12,
-  },
-  kicker: {
-    fontSize: 11,
-    letterSpacing: 2.2,
-    fontWeight: '900',
-    color: colors.muted,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: colors.text,
-  },
-  meta: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.muted,
-    marginBottom: 6,
-  },
-  field: { gap: 8 },
-  label: {
-    fontSize: 12,
-    letterSpacing: 1.4,
-    fontWeight: '900',
-    color: colors.muted2,
-  },
-  subLabel: {
-    marginTop: 4,
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.muted,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.text,
-    backgroundColor: '#FAFBFC',
-  },
-  helper: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.muted,
-    lineHeight: 17,
-  },
-  durationRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  durationChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: '#FAFBFC',
-  },
-  durationChipActive: {
-    borderColor: colors.coral,
-    backgroundColor: 'rgba(255, 107, 84, 0.1)',
-  },
-  durationChipText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: colors.muted,
-  },
-  durationChipTextActive: {
-    color: colors.coral,
-  },
-  durationHint: {
-    marginTop: 6,
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.muted,
-  },
-});

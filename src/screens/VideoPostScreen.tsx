@@ -13,12 +13,12 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { doc, getDoc } from 'firebase/firestore';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { FeedPostEngagement } from '../components/FeedPostEngagement';
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
 import { UsernameLink } from '../components/UsernameLink';
 import { Screen } from '../components/Screen';
-import { colors } from '../theme/colors';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import type { RootStackParamList } from '../navigation/types';
 import { useAuth } from '../state/auth';
@@ -30,6 +30,42 @@ import { useSettingsPreferences } from '../state/settingsPreferences';
 type Props = NativeStackScreenProps<RootStackParamList, 'VideoPost'>;
 
 export function VideoPostScreen({ route }: Props) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+  screen: { flex: 1, paddingHorizontal: 16, paddingTop: 8 },
+  flex: { flex: 1 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 10 },
+  hint: { fontSize: 13, fontWeight: '700', color: colors.muted },
+  title: { fontSize: 18, fontWeight: '900', color: colors.text, textAlign: 'center' },
+  body: { fontSize: 14, fontWeight: '600', color: colors.muted, textAlign: 'center', lineHeight: 20 },
+  scrollContent: { paddingBottom: 32, gap: 10 },
+  videoWrap: {
+    marginTop: 4,
+    height: 320,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  video: { width: '100%', height: '100%' },
+  pip: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 96,
+    height: 132,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#0B1020',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.7)',
+  },
+  pipVideo: { width: '100%', height: '100%' },
+  userLine: { marginTop: 4, fontSize: 15, fontWeight: '900' },
+  prompt: { fontSize: 15, fontWeight: '800', color: colors.text, lineHeight: 20 },
+  meta: { fontSize: 12, fontWeight: '700', color: colors.muted },
+}));
   const { videoId } = route.params;
   const isFocused = useIsFocused();
   const nav = useNavigation<any>();
@@ -318,39 +354,3 @@ export function VideoPostScreen({ route }: Props) {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, paddingHorizontal: 16, paddingTop: 8 },
-  flex: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 10 },
-  hint: { fontSize: 13, fontWeight: '700', color: colors.muted },
-  title: { fontSize: 18, fontWeight: '900', color: colors.text, textAlign: 'center' },
-  body: { fontSize: 14, fontWeight: '600', color: colors.muted, textAlign: 'center', lineHeight: 20 },
-  scrollContent: { paddingBottom: 32, gap: 10 },
-  videoWrap: {
-    marginTop: 4,
-    height: 320,
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#000',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  video: { width: '100%', height: '100%' },
-  pip: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 96,
-    height: 132,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#0B1020',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.7)',
-  },
-  pipVideo: { width: '100%', height: '100%' },
-  userLine: { marginTop: 4, fontSize: 15, fontWeight: '900' },
-  prompt: { fontSize: 15, fontWeight: '800', color: colors.text, lineHeight: 20 },
-  meta: { fontSize: 12, fontWeight: '700', color: colors.muted },
-});

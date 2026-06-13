@@ -1,10 +1,10 @@
 import * as React from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Text, TextInput, TouchableOpacity, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { colors } from '../theme/colors';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
 import { createGroupConversation } from '../services/chat/chatFirestore';
@@ -14,6 +14,23 @@ type Props = NativeStackScreenProps<ChatStackParamList, 'NewGroup'>;
 
 export function NewGroupScreen({ navigation, route }: Props) {
   const { user } = useAuth();
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+    screen: { flex: 1, backgroundColor: colors.bg, padding: 20, gap: 12 },
+    label: { fontSize: 13, fontWeight: '900', color: colors.muted, letterSpacing: 0.4 },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 14,
+      padding: 14,
+      fontSize: 16,
+      fontWeight: '700',
+      backgroundColor: colors.card,
+      color: colors.text,
+    },
+    meta: { fontSize: 14, color: colors.muted, fontWeight: '600' },
+  }));
+
   const picked = route.params?.pickedUids ?? [];
   const [name, setName] = React.useState('');
 
@@ -28,7 +45,7 @@ export function NewGroupScreen({ navigation, route }: Props) {
         </TouchableOpacity>
       ),
     });
-  }, [navigation, picked]);
+  }, [navigation, picked, colors.moss]);
 
   const onCreate = async () => {
     if (!user?.uid) return;
@@ -64,18 +81,3 @@ export function NewGroupScreen({ navigation, route }: Props) {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg, padding: 20, gap: 12 },
-  label: { fontSize: 13, fontWeight: '900', color: colors.muted, letterSpacing: 0.4 },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    padding: 14,
-    fontSize: 16,
-    fontWeight: '700',
-    backgroundColor: colors.white,
-  },
-  meta: { fontSize: 14, color: colors.muted, fontWeight: '600' },
-});

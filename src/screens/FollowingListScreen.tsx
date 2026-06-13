@@ -1,12 +1,12 @@
 import * as React from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Screen } from '../components/Screen';
-import { colors } from '../theme/colors';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../state/auth';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import {
@@ -23,6 +23,48 @@ type ListRow = FollowingRow & { isMutual: boolean };
 
 export function FollowingListScreen({ navigation, route }: Props) {
   const { user } = useAuth();
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+    screen: { flex: 1, paddingHorizontal: 16, paddingTop: 4 },
+    offline: { padding: 24, textAlign: 'center', color: colors.muted, fontWeight: '600' },
+    hint: { fontSize: 13, lineHeight: 18, color: colors.muted, fontWeight: '600', marginBottom: 8 },
+    list: { paddingBottom: 32, gap: 8, paddingTop: 2 },
+    empty: { marginTop: 24, fontSize: 15, fontWeight: '700', color: colors.text },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: 14,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    rowMutual: {
+      borderColor: 'rgba(39, 174, 96, 0.45)',
+      backgroundColor: 'rgba(39, 174, 96, 0.08)',
+    },
+    rowPressed: { opacity: 0.88 },
+    avatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      backgroundColor: colors.cardTint,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: 'hidden',
+    },
+    avatarMutual: { borderColor: 'rgba(39, 174, 96, 0.5)' },
+    avatarImg: { width: 40, height: 40 },
+    avatarTxt: { fontSize: 15, fontWeight: '900', color: colors.moss },
+    nameCol: { flex: 1, minWidth: 0, gap: 2 },
+    name: { fontSize: 15, fontWeight: '800', color: colors.coral },
+    nameMutual: { color: colors.moss },
+    mutualBadge: { fontSize: 11, fontWeight: '900', color: colors.moss },
+  }));
   const listUid = route.params?.uid ?? user?.uid;
   const listUsername = route.params?.username?.replace(/^@+/u, '').trim();
   const isOwnList = !route.params?.uid || route.params.uid === user?.uid;
@@ -147,45 +189,3 @@ export function FollowingListScreen({ navigation, route }: Props) {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, paddingHorizontal: 16, paddingTop: 4 },
-  offline: { padding: 24, textAlign: 'center', color: colors.muted, fontWeight: '600' },
-  hint: { fontSize: 13, lineHeight: 18, color: colors.muted, fontWeight: '600', marginBottom: 8 },
-  list: { paddingBottom: 32, gap: 8, paddingTop: 2 },
-  empty: { marginTop: 24, fontSize: 15, fontWeight: '700', color: colors.text },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  rowMutual: {
-    borderColor: 'rgba(39, 174, 96, 0.45)',
-    backgroundColor: 'rgba(39, 174, 96, 0.08)',
-  },
-  rowPressed: { opacity: 0.88 },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: colors.cardTint,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  avatarMutual: { borderColor: 'rgba(39, 174, 96, 0.5)' },
-  avatarImg: { width: 40, height: 40 },
-  avatarTxt: { fontSize: 15, fontWeight: '900', color: colors.moss },
-  nameCol: { flex: 1, minWidth: 0, gap: 2 },
-  name: { fontSize: 15, fontWeight: '800', color: colors.coral },
-  nameMutual: { color: colors.moss },
-  mutualBadge: { fontSize: 11, fontWeight: '900', color: colors.moss },
-});

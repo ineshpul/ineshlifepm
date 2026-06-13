@@ -26,9 +26,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
 import { Swipeable } from 'react-native-gesture-handler';
 import { doc, onSnapshot } from 'firebase/firestore';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { Screen } from '../components/Screen';
-import { colors } from '../theme/colors';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
@@ -62,6 +62,19 @@ function sameDay(a: Date, b: Date) {
 }
 
 function DateSep({ d }: { d: Date }) {
+  const styles = useThemedStyles((colors) => ({
+    dateSep: { alignItems: 'center', marginTop: 10, marginBottom: 6 },
+    dateSepTxt: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.muted2,
+      overflow: 'hidden',
+      paddingHorizontal: 12,
+      paddingVertical: 4,
+      borderRadius: 10,
+      backgroundColor: colors.cardTint,
+    },
+  }));
   return (
     <View style={styles.dateSep}>
       <Text style={styles.dateSepTxt}>
@@ -72,6 +85,153 @@ function DateSep({ d }: { d: Date }) {
 }
 
 export function ConversationScreen({ navigation, route }: Props) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+  screen: { flex: 1, backgroundColor: colors.bg },
+  flex: { flex: 1 },
+  listEmptyWrap: {
+    flexGrow: 1,
+    minHeight: 220,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  listEmptyTxt: { fontSize: 15, fontWeight: '600', color: colors.muted, textAlign: 'center' },
+  listContent: { paddingHorizontal: 14 },
+  /** Empty / loading: center in the thread area. */
+  listContentWhenEmpty: { flexGrow: 1, justifyContent: 'center', paddingVertical: 8 },
+  /** Short threads: pin bubbles to the bottom (Instagram-style); small top padding under header when scrolled up. */
+  listContentWhenThread: {
+    flexGrow: 1,
+    justifyContent: 'flex-end',
+    paddingTop: 6,
+    paddingBottom: 10,
+  },
+  rowMsg: { marginBottom: 6, maxWidth: '88%' },
+  rowMsgCluster: { marginTop: -2 },
+  rowMine: { alignSelf: 'flex-end' },
+  rowTheirs: { alignSelf: 'flex-start' },
+  bubble: {
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.cardTint,
+  },
+  bubbleMine: { backgroundColor: 'rgba(76, 175, 80, 0.22)', borderColor: 'rgba(76, 175, 80, 0.35)' },
+  bubbleTheirs: { backgroundColor: colors.card, borderColor: colors.border2 },
+  bubbleTxt: { fontSize: 16, fontWeight: '600', color: colors.text },
+  bubbleTxtMine: { color: colors.text },
+  edited: { marginTop: 4, fontSize: 11, fontWeight: '700', color: colors.muted2 },
+  replyPreview: { marginBottom: 4, padding: 6, borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.04)' },
+  replyPrevTxt: { fontSize: 12, fontWeight: '600', color: colors.muted },
+  shareTag: { fontSize: 11, fontWeight: '900', color: colors.moss, letterSpacing: 0.6 },
+  shareTitle: { fontSize: 15, fontWeight: '800', marginBottom: 6 },
+  shareVideo: { width: 220, height: 280, borderRadius: 12, backgroundColor: colors.black },
+  thumb: { width: 220, height: 140, borderRadius: 12, backgroundColor: colors.black },
+  thumbPh: { alignItems: 'center', justifyContent: 'center' },
+  dur: { marginTop: 4, fontSize: 12, fontWeight: '800', color: colors.muted },
+  reactionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
+  reactionRowMine: { justifyContent: 'flex-end' },
+  reactionChipBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
+  reactionChip: { fontSize: 13, fontWeight: '700' },
+  dateSep: { alignItems: 'center', marginTop: 10, marginBottom: 6 },
+  dateSepTxt: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.muted2,
+    overflow: 'hidden',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  swipeReply: { justifyContent: 'center', paddingHorizontal: 12 },
+  composerAvoid: {
+    backgroundColor: colors.card,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 6,
+      },
+      android: { elevation: 10 },
+    }),
+  },
+  composerDock: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    overflow: 'hidden',
+  },
+  replyBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border2,
+    gap: 8,
+  },
+  replyBarTxt: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.muted },
+  uploadBar: { padding: 8, backgroundColor: colors.cardTint },
+  uploadTxt: { fontWeight: '700', color: colors.text },
+  composer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    gap: 8,
+    backgroundColor: colors.card,
+  },
+  input: {
+    flex: 1,
+    minHeight: 42,
+    maxHeight: 120,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 16,
+    fontWeight: '500',
+    color: colors.text,
+    backgroundColor: colors.bg,
+  },
+  sendBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.moss,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reactionBackdrop: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },
+  reactionTray: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    padding: 16,
+    gap: 12,
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+  },
+  reactionEmoji: { fontSize: 28 },
+  videoModal: { flex: 1, backgroundColor: colors.black, paddingTop: 48 },
+  imageModal: { flex: 1, backgroundColor: colors.black, paddingTop: 48 },
+  imageFull: { flex: 1, width: '100%' },
+  videoClose: { padding: 16 },
+  videoCloseTxt: { color: colors.white, fontWeight: '800', fontSize: 16 },
+  typingBanner: { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: colors.cardTint },
+  typingTxt: { fontSize: 12, fontWeight: '800', color: colors.moss },
+}));
   const { conversationId, threadTitle, pendingShare } = route.params;
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
@@ -823,150 +983,3 @@ export function ConversationScreen({ navigation, route }: Props) {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  flex: { flex: 1 },
-  listEmptyWrap: {
-    flexGrow: 1,
-    minHeight: 220,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  listEmptyTxt: { fontSize: 15, fontWeight: '600', color: colors.muted, textAlign: 'center' },
-  listContent: { paddingHorizontal: 14 },
-  /** Empty / loading: center in the thread area. */
-  listContentWhenEmpty: { flexGrow: 1, justifyContent: 'center', paddingVertical: 8 },
-  /** Short threads: pin bubbles to the bottom (Instagram-style); small top padding under header when scrolled up. */
-  listContentWhenThread: {
-    flexGrow: 1,
-    justifyContent: 'flex-end',
-    paddingTop: 6,
-    paddingBottom: 10,
-  },
-  rowMsg: { marginBottom: 6, maxWidth: '88%' },
-  rowMsgCluster: { marginTop: -2 },
-  rowMine: { alignSelf: 'flex-end' },
-  rowTheirs: { alignSelf: 'flex-start' },
-  bubble: {
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.cardTint,
-  },
-  bubbleMine: { backgroundColor: 'rgba(76, 175, 80, 0.22)', borderColor: 'rgba(76, 175, 80, 0.35)' },
-  bubbleTheirs: { backgroundColor: colors.white, borderColor: colors.border2 },
-  bubbleTxt: { fontSize: 16, fontWeight: '600', color: colors.text },
-  bubbleTxtMine: { color: colors.text },
-  edited: { marginTop: 4, fontSize: 11, fontWeight: '700', color: colors.muted2 },
-  replyPreview: { marginBottom: 4, padding: 6, borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.04)' },
-  replyPrevTxt: { fontSize: 12, fontWeight: '600', color: colors.muted },
-  shareTag: { fontSize: 11, fontWeight: '900', color: colors.moss, letterSpacing: 0.6 },
-  shareTitle: { fontSize: 15, fontWeight: '800', marginBottom: 6 },
-  shareVideo: { width: 220, height: 280, borderRadius: 12, backgroundColor: colors.black },
-  thumb: { width: 220, height: 140, borderRadius: 12, backgroundColor: colors.black },
-  thumbPh: { alignItems: 'center', justifyContent: 'center' },
-  dur: { marginTop: 4, fontSize: 12, fontWeight: '800', color: colors.muted },
-  reactionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
-  reactionRowMine: { justifyContent: 'flex-end' },
-  reactionChipBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.06)',
-  },
-  reactionChip: { fontSize: 13, fontWeight: '700' },
-  dateSep: { alignItems: 'center', marginTop: 10, marginBottom: 6 },
-  dateSepTxt: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.muted2,
-    overflow: 'hidden',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-  },
-  swipeReply: { justifyContent: 'center', paddingHorizontal: 12 },
-  composerAvoid: {
-    backgroundColor: colors.white,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 6,
-      },
-      android: { elevation: 10 },
-    }),
-  },
-  composerDock: {
-    backgroundColor: colors.white,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    overflow: 'hidden',
-  },
-  replyBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border2,
-    gap: 8,
-  },
-  replyBarTxt: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.muted },
-  uploadBar: { padding: 8, backgroundColor: colors.cardTint },
-  uploadTxt: { fontWeight: '700', color: colors.text },
-  composer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: 10,
-    paddingTop: 10,
-    gap: 8,
-    backgroundColor: colors.white,
-  },
-  input: {
-    flex: 1,
-    minHeight: 42,
-    maxHeight: 120,
-    borderRadius: 22,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 16,
-    fontWeight: '500',
-    color: colors.text,
-    backgroundColor: colors.bg,
-  },
-  sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.moss,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  reactionBackdrop: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },
-  reactionTray: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 16,
-    gap: 12,
-    backgroundColor: colors.white,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-  },
-  reactionEmoji: { fontSize: 28 },
-  videoModal: { flex: 1, backgroundColor: colors.black, paddingTop: 48 },
-  imageModal: { flex: 1, backgroundColor: colors.black, paddingTop: 48 },
-  imageFull: { flex: 1, width: '100%' },
-  videoClose: { padding: 16 },
-  videoCloseTxt: { color: colors.white, fontWeight: '800', fontSize: 16 },
-  typingBanner: { paddingVertical: 6, paddingHorizontal: 12, backgroundColor: colors.cardTint },
-  typingTxt: { fontSize: 12, fontWeight: '800', color: colors.moss },
-});

@@ -15,7 +15,7 @@ import {
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
-import { isAdminUid, parseProfileIsAdmin, parseProfileIsModerator } from '../config/admin';
+import { isAdminUid, parseProfileIsAdmin, parseProfileIsModerator, parseProfileBypassFeedGate } from '../config/admin';
 import { unregisterPushDevice } from '../services/pushNotifications';
 import { bootstrapUserDocWithUsername, syncAuthDisplayNameIfNeeded } from '../services/usernameClaim';
 import { claimReferral } from '../services/referral';
@@ -28,6 +28,8 @@ export type AuthUser = {
   isAdmin?: boolean;
   /** Set in Firestore `users/{uid}.isModerator` (staff; cannot self-grant). */
   isModerator?: boolean;
+  /** Set in Firestore `users/{uid}.bypassFeedGate` — full feed without posting (review demo only). */
+  bypassFeedGate?: boolean;
   /** Firebase email/password account whose email is not verified yet (user is still signed in). */
   needsEmailVerification?: boolean;
 };
@@ -303,6 +305,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const fromUidList = isAdminUid(uid);
       const isAdmin = exists && d ? parseProfileIsAdmin(d.isAdmin) || fromUidList : fromUidList;
       const isModerator = exists && d ? parseProfileIsModerator(d.isModerator) : false;
+      const bypassFeedGate = exists && d ? parseProfileBypassFeedGate(d.bypassFeedGate) : false;
       const fromDoc = d?.username;
       const usernameFromDoc = typeof fromDoc === 'string' && fromDoc.length > 0 ? fromDoc : null;
       setUser((prev) => {
@@ -311,6 +314,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ...prev,
           isAdmin,
           isModerator,
+          bypassFeedGate,
           username: usernameFromDoc ?? prev.username,
         };
       });

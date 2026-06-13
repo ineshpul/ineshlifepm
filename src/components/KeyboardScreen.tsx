@@ -1,13 +1,23 @@
 import * as React from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View, ViewProps } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, ViewProps } from 'react-native';
 
-import { colors } from '../theme/colors';
+import { useThemedStyles } from '../theme/ThemeProvider';
 
 type Props = ViewProps & {
   contentContainerStyle?: any;
 };
 
 export function KeyboardScreen({ style, contentContainerStyle, children, ...rest }: Props) {
+  const styles = useThemedStyles((colors) => ({
+    base: {
+      flex: 1,
+      backgroundColor: colors.bg,
+    },
+    content: {
+      flexGrow: 1,
+    },
+  }));
+
   return (
     <KeyboardAvoidingView
       style={[styles.base, style]}
@@ -29,14 +39,3 @@ export function KeyboardScreen({ style, contentContainerStyle, children, ...rest
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  base: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  content: {
-    flexGrow: 1,
-  },
-});
-

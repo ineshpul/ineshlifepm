@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Platform, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AuthHero } from '../components/AuthHero';
 import { KeyboardScreen } from '../components/KeyboardScreen';
@@ -8,7 +8,7 @@ import { TextField } from '../components/TextField';
 import { requireLoginEmailOtp } from '../config/requireLoginEmailOtp';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { sendLoginOtpEmail, verifyLoginOtpCode } from '../services/loginOtp';
-import { colors } from '../theme/colors';
+import { useThemedStyles } from '../theme/ThemeProvider';
 import { useAuth, type EmailPasswordSignInResult } from '../state/auth';
 import { friendlySignInError } from '../utils/authErrors';
 import { isValidEmail, isValidPassword, PASSWORD_MIN_LENGTH } from '../utils/authValidation';
@@ -16,6 +16,75 @@ import { isValidEmail, isValidPassword, PASSWORD_MIN_LENGTH } from '../utils/aut
 export function SignInScreen() {
   const nav = useNavigation<any>();
   const { signInWithEmailPassword } = useAuth();
+  const styles = useThemedStyles((colors) => ({
+    screen: {
+      paddingHorizontal: 24,
+      paddingVertical: 28,
+    },
+    form: {
+      gap: 14,
+      paddingBottom: 18,
+    },
+    rules: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.muted,
+      lineHeight: 17,
+    },
+    emailEmph: {
+      color: colors.text,
+      fontWeight: '800',
+    },
+    error: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.coral,
+      marginTop: -6,
+    },
+    cta: {
+      marginTop: 4,
+    },
+    linkBtn: {
+      alignItems: 'center',
+      paddingVertical: 4,
+    },
+    linkText: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: colors.moss,
+    },
+    linkDisabled: { opacity: 0.45 },
+    appleBtn: {
+      height: 48,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#000',
+    },
+    appleText: { fontSize: 14, fontWeight: '800', color: '#fff' },
+    bottomLink: {
+      paddingVertical: 10,
+      alignItems: 'center',
+    },
+    bottomText: {
+      fontSize: 13,
+      color: colors.muted,
+    },
+    bottomTextStrong: {
+      color: colors.text,
+      fontWeight: '800',
+    },
+    forgotLink: {
+      alignSelf: 'flex-end',
+      marginTop: -4,
+      paddingVertical: 4,
+    },
+    forgotText: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: colors.moss,
+    },
+  }));
 
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
@@ -268,73 +337,3 @@ export function SignInScreen() {
     </KeyboardScreen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    paddingHorizontal: 24,
-    paddingVertical: 28,
-  },
-  form: {
-    gap: 14,
-    paddingBottom: 18,
-  },
-  rules: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.muted,
-    lineHeight: 17,
-  },
-  emailEmph: {
-    color: colors.text,
-    fontWeight: '800',
-  },
-  error: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.coral,
-    marginTop: -6,
-  },
-  cta: {
-    marginTop: 4,
-  },
-  linkBtn: {
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  linkText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.moss,
-  },
-  linkDisabled: { opacity: 0.45 },
-  appleBtn: {
-    height: 48,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#000',
-  },
-  appleText: { fontSize: 14, fontWeight: '800', color: '#fff' },
-  bottomLink: {
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  bottomText: {
-    fontSize: 13,
-    color: colors.muted,
-  },
-  bottomTextStrong: {
-    color: colors.text,
-    fontWeight: '800',
-  },
-  forgotLink: {
-    alignSelf: 'flex-end',
-    marginTop: -4,
-    paddingVertical: 4,
-  },
-  forgotText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.moss,
-  },
-});

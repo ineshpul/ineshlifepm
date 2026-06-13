@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { colors } from '../theme/colors';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
 import { subscribeFollowing, type FollowingRow } from '../services/social';
@@ -15,6 +15,22 @@ type Props = NativeStackScreenProps<ChatStackParamList, 'MemberPicker'>;
 
 export function MemberPickerScreen({ navigation, route }: Props) {
   const { user } = useAuth();
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+    screen: { flex: 1, backgroundColor: colors.bg },
+    row: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 18,
+      paddingVertical: 14,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border2,
+    },
+    name: { fontSize: 16, fontWeight: '800', color: colors.text },
+    footer: { padding: 16, borderTopWidth: 1, borderTopColor: colors.border },
+  }));
+
   const existing = route.params.existingUids ?? [];
   const [rows, setRows] = React.useState<FollowingRow[]>([]);
   const [sel, setSel] = React.useState<Set<string>>(new Set(existing));
@@ -64,18 +80,3 @@ export function MemberPickerScreen({ navigation, route }: Props) {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border2,
-  },
-  name: { fontSize: 16, fontWeight: '800' },
-  footer: { padding: 16, borderTopWidth: 1, borderTopColor: colors.border },
-});

@@ -22,11 +22,11 @@ import {
   type DocumentSnapshot,
 } from 'firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { Screen } from '../components/Screen';
 import { HighestLeapSheet } from '../components/profile/HighestLeapSheet';
 import { useProfileStats } from '../components/profile/useProfileStats';
-import { colors } from '../theme/colors';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import type { MainStackParamList } from '../navigation/types';
 import { useAuth } from '../state/auth';
@@ -45,7 +45,7 @@ import {
   resolveProfileIdentity,
   usernameFromRecord,
 } from '../lib/resolveProfileIdentity';
-import { profileScreenStyles as ps } from '../styles/profileScreenStyles';
+import { useProfileScreenStyles } from '../styles/profileScreenStyles';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'UserProfile'>;
 
@@ -87,6 +87,12 @@ function logUserProfileFetch(
 }
 
 export function UserProfileScreen({ route, navigation }: Props) {
+  const { colors } = useTheme();
+  const profileStyles = useProfileScreenStyles();
+  const styles = useThemedStyles((colors) => ({
+  screen: { paddingHorizontal: 16, paddingTop: 6, flex: 1 },
+  nameLoader: { marginTop: 8, marginBottom: 4 },
+}));
   const nav = useNavigation<any>();
   const { user } = useAuth();
   const { uid, username: usernameHint } = route.params;
@@ -319,10 +325,10 @@ export function UserProfileScreen({ route, navigation }: Props) {
       <ScrollView
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={ps.scroll}
+        contentContainerStyle={profileStyles.scroll}
       >
-        <View style={ps.card}>
-          <View style={ps.avatar}>
+        <View style={profileStyles.card}>
+          <View style={profileStyles.avatar}>
             {identityPending ? (
               <ActivityIndicator size="large" color={colors.moss} />
             ) : photoUrl ? (
@@ -330,31 +336,31 @@ export function UserProfileScreen({ route, navigation }: Props) {
                 key={`profile-avatar-${uid}-${photoUrl}`}
                 recyclingKey={`${uid}|${photoUrl}`}
                 source={{ uri: photoUrl }}
-                style={ps.avatarImg}
+                style={profileStyles.avatarImg}
                 contentFit="cover"
                 cachePolicy="memory-disk"
               />
             ) : (
-              <Text style={ps.avatarText}>{initials || 'U'}</Text>
+              <Text style={profileStyles.avatarText}>{initials || 'U'}</Text>
             )}
           </View>
           {identityPending ? (
             <ActivityIndicator style={styles.nameLoader} size="small" color={colors.moss} />
           ) : identityUnavailable ? (
-            <Text style={ps.name}>Profile</Text>
+            <Text style={profileStyles.name}>Profile</Text>
           ) : profileUsername ? (
             <>
-              <Text style={ps.name}>{profileUsername}</Text>
+              <Text style={profileStyles.name}>{profileUsername}</Text>
               {isSelf ? (
-                <Text style={ps.handle}>@{profileUsername}</Text>
+                <Text style={profileStyles.handle}>@{profileUsername}</Text>
               ) : (
-                <UsernameLink uid={uid} username={profileUsername} style={ps.handle} />
+                <UsernameLink uid={uid} username={profileUsername} style={profileStyles.handle} />
               )}
             </>
           ) : null}
-          {bio ? <Text style={ps.profileBio}>{bio}</Text> : null}
+          {bio ? <Text style={profileStyles.profileBio}>{bio}</Text> : null}
           {!isSelf && user?.uid && profileUsername ? (
-            <View style={ps.profileActionsRow}>
+            <View style={profileStyles.profileActionsRow}>
               <FollowButton
                 viewerUid={user.uid}
                 viewerUsername={user.username}
@@ -363,7 +369,7 @@ export function UserProfileScreen({ route, navigation }: Props) {
                 targetPhotoUrl={photoUrl || null}
               />
               <TouchableOpacity
-                style={ps.messageBtn}
+                style={profileStyles.messageBtn}
                 onPress={() => void openDmWithUser()}
                 disabled={dmBusy}
                 accessibilityRole="button"
@@ -372,65 +378,65 @@ export function UserProfileScreen({ route, navigation }: Props) {
                 {dmBusy ? (
                   <ActivityIndicator size="small" color={colors.moss} />
                 ) : (
-                  <Text style={ps.messageBtnTxt}>Message</Text>
+                  <Text style={profileStyles.messageBtnTxt}>Message</Text>
                 )}
               </TouchableOpacity>
             </View>
           ) : null}
         </View>
 
-        <View style={ps.scoreCard}>
-          <Text style={ps.scoreTitle}>ALL-TIME VERTICAL</Text>
-          <Text style={ps.scoreNumber}>{formatLeapInchesDisplay(stats.allTimeIn)}</Text>
-          <Text style={ps.scoreTierHint}>All-time distance travelled from leaping</Text>
+        <View style={profileStyles.scoreCard}>
+          <Text style={profileStyles.scoreTitle}>ALL-TIME VERTICAL</Text>
+          <Text style={profileStyles.scoreNumber}>{formatLeapInchesDisplay(stats.allTimeIn)}</Text>
+          <Text style={profileStyles.scoreTierHint}>All-time distance travelled from leaping</Text>
         </View>
 
-        <View style={ps.statsRow}>
+        <View style={profileStyles.statsRow}>
           <Pressable
-            style={({ pressed }) => [ps.stat, ps.statTappable, pressed && ps.statPressed]}
+            style={({ pressed }) => [profileStyles.stat, profileStyles.statTappable, pressed && profileStyles.statPressed]}
             onPress={() => setHighestLeapOpen(true)}
             accessibilityRole="button"
             accessibilityLabel="View highest leap"
           >
-            <Text style={ps.statNum}>{formatLeapInchesDisplay(stats.highestDayIn)}</Text>
-            <Text style={ps.statLabel}>HIGHEST{'\n'}LEAP</Text>
+            <Text style={profileStyles.statNum}>{formatLeapInchesDisplay(stats.highestDayIn)}</Text>
+            <Text style={profileStyles.statLabel}>HIGHEST{'\n'}LEAP</Text>
           </Pressable>
-          <View style={ps.stat}>
-            <Text style={ps.statNum}>{formatLeapInchesDisplay(stats.weeklyLeapIn)}</Text>
-            <Text style={ps.statLabel}>WEEKLY{'\n'}TOTAL</Text>
+          <View style={profileStyles.stat}>
+            <Text style={profileStyles.statNum}>{formatLeapInchesDisplay(stats.weeklyLeapIn)}</Text>
+            <Text style={profileStyles.statLabel}>WEEKLY{'\n'}TOTAL</Text>
           </View>
-          <View style={ps.stat}>
-            <Text style={ps.statNum}>{stats.streakDays}</Text>
-            <Text style={ps.statLabel}>DAY{'\n'}STREAK</Text>
+          <View style={profileStyles.stat}>
+            <Text style={profileStyles.statNum}>{stats.streakDays}</Text>
+            <Text style={profileStyles.statLabel}>DAY{'\n'}STREAK</Text>
           </View>
         </View>
 
         {stats.hasPostedTodayLeap ? (
-          <View style={ps.dailyBanner}>
-            <Text style={ps.dailyBannerText}>{formatLeapGainTodayBanner(stats.dailyLeapIn)}</Text>
+          <View style={profileStyles.dailyBanner}>
+            <Text style={profileStyles.dailyBannerText}>{formatLeapGainTodayBanner(stats.dailyLeapIn)}</Text>
           </View>
         ) : null}
 
         <TouchableOpacity
-          style={ps.openLeapsCta}
+          style={profileStyles.openLeapsCta}
           onPress={() => openLeapsFeed()}
           activeOpacity={0.85}
           accessibilityRole="button"
           accessibilityLabel={leapsCtaLabel}
         >
-          <Text style={ps.openLeapsCtaText}>{leapsCtaLabel}</Text>
+          <Text style={profileStyles.openLeapsCtaText}>{leapsCtaLabel}</Text>
           <Ionicons name="chevron-forward" size={18} color={colors.coral} />
         </TouchableOpacity>
 
         {!isSelf && followingVisible && theirFollowing.length > 0 && profileUsername ? (
           <TouchableOpacity
-            style={ps.openLeapsCta}
+            style={profileStyles.openLeapsCta}
             onPress={() => nav.navigate('FollowingList', { uid, username: profileUsername })}
             activeOpacity={0.85}
             accessibilityRole="button"
             accessibilityLabel="Open following list"
           >
-            <Text style={ps.openLeapsCtaText}>
+            <Text style={profileStyles.openLeapsCtaText}>
               {theirFollowing.length} {theirFollowing.length === 1 ? 'person' : 'people'} they follow
             </Text>
             <Ionicons name="chevron-forward" size={18} color={colors.coral} />
@@ -447,8 +453,3 @@ export function UserProfileScreen({ route, navigation }: Props) {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { paddingHorizontal: 16, paddingTop: 6, flex: 1 },
-  nameLoader: { marginTop: 8, marginBottom: 4 },
-});

@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { colors } from '../theme/colors';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import type { ReplyTargetPayload } from './EngagementCommentRow';
 
 type Props = {
@@ -46,6 +46,91 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
   bottomInset = 0,
   draftTextRef,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+    compose: {
+      marginTop: 4,
+      gap: 0,
+    },
+    composeRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      gap: 8,
+    },
+    composeReel: {
+      marginTop: 0,
+      paddingTop: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    composeModal: {
+      marginTop: 0,
+      paddingTop: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border2,
+    },
+    replyBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 8,
+      paddingHorizontal: 10,
+      marginBottom: 8,
+      borderRadius: 12,
+      backgroundColor: colors.cardTint,
+      borderWidth: 1,
+      borderColor: colors.border2,
+    },
+    replyBarTxt: {
+      flex: 1,
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.moss,
+    },
+    input: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 22,
+      paddingHorizontal: 14,
+      paddingTop: Platform.OS === 'ios' ? 10 : 8,
+      paddingBottom: Platform.OS === 'ios' ? 10 : 8,
+      fontSize: 15,
+      fontWeight: '500',
+      color: colors.text,
+      backgroundColor: colors.bg,
+      maxHeight: MAX_INPUT_HEIGHT,
+    },
+    inputModal: {
+      backgroundColor: colors.cardTint,
+      borderColor: colors.border2,
+    },
+    inputModalFixed: {
+      height: MODAL_INPUT_HEIGHT,
+      maxHeight: MODAL_INPUT_HEIGHT,
+      paddingTop: Platform.OS === 'ios' ? 11 : 10,
+      paddingBottom: Platform.OS === 'ios' ? 11 : 10,
+    },
+    sendBtn: {
+      paddingHorizontal: 18,
+      paddingVertical: 11,
+      borderRadius: 22,
+      backgroundColor: colors.moss,
+      minWidth: 80,
+      minHeight: 44,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    sendBtnDisabled: {
+      opacity: 0.45,
+    },
+    sendText: {
+      color: colors.white,
+      fontWeight: '900',
+      fontSize: 14,
+    },
+  }));
+
   const inputRef = React.useRef<TextInput>(null);
   const [inputHeight, setInputHeight] = React.useState(MIN_INPUT_HEIGHT);
 
@@ -158,88 +243,4 @@ export const EngagementCommentComposer = React.memo(function EngagementCommentCo
       </View>
     </View>
   );
-});
-
-const styles = StyleSheet.create({
-  compose: {
-    marginTop: 4,
-    gap: 0,
-  },
-  composeRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-  },
-  composeReel: {
-    marginTop: 0,
-    paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-  },
-  composeModal: {
-    marginTop: 0,
-    paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border2,
-  },
-  replyBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    marginBottom: 8,
-    borderRadius: 12,
-    backgroundColor: colors.cardTint,
-    borderWidth: 1,
-    borderColor: colors.border2,
-  },
-  replyBarTxt: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.moss,
-  },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 22,
-    paddingHorizontal: 14,
-    paddingTop: Platform.OS === 'ios' ? 10 : 8,
-    paddingBottom: Platform.OS === 'ios' ? 10 : 8,
-    fontSize: 15,
-    fontWeight: '500',
-    color: colors.text,
-    backgroundColor: colors.bg,
-    maxHeight: MAX_INPUT_HEIGHT,
-  },
-  inputModal: {
-    backgroundColor: colors.cardTint,
-    borderColor: colors.border2,
-  },
-  inputModalFixed: {
-    height: MODAL_INPUT_HEIGHT,
-    maxHeight: MODAL_INPUT_HEIGHT,
-    paddingTop: Platform.OS === 'ios' ? 11 : 10,
-    paddingBottom: Platform.OS === 'ios' ? 11 : 10,
-  },
-  sendBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 11,
-    borderRadius: 22,
-    backgroundColor: colors.moss,
-    minWidth: 80,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sendBtnDisabled: {
-    opacity: 0.45,
-  },
-  sendText: {
-    color: colors.white,
-    fontWeight: '900',
-    fontSize: 14,
-  },
 });

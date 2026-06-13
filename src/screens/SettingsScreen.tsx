@@ -19,10 +19,10 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { deleteUser } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { colors } from '../theme/colors';
 import { useAuth } from '../state/auth';
 import {
   SETTINGS_DEFAULTS,
@@ -44,7 +44,124 @@ import { showFollowingListToOthers } from '../lib/profileVisibility';
 import { ReferralInviteCard } from '../components/ReferralInviteCard';
 import { adminAnnounceReferralProgram } from '../services/referral';
 
+function useSettingsScreenStyles() {
+  return useThemedStyles((colors) => ({
+  screen: { flex: 1, backgroundColor: colors.bg },
+  scroll: { paddingHorizontal: 16, paddingBottom: 40, paddingTop: 8 },
+  sectionHeader: {
+    marginTop: 20,
+    marginBottom: 8,
+    marginLeft: 4,
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
+  card: {
+    borderRadius: 16,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+    marginBottom: 4,
+    gap: 0,
+  },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border2,
+    marginLeft: 14,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    gap: 12,
+  },
+  rowTextCol: { flex: 1, paddingRight: 8 },
+  rowLabel: { fontSize: 16, fontWeight: '600', color: colors.text },
+  rowSub: { marginTop: 2, fontSize: 12, color: colors.muted, fontWeight: '600' },
+  rowRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowValue: { fontSize: 15, color: colors.muted, fontWeight: '600', maxWidth: 140 },
+  danger: { color: colors.danger, fontWeight: '700' },
+  photoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  avatarRing: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: colors.cardTint,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarImg: { width: 64, height: 64, borderRadius: 20 },
+  photoTitle: { fontSize: 16, fontWeight: '800', color: colors.text },
+  photoSub: { fontSize: 12, color: colors.muted, fontWeight: '600', marginTop: 2 },
+  fieldBlock: { paddingHorizontal: 12, paddingVertical: 10 },
+  fieldLabel: { fontSize: 12, fontWeight: '800', color: colors.muted, marginBottom: 6, letterSpacing: 0.4 },
+  fieldInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    backgroundColor: colors.inputBg,
+  },
+  bioInput: { minHeight: 88, textAlignVertical: 'top' },
+  saveProfileBtn: { marginTop: 8, marginHorizontal: 8, marginBottom: 4 },
+  connBlock: { paddingHorizontal: 12, paddingVertical: 10, gap: 4 },
+  connTitle: { fontSize: 12, fontWeight: '800', color: colors.muted, letterSpacing: 0.4 },
+  connMuted: { fontSize: 14, color: colors.muted, fontWeight: '600' },
+  connItem: { fontSize: 15, color: colors.text, fontWeight: '600' },
+  footer: { textAlign: 'center', marginTop: 28, fontSize: 12, color: colors.muted2, fontWeight: '600' },
+  pickerRoot: { flex: 1, justifyContent: 'center' },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  pickerCard: {
+    marginHorizontal: 20,
+    borderRadius: 18,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 14,
+    gap: 4,
+    zIndex: 2,
+  },
+  pickerTitle: { fontSize: 17, fontWeight: '900', color: colors.text, marginBottom: 8 },
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+  },
+  pickerRowOn: { backgroundColor: colors.cardTint },
+  pickerLabel: { fontSize: 16, fontWeight: '600', color: colors.text },
+  pickerLabelOn: { fontWeight: '800' },
+  pickerDone: { alignItems: 'center', paddingVertical: 12 },
+  pickerDoneText: { fontSize: 16, fontWeight: '800', color: colors.moss },
+}));
+}
+
 function SectionHeader({ title }: { title: string }) {
+  const styles = useSettingsScreenStyles();
   return (
     <Text style={styles.sectionHeader} accessibilityRole="header">
       {title}
@@ -53,10 +170,12 @@ function SectionHeader({ title }: { title: string }) {
 }
 
 function Card({ children }: { children: React.ReactNode }) {
+  const styles = useSettingsScreenStyles();
   return <View style={styles.card}>{children}</View>;
 }
 
 function Separator() {
+  const styles = useSettingsScreenStyles();
   return <View style={styles.separator} />;
 }
 
@@ -69,6 +188,8 @@ function RowChevron({
   value?: string;
   onPress?: () => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useSettingsScreenStyles();
   return (
     <TouchableOpacity style={styles.row} onPress={onPress} disabled={!onPress} activeOpacity={0.65}>
       <Text style={styles.rowLabel}>{label}</Text>
@@ -91,6 +212,8 @@ function RowToggle({
   value: boolean;
   onValueChange: (v: boolean) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useSettingsScreenStyles();
   return (
     <View style={styles.row}>
       <View style={styles.rowTextCol}>
@@ -100,8 +223,8 @@ function RowToggle({
       <Switch
         value={value}
         onValueChange={onValueChange}
-        trackColor={{ false: '#D1D5DB', true: '#A5D6A7' }}
-        thumbColor={Platform.OS === 'android' ? (value ? colors.moss : '#F3F4F6') : undefined}
+        trackColor={{ false: colors.switchTrackOff, true: colors.moss }}
+        thumbColor={Platform.OS === 'android' ? (value ? colors.moss : colors.switchThumbOff) : undefined}
       />
     </View>
   );
@@ -115,6 +238,8 @@ function PickerModal<T extends string>(props: {
   onClose: () => void;
   onSelect: (k: T) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useSettingsScreenStyles();
   const { visible, title, options, selected, onClose, onSelect } = props;
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -147,6 +272,8 @@ function PickerModal<T extends string>(props: {
 }
 
 export function SettingsScreen() {
+  const { colors } = useTheme();
+  const styles = useSettingsScreenStyles();
   const nav = useNavigation<any>();
   const { user, signOut } = useAuth();
   const { preferences, patch, replace } = useSettingsPreferences();
@@ -529,6 +656,16 @@ export function SettingsScreen() {
           />
         </Card>
 
+        <SectionHeader title="Appearance" />
+        <Card>
+          <RowToggle
+            label="Dark mode"
+            subtitle="Use a dark background across the app."
+            value={preferences.darkMode}
+            onValueChange={(v) => patch({ darkMode: v })}
+          />
+        </Card>
+
         <SectionHeader title="Feed" />
         <Card>
           <RowChevron
@@ -761,117 +898,3 @@ export function SettingsScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  scroll: { paddingHorizontal: 16, paddingBottom: 40, paddingTop: 8 },
-  sectionHeader: {
-    marginTop: 20,
-    marginBottom: 8,
-    marginLeft: 4,
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.muted,
-    textTransform: 'uppercase',
-    letterSpacing: 1.2,
-  },
-  card: {
-    borderRadius: 16,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 4,
-    paddingVertical: 6,
-    marginBottom: 4,
-    gap: 0,
-  },
-  separator: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.border2,
-    marginLeft: 14,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    gap: 12,
-  },
-  rowTextCol: { flex: 1, paddingRight: 8 },
-  rowLabel: { fontSize: 16, fontWeight: '600', color: colors.text },
-  rowSub: { marginTop: 2, fontSize: 12, color: colors.muted, fontWeight: '600' },
-  rowRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  rowValue: { fontSize: 15, color: colors.muted, fontWeight: '600', maxWidth: 140 },
-  danger: { color: colors.danger, fontWeight: '700' },
-  photoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  avatarRing: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: colors.cardTint,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  avatarImg: { width: 64, height: 64, borderRadius: 20 },
-  photoTitle: { fontSize: 16, fontWeight: '800', color: colors.text },
-  photoSub: { fontSize: 12, color: colors.muted, fontWeight: '600', marginTop: 2 },
-  fieldBlock: { paddingHorizontal: 12, paddingVertical: 10 },
-  fieldLabel: { fontSize: 12, fontWeight: '800', color: colors.muted, marginBottom: 6, letterSpacing: 0.4 },
-  fieldInput: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    backgroundColor: '#FAFBFC',
-  },
-  bioInput: { minHeight: 88, textAlignVertical: 'top' },
-  saveProfileBtn: { marginTop: 8, marginHorizontal: 8, marginBottom: 4 },
-  connBlock: { paddingHorizontal: 12, paddingVertical: 10, gap: 4 },
-  connTitle: { fontSize: 12, fontWeight: '800', color: colors.muted, letterSpacing: 0.4 },
-  connMuted: { fontSize: 14, color: colors.muted, fontWeight: '600' },
-  connItem: { fontSize: 15, color: colors.text, fontWeight: '600' },
-  footer: { textAlign: 'center', marginTop: 28, fontSize: 12, color: colors.muted2, fontWeight: '600' },
-  pickerRoot: { flex: 1, justifyContent: 'center' },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  pickerCard: {
-    marginHorizontal: 20,
-    borderRadius: 18,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 14,
-    gap: 4,
-    zIndex: 2,
-  },
-  pickerTitle: { fontSize: 17, fontWeight: '900', color: colors.text, marginBottom: 8 },
-  pickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-  },
-  pickerRowOn: { backgroundColor: colors.cardTint },
-  pickerLabel: { fontSize: 16, fontWeight: '600', color: colors.text },
-  pickerLabelOn: { fontWeight: '800' },
-  pickerDone: { alignItems: 'center', paddingVertical: 12 },
-  pickerDoneText: { fontSize: 16, fontWeight: '800', color: colors.moss },
-});

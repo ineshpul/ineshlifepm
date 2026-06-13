@@ -3,7 +3,7 @@ import { Platform, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
-import { colors } from '../theme/colors';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import {
   computeVideoWatermarkLayout,
   type VideoWatermarkLayout,
@@ -26,6 +26,38 @@ export function VideoWatermarkOverlay({
   width,
   height,
 }: VideoWatermarkOverlayProps) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+    frame: {
+      backgroundColor: 'transparent',
+      position: 'relative',
+    },
+    pillWrap: {
+      position: 'absolute',
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.overlay,
+    },
+    strip: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      justifyContent: 'flex-end',
+    },
+    stripContent: {
+      width: '100%',
+    },
+    prompt: {
+      color: colors.white,
+      fontWeight: '600',
+    },
+    meta: {
+      color: colors.watermarkMeta,
+      fontWeight: '600',
+    },
+  }));
+
   const layout = React.useMemo(() => computeVideoWatermarkLayout(width, height), [width, height]);
   const displayTitle = title.trim() || "Today's leap";
   const handle = username.trim() || 'user';
@@ -33,7 +65,7 @@ export function VideoWatermarkOverlay({
 
   return (
     <View style={[styles.frame, { width, height }]}>
-      <CornerPill layout={layout} />
+      <CornerPill layout={layout} colors={colors} />
       <View style={[styles.strip, { height: layout.strip.height }]}>
         <Svg width={width} height={layout.strip.height} style={StyleSheet.absoluteFill}>
           <Defs>
@@ -88,12 +120,23 @@ export function VideoWatermarkOverlay({
   );
 }
 
-function CornerPill({ layout }: { layout: VideoWatermarkLayout }) {
+function CornerPill({
+  layout,
+  colors,
+}: {
+  layout: VideoWatermarkLayout;
+  colors: ReturnType<typeof useTheme>['colors'];
+}) {
   const { pill } = layout;
   return (
     <View
       style={[
-        styles.pillWrap,
+        {
+          position: 'absolute',
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: colors.overlay,
+        },
         {
           top: pill.insetTop,
           right: pill.insetRight,
@@ -130,34 +173,3 @@ function CornerPill({ layout }: { layout: VideoWatermarkLayout }) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  frame: {
-    backgroundColor: 'transparent',
-    position: 'relative',
-  },
-  pillWrap: {
-    position: 'absolute',
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.overlay,
-  },
-  strip: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'flex-end',
-  },
-  stripContent: {
-    width: '100%',
-  },
-  prompt: {
-    color: colors.white,
-    fontWeight: '600',
-  },
-  meta: {
-    color: colors.watermarkMeta,
-    fontWeight: '600',
-  },
-});

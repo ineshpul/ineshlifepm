@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { ActivityIndicator, Text, TouchableOpacity } from 'react-native';
 
-import { colors } from '../theme/colors';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { followUser, subscribeIsFollowing, unfollowUser } from '../services/social';
 import { showError } from '../utils/ui';
 
@@ -21,6 +21,33 @@ export function FollowButton({
   targetUsername,
   targetPhotoUrl,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+    btn: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 999,
+      backgroundColor: colors.moss,
+      minWidth: 86,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    btnFollowing: {
+      backgroundColor: colors.cardTint,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    text: {
+      color: colors.white,
+      fontSize: 12,
+      fontWeight: '900',
+      letterSpacing: 0.3,
+    },
+    textFollowing: {
+      color: colors.text,
+    },
+  }));
+
   const [following, setFollowing] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
 
@@ -69,29 +96,3 @@ export function FollowButton({
     </TouchableOpacity>
   );
 }
-
-const styles = StyleSheet.create({
-  btn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: colors.moss,
-    minWidth: 86,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnFollowing: {
-    backgroundColor: colors.cardTint,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  text: {
-    color: colors.white,
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 0.3,
-  },
-  textFollowing: {
-    color: colors.text,
-  },
-});

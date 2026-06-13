@@ -15,7 +15,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors } from '../../theme/colors';
+import { useTheme, useThemedStyles } from '../../theme/ThemeProvider';
 import { firestore, isFirebaseConfigured } from '../../firebase/firebase';
 import { formatJumpedThatDay } from '../../lib/verticalScore';
 
@@ -39,6 +39,45 @@ function formatLeapDate(challengeDate: string): string {
 
 export function HighestLeapSheet({ visible, onClose, postId, fallbackInches }: Props) {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+    root: { flex: 1, justifyContent: 'flex-end' },
+    backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+    sheet: {
+      borderTopLeftRadius: 22,
+      borderTopRightRadius: 22,
+      backgroundColor: colors.card,
+      paddingHorizontal: 18,
+    },
+    scrollContent: { flexGrow: 1 },
+    handleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingTop: 14,
+      paddingBottom: 10,
+    },
+    title: { fontSize: 18, fontWeight: '900', color: colors.text },
+    videoWrap: {
+      width: '100%',
+      borderRadius: 16,
+      overflow: 'hidden',
+      backgroundColor: '#000',
+      alignSelf: 'center',
+    },
+    video: { width: '100%', height: '100%' },
+    center: { alignItems: 'center', justifyContent: 'center' },
+    muted: { fontSize: 14, fontWeight: '600', color: colors.muted },
+    metaDate: { marginTop: 14, fontSize: 14, fontWeight: '700', color: colors.muted },
+    metaInches: {
+      marginTop: 6,
+      fontSize: 20,
+      fontWeight: '900',
+      color: colors.text,
+      lineHeight: 28,
+    },
+  }));
+
   const [loading, setLoading] = React.useState(false);
   const [url, setUrl] = React.useState('');
   const [dateLabel, setDateLabel] = React.useState('');
@@ -130,41 +169,3 @@ export function HighestLeapSheet({ visible, onClose, postId, fallbackInches }: P
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  root: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
-  sheet: {
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    backgroundColor: colors.white,
-    paddingHorizontal: 18,
-  },
-  scrollContent: { flexGrow: 1 },
-  handleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 14,
-    paddingBottom: 10,
-  },
-  title: { fontSize: 18, fontWeight: '900', color: colors.text },
-  videoWrap: {
-    width: '100%',
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#000',
-    alignSelf: 'center',
-  },
-  video: { width: '100%', height: '100%' },
-  center: { alignItems: 'center', justifyContent: 'center' },
-  muted: { fontSize: 14, fontWeight: '600', color: colors.muted },
-  metaDate: { marginTop: 14, fontSize: 14, fontWeight: '700', color: colors.muted },
-  metaInches: {
-    marginTop: 6,
-    fontSize: 20,
-    fontWeight: '900',
-    color: colors.text,
-    lineHeight: 28,
-  },
-});

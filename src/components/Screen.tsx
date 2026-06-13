@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Keyboard, Pressable, StyleSheet, View, ViewProps } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 
-import { colors } from '../theme/colors';
+import { useThemedStyles } from '../theme/ThemeProvider';
 
 type Props = ViewProps & {
   withSafeArea?: boolean;
@@ -13,6 +13,14 @@ type Props = ViewProps & {
 };
 
 export function Screen({ withSafeArea = true, edges, style, dismissKeyboardOnTap, ...rest }: Props) {
+  const styles = useThemedStyles((colors) => ({
+    base: {
+      flex: 1,
+      backgroundColor: colors.bg,
+    },
+    flex1: { flex: 1 },
+  }));
+
   if (dismissKeyboardOnTap) {
     const inner = <View style={[styles.flex1, style]} {...rest} />;
     if (withSafeArea) {
@@ -38,12 +46,3 @@ export function Screen({ withSafeArea = true, edges, style, dismissKeyboardOnTap
   }
   return <View style={[styles.base, style]} {...rest} />;
 }
-
-const styles = StyleSheet.create({
-  base: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  flex1: { flex: 1 },
-});
-

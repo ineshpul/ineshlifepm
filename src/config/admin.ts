@@ -12,6 +12,11 @@ export function parseProfileIsModerator(value: unknown): boolean {
   return parseProfileIsAdmin(value);
 }
 
+/** App Store review / demo accounts — full feed without posting; separate from staff admin. */
+export function parseProfileBypassFeedGate(value: unknown): boolean {
+  return parseProfileIsAdmin(value);
+}
+
 export function getAdminUids(): string[] {
   const extra = getExpoExtra();
   const raw = extra?.adminUids;

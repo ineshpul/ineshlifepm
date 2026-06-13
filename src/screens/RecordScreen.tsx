@@ -15,6 +15,7 @@ import { useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { doc, getDoc, increment, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { DualCameraRecorder, type DualCameraController } from '../components/DualCameraRecorder';
 import { LeapLoadingFrog } from '../components/LeapLoadingFrog';
@@ -25,7 +26,6 @@ import {
   SingleCameraRecorder,
   type SingleCameraController,
 } from '../components/SingleCameraRecorder';
-import { colors } from '../theme/colors';
 import { useAppState } from '../state/appState';
 import { useAuth } from '../state/auth';
 import {
@@ -106,6 +106,255 @@ async function clipUriToBlob(uri: string): Promise<Blob> {
 }
 
 export function RecordScreen() {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+  screen: {
+    backgroundColor: '#0B1220',
+  },
+  topBar: {
+    paddingTop: 56,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  frogStrip: {
+    marginTop: 8,
+    marginHorizontal: 16,
+  },
+  topBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topBtnText: {
+    color: colors.white,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  promptPill: {
+    flex: 1,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  promptText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  postedPill: {
+    alignSelf: 'center',
+    marginTop: 10,
+    paddingHorizontal: 12,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(34, 197, 94, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  postedText: { color: colors.white, fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
+  outOfAttemptsCard: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  outOfAttemptsTitle: { color: colors.white, fontSize: 15, fontWeight: '900' },
+  outOfAttemptsBody: {
+    marginTop: 6,
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  outOfAttemptsScore: { marginTop: 10, color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '800' },
+  outOfAttemptsHint: { marginTop: 8, color: 'rgba(251,191,36,0.95)', fontSize: 12, fontWeight: '700' },
+  outOfAttemptsBtn: { marginTop: 12 },
+  cameraWrap: {
+    flex: 1,
+    marginTop: 18,
+    marginHorizontal: 16,
+    borderRadius: 22,
+    overflow: 'hidden',
+    backgroundColor: '#0F172A',
+  },
+  cameraLoading: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  cameraLoadingText: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  overlayFade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.18)',
+  },
+  cornerFabDisabled: {
+    opacity: 0.45,
+  },
+  cornerFabActive: {
+    backgroundColor: 'rgba(76,175,80,0.55)',
+    borderColor: 'rgba(255,255,255,0.45)',
+  },
+  cornerFabLeft: {
+    left: 14,
+  },
+  cornerFabRight: {
+    right: 14,
+  },
+  cornerFab: {
+    position: 'absolute',
+    bottom: 14,
+    zIndex: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recordTimerBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 18,
+    zIndex: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recordTimerText: {
+    fontSize: 44,
+    fontWeight: '900',
+    color: colors.white,
+    fontVariant: ['tabular-nums'],
+    textShadowColor: 'rgba(0,0,0,0.65)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  demo: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    gap: 10,
+  },
+  demoTitle: {
+    color: colors.white,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  demoBody: {
+    color: 'rgba(255,255,255,0.75)',
+    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  bottomBar: {
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+    paddingTop: 10,
+    alignItems: 'center',
+    gap: 10,
+  },
+  meta: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.6,
+  },
+  recordBtn: {
+    alignItems: 'center',
+    gap: 10,
+  },
+  recordBtnDisabled: {
+    opacity: 0.55,
+  },
+  recordOuter: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 4,
+    borderColor: 'rgba(255,255,255,0.65)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recordOuterDisabled: {
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  recordInner: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+  },
+  recordInnerIdle: {
+    backgroundColor: '#FB4B4B',
+  },
+  recordInnerRecording: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: '#F97316',
+  },
+  doneCard: {
+    alignSelf: 'stretch',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(34,197,94,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(34,197,94,0.35)',
+    marginBottom: 4,
+  },
+  doneTitle: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
+  doneBody: {
+    marginTop: 6,
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  recordHint: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 2,
+  },
+  postBtn: {
+    width: 220,
+    borderRadius: 30,
+  },
+  attachBtn: {
+    width: 220,
+    height: 44,
+    borderRadius: 14,
+  },
+}));
   const nav = useNavigation<any>();
   const isFocused = useIsFocused();
   const { preferences } = useSettingsPreferences();
@@ -1137,253 +1386,3 @@ export function RecordScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    backgroundColor: '#0B1220',
-  },
-  topBar: {
-    paddingTop: 56,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  frogStrip: {
-    marginTop: 8,
-    marginHorizontal: 16,
-  },
-  topBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  topBtnText: {
-    color: colors.white,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  promptPill: {
-    flex: 1,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-  },
-  promptText: {
-    color: colors.white,
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  postedPill: {
-    alignSelf: 'center',
-    marginTop: 10,
-    paddingHorizontal: 12,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(34, 197, 94, 0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  postedText: { color: colors.white, fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
-  outOfAttemptsCard: {
-    marginHorizontal: 16,
-    marginTop: 10,
-    padding: 14,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  outOfAttemptsTitle: { color: colors.white, fontSize: 15, fontWeight: '900' },
-  outOfAttemptsBody: {
-    marginTop: 6,
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: 13,
-    fontWeight: '600',
-    lineHeight: 18,
-  },
-  outOfAttemptsScore: { marginTop: 10, color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '800' },
-  outOfAttemptsHint: { marginTop: 8, color: 'rgba(251,191,36,0.95)', fontSize: 12, fontWeight: '700' },
-  outOfAttemptsBtn: { marginTop: 12 },
-  cameraWrap: {
-    flex: 1,
-    marginTop: 18,
-    marginHorizontal: 16,
-    borderRadius: 22,
-    overflow: 'hidden',
-    backgroundColor: '#0F172A',
-  },
-  cameraLoading: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#0F172A',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  cameraLoadingText: {
-    color: 'rgba(255,255,255,0.72)',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  overlayFade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.18)',
-  },
-  cornerFabDisabled: {
-    opacity: 0.45,
-  },
-  cornerFabActive: {
-    backgroundColor: 'rgba(76,175,80,0.55)',
-    borderColor: 'rgba(255,255,255,0.45)',
-  },
-  cornerFabLeft: {
-    left: 14,
-  },
-  cornerFabRight: {
-    right: 14,
-  },
-  cornerFab: {
-    position: 'absolute',
-    bottom: 14,
-    zIndex: 20,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  recordTimerBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 18,
-    zIndex: 25,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  recordTimerText: {
-    fontSize: 44,
-    fontWeight: '900',
-    color: colors.white,
-    fontVariant: ['tabular-nums'],
-    textShadowColor: 'rgba(0,0,0,0.65)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 6,
-  },
-  demo: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 18,
-    gap: 10,
-  },
-  demoTitle: {
-    color: colors.white,
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  demoBody: {
-    color: 'rgba(255,255,255,0.75)',
-    textAlign: 'center',
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '600',
-  },
-  bottomBar: {
-    paddingHorizontal: 16,
-    paddingBottom: 20,
-    paddingTop: 10,
-    alignItems: 'center',
-    gap: 10,
-  },
-  meta: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.6,
-  },
-  recordBtn: {
-    alignItems: 'center',
-    gap: 10,
-  },
-  recordBtnDisabled: {
-    opacity: 0.55,
-  },
-  recordOuter: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 4,
-    borderColor: 'rgba(255,255,255,0.65)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  recordOuterDisabled: {
-    borderColor: 'rgba(255,255,255,0.25)',
-  },
-  recordInner: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-  },
-  recordInnerIdle: {
-    backgroundColor: '#FB4B4B',
-  },
-  recordInnerRecording: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: '#F97316',
-  },
-  doneCard: {
-    alignSelf: 'stretch',
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(34,197,94,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.35)',
-    marginBottom: 4,
-  },
-  doneTitle: {
-    color: colors.white,
-    fontSize: 15,
-    fontWeight: '900',
-    letterSpacing: 0.3,
-  },
-  doneBody: {
-    marginTop: 6,
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: 13,
-    fontWeight: '600',
-    lineHeight: 18,
-  },
-  recordHint: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 2,
-  },
-  postBtn: {
-    width: 220,
-    borderRadius: 30,
-  },
-  attachBtn: {
-    width: 220,
-    height: 44,
-    borderRadius: 14,
-  },
-});
-

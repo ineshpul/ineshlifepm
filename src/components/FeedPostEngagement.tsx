@@ -41,7 +41,8 @@ import {
   setDoc,
 } from 'firebase/firestore';
 
-import { colors } from '../theme/colors';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+
 import { firestore, firebaseAuth, isFirebaseConfigured } from '../firebase/firebase';
 import { createInAppNotification } from '../services/social';
 import { saveRemoteVideoToCameraRoll } from '../services/saveVideoToCameraRoll';
@@ -96,6 +97,108 @@ export function FeedPostEngagement({
   initialLikesCount,
   initialCommentsCount,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+  wrap: {
+    marginTop: 4,
+    gap: 6,
+  },
+  wrapReelCompact: {
+    alignSelf: 'stretch',
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  actionBtn: {
+    width: 44,
+    height: 36,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border2,
+    backgroundColor: colors.card,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionCount: {
+    marginLeft: 6,
+    fontSize: 12,
+    fontWeight: '900',
+    color: colors.text,
+  },
+  modalRoot: {
+    flex: 1,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  modalComposerHost: {
+    backgroundColor: colors.card,
+    zIndex: 2,
+  },
+  modalSheet: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 14,
+    overflow: 'visible',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 12,
+  },
+  modalTopPan: {
+    paddingBottom: 4,
+    paddingTop: 6,
+  },
+  modalGrabber: {
+    alignSelf: 'center',
+    width: 48,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.border2,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 10,
+  },
+  modalTitle: { fontSize: 17, fontWeight: '900', color: colors.text },
+  modalBody: {
+    flex: 1,
+    minHeight: 0,
+  },
+  modalList: {
+    flex: 1,
+    minHeight: 0,
+  },
+  modalListContent: { paddingBottom: 8 },
+  modalListContentEmpty: {
+    flexGrow: 1,
+  },
+  modalLoadingWrap: {
+    minHeight: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  modalEmptyWrap: {
+    minHeight: 160,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 8,
+  },
+  modalEmpty: { fontSize: 16, fontWeight: '800', color: colors.text },
+  modalHint: { marginTop: 6, fontSize: 14, fontWeight: '600', color: colors.muted },
+}));
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { preferences, patch } = useSettingsPreferences();
@@ -818,105 +921,3 @@ export function FeedPostEngagement({
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  wrap: {
-    marginTop: 4,
-    gap: 6,
-  },
-  wrapReelCompact: {
-    alignSelf: 'stretch',
-  },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  actionBtn: {
-    width: 44,
-    height: 36,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border2,
-    backgroundColor: colors.white,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionCount: {
-    marginLeft: 6,
-    fontSize: 12,
-    fontWeight: '900',
-    color: colors.text,
-  },
-  modalRoot: {
-    flex: 1,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  modalComposerHost: {
-    backgroundColor: colors.white,
-    zIndex: 2,
-  },
-  modalSheet: {
-    backgroundColor: colors.white,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    paddingHorizontal: 14,
-    overflow: 'visible',
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: -4 },
-    elevation: 12,
-  },
-  modalTopPan: {
-    paddingBottom: 4,
-    paddingTop: 6,
-  },
-  modalGrabber: {
-    alignSelf: 'center',
-    width: 48,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: colors.border2,
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingBottom: 10,
-  },
-  modalTitle: { fontSize: 17, fontWeight: '900', color: colors.text },
-  modalBody: {
-    flex: 1,
-    minHeight: 0,
-  },
-  modalList: {
-    flex: 1,
-    minHeight: 0,
-  },
-  modalListContent: { paddingBottom: 8 },
-  modalListContentEmpty: {
-    flexGrow: 1,
-  },
-  modalLoadingWrap: {
-    minHeight: 200,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 32,
-  },
-  modalEmptyWrap: {
-    minHeight: 160,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 24,
-    paddingHorizontal: 8,
-  },
-  modalEmpty: { fontSize: 16, fontWeight: '800', color: colors.text },
-  modalHint: { marginTop: 6, fontSize: 14, fontWeight: '600', color: colors.muted },
-});

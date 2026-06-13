@@ -13,9 +13,9 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { Screen } from '../components/Screen';
-import { colors } from '../theme/colors';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
 import { subscribeFollowing, syncFollowingProfilePhotos, type FollowingRow } from '../services/social';
@@ -27,6 +27,76 @@ import { UsernameLink } from '../components/UsernameLink';
 type Props = NativeStackScreenProps<ChatStackParamList, 'NewChat'>;
 
 export function NewChatScreen({ navigation, route }: Props) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+  screen: { flex: 1, backgroundColor: colors.bg },
+  headerCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shareBanner: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 12,
+    backgroundColor: colors.cardTint,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: 2,
+  },
+  shareLabel: { fontSize: 12, fontWeight: '900', color: colors.muted, letterSpacing: 0.4 },
+  shareTxt: { fontSize: 14, fontWeight: '900', color: colors.text },
+  search: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    fontWeight: '600',
+    backgroundColor: colors.card,
+  },
+  searchAfterShare: {
+    marginTop: 10,
+  },
+  list: { paddingHorizontal: 16, paddingBottom: 40, gap: 8, paddingTop: 2 },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  rowPressed: { opacity: 0.88 },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.cardTint,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  avatarImg: { width: 40, height: 40 },
+  avatarTxt: { fontSize: 15, fontWeight: '900', color: colors.moss },
+  nameCol: { flex: 1, minWidth: 0 },
+  name: { fontSize: 15, fontWeight: '800' },
+  empty: { padding: 24, textAlign: 'center', color: colors.muted, fontWeight: '600' },
+}));
   const { user } = useAuth();
   const [rows, setRows] = React.useState<FollowingRow[]>([]);
   const [q, setQ] = React.useState('');
@@ -160,73 +230,3 @@ export function NewChatScreen({ navigation, route }: Props) {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  headerCloseBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  shareBanner: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 12,
-    backgroundColor: colors.cardTint,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    gap: 2,
-  },
-  shareLabel: { fontSize: 12, fontWeight: '900', color: colors.muted, letterSpacing: 0.4 },
-  shareTxt: { fontSize: 14, fontWeight: '900', color: colors.text },
-  search: {
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    fontWeight: '600',
-    backgroundColor: colors.white,
-  },
-  searchAfterShare: {
-    marginTop: 10,
-  },
-  list: { paddingHorizontal: 16, paddingBottom: 40, gap: 8, paddingTop: 2 },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  rowPressed: { opacity: 0.88 },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: colors.cardTint,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  avatarImg: { width: 40, height: 40 },
-  avatarTxt: { fontSize: 15, fontWeight: '900', color: colors.moss },
-  nameCol: { flex: 1, minWidth: 0 },
-  name: { fontSize: 15, fontWeight: '800' },
-  empty: { padding: 24, textAlign: 'center', color: colors.muted, fontWeight: '600' },
-});

@@ -14,11 +14,11 @@ import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/n
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { collection, limit, onSnapshot, query, where } from 'firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { Brandmark } from '../components/Brandmark';
 import { FeedPostEngagement } from '../components/FeedPostEngagement';
 import { Screen } from '../components/Screen';
-import { colors } from '../theme/colors';
 import { deleteOwnedVideo } from '../services/deleteVideo';
 import { useAuth } from '../state/auth';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
@@ -44,6 +44,106 @@ type LeapVideo = {
 const REEL_BOTTOM_SHEET = 232;
 
 export function YourLeapsScreen() {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+  screen: { flex: 1, paddingHorizontal: 12 },
+  headerWrap: {},
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 10,
+    gap: 4,
+  },
+  backBtn: { paddingVertical: 6, paddingRight: 4, marginRight: 4 },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 },
+  headerTitle: { fontSize: 22, fontWeight: '900', color: colors.text },
+  headerSub: { marginTop: 2, fontSize: 12, fontWeight: '600', color: colors.muted },
+  feedSlot: { flex: 1, minHeight: 0 },
+  reelList: { flex: 1 },
+  reelPage: { width: '100%', backgroundColor: colors.bg },
+  reelVideoSlot: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+  },
+  reelSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'column',
+    backgroundColor: colors.card,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: -2 },
+    elevation: 6,
+  },
+  reelSheetTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 6,
+  },
+  reelAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.cardTint,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reelAvatarText: {
+    fontWeight: '900',
+    color: colors.text,
+  },
+  reelTextCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  reelUser: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: colors.text,
+  },
+  reelPrompt: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.muted,
+  },
+  deleteLink: { fontSize: 13, fontWeight: '800', color: colors.coral },
+  reelEngagementScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  reelEngagementPlaceholder: {
+    flex: 1,
+    minHeight: 48,
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  reelEngagementPlaceholderText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+    textAlign: 'center',
+  },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  empty: { flex: 1, paddingTop: 48, paddingHorizontal: 16 },
+  emptyTitle: { fontSize: 20, fontWeight: '900', color: colors.text },
+  emptyBody: { marginTop: 8, fontSize: 15, fontWeight: '600', color: colors.muted },
+}));
   const nav = useNavigation();
   const { user } = useAuth();
   const { preferences } = useSettingsPreferences();
@@ -318,103 +418,3 @@ export function YourLeapsScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, paddingHorizontal: 12 },
-  headerWrap: {},
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingBottom: 10,
-    gap: 4,
-  },
-  backBtn: { paddingVertical: 6, paddingRight: 4, marginRight: 4 },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 },
-  headerTitle: { fontSize: 22, fontWeight: '900', color: colors.text },
-  headerSub: { marginTop: 2, fontSize: 12, fontWeight: '600', color: colors.muted },
-  feedSlot: { flex: 1, minHeight: 0 },
-  reelList: { flex: 1 },
-  reelPage: { width: '100%', backgroundColor: colors.bg },
-  reelVideoSlot: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-  },
-  reelSheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: 'column',
-    backgroundColor: colors.white,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 6,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: -2 },
-    elevation: 6,
-  },
-  reelSheetTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginBottom: 6,
-  },
-  reelAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: colors.cardTint,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  reelAvatarText: {
-    fontWeight: '900',
-    color: colors.text,
-  },
-  reelTextCol: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  reelUser: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: colors.text,
-  },
-  reelPrompt: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.muted,
-  },
-  deleteLink: { fontSize: 13, fontWeight: '800', color: colors.coral },
-  reelEngagementScroll: {
-    flex: 1,
-    minHeight: 0,
-  },
-  reelEngagementPlaceholder: {
-    flex: 1,
-    minHeight: 48,
-    justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
-  reelEngagementPlaceholderText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.muted,
-    textAlign: 'center',
-  },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  empty: { flex: 1, paddingTop: 48, paddingHorizontal: 16 },
-  emptyTitle: { fontSize: 20, fontWeight: '900', color: colors.text },
-  emptyBody: { marginTop: 8, fontSize: 15, fontWeight: '600', color: colors.muted },
-});

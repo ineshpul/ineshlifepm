@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { CameraView, type CameraType } from 'expo-camera';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { MIN_TASK_DURATION_SECONDS } from '../state/challenge';
-import { colors } from '../theme/colors';
 
 export type SingleCameraFacing = 'front' | 'back';
 
@@ -52,6 +52,21 @@ export function SingleCameraRecorder({
   onError,
   controllerRef,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  loadingText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+}));
   const boundedMaxSec = Math.max(MIN_TASK_DURATION_SECONDS, Math.round(maxDurationSec));
   const [facing, setFacing] = React.useState<SingleCameraFacing>(initialFacing);
   const [isReady, setIsReady] = React.useState(false);
@@ -210,18 +225,3 @@ export function SingleCameraRecorder({
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  loadingText: {
-    color: 'rgba(255,255,255,0.85)',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-});

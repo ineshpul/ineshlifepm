@@ -40,6 +40,8 @@ export type CommentAudience = 'everyone' | 'friends';
 export type MessageAudience = 'everyone' | 'friends';
 
 export type SettingsPreferencesState = {
+  /** When true, use the dark color palette app-wide. */
+  darkMode: boolean;
   notificationsEnabled: boolean;
   feedType: FeedType;
   dataSaver: boolean;
@@ -65,6 +67,7 @@ export type SettingsPreferencesState = {
 };
 
 export const SETTINGS_DEFAULTS: SettingsPreferencesState = {
+  darkMode: false,
   notificationsEnabled: true,
   feedType: 'mixed',
   dataSaver: false,

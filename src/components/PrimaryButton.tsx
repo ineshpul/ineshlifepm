@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
+import { Pressable, Text, ViewStyle } from 'react-native';
 
-import { colors } from '../theme/colors';
+import { useThemedStyles } from '../theme/ThemeProvider';
 
 type Props = {
   title: string;
@@ -18,6 +18,45 @@ export function PrimaryButton({
   variant = 'black',
   style,
 }: Props) {
+  const styles = useThemedStyles((colors) => ({
+    base: {
+      height: 56,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 16,
+    },
+    black: {
+      backgroundColor: colors.black,
+    },
+    green: {
+      backgroundColor: colors.green,
+    },
+    outline: {
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    pressed: {
+      opacity: 0.9,
+      transform: [{ scale: 0.99 }],
+    },
+    disabled: {
+      opacity: 0.5,
+    },
+    title: {
+      fontSize: 14,
+      letterSpacing: 0.8,
+      fontWeight: '800',
+    },
+    titleSolid: {
+      color: colors.white,
+    },
+    titleOutline: {
+      color: colors.text,
+    },
+  }));
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -43,43 +82,3 @@ export function PrimaryButton({
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  base: {
-    height: 56,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-  },
-  black: {
-    backgroundColor: colors.black,
-  },
-  green: {
-    backgroundColor: colors.green,
-  },
-  outline: {
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  pressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.99 }],
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  title: {
-    fontSize: 14,
-    letterSpacing: 0.8,
-    fontWeight: '800',
-  },
-  titleSolid: {
-    color: colors.white,
-  },
-  titleOutline: {
-    color: colors.text,
-  },
-});
-

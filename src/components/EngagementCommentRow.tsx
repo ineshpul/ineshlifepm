@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc } from 'firebase/firestore';
 
 import { UsernameLink } from './UsernameLink';
-import { colors } from '../theme/colors';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import type { VideoComment } from '../types/videoComment';
 import { formatCommentTime } from '../utils/formatCommentTime';
 import { THREAD_INDENT } from '../utils/commentThread';
@@ -41,6 +41,132 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
   onReply,
   onRequestDelete,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+    commentRowOuter: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 10,
+      paddingVertical: 4,
+    },
+    commentRowOuterModal: {
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border2,
+    },
+    commentRowNested: {
+      paddingTop: 2,
+      paddingBottom: 6,
+    },
+    avatar: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: colors.cardTint,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarModal: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+    },
+    avatarNested: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+    },
+    avatarTxt: {
+      fontSize: 13,
+      fontWeight: '900',
+      color: colors.text,
+    },
+    commentBody: {
+      flex: 1,
+      minWidth: 0,
+    },
+    replyMetaRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      marginBottom: 2,
+      gap: 2,
+    },
+    replyMeta: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: colors.muted,
+    },
+    replyMetaStrong: {
+      fontWeight: '800',
+      color: colors.text,
+    },
+    nestedReplySpacing: {
+      marginBottom: 4,
+    },
+    nestedReplyToIcon: {
+      fontWeight: '700',
+      color: colors.moss,
+    },
+    nestedReplyToStrong: {
+      fontWeight: '800',
+      color: colors.text,
+    },
+    commentTopLine: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+    },
+    commentActionsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: 6,
+    },
+    actionsRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      flexShrink: 0,
+    },
+    commentTime: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.muted,
+    },
+    commentUser: {
+      fontSize: 14,
+      fontWeight: '900',
+      color: colors.text,
+    },
+    replyLink: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.muted,
+    },
+    commentText: {
+      marginTop: 2,
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.muted,
+      lineHeight: 18,
+    },
+    commentTextModal: {
+      fontSize: 15,
+      lineHeight: 21,
+      color: colors.text,
+      fontWeight: '500',
+    },
+    commentDelete: { fontSize: 12, fontWeight: '800', color: colors.coral },
+    deleteColumn: {
+      minWidth: 48,
+      alignItems: 'flex-end',
+      justifyContent: 'flex-start',
+    },
+    deleteSpacer: { width: 44, minHeight: 1 },
+  }));
+
   const initial = (c.username || '?').trim().slice(0, 1).toUpperCase();
   const isModal = layout === 'modal';
   const showDelete = canDelete(c, viewerUid, videoOwnerUid);
@@ -195,129 +321,4 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
       </View>
     </View>
   );
-});
-
-const styles = StyleSheet.create({
-  commentRowOuter: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    paddingVertical: 4,
-  },
-  commentRowOuterModal: {
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border2,
-  },
-  commentRowNested: {
-    paddingTop: 2,
-    paddingBottom: 6,
-  },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.cardTint,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarModal: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-  },
-  avatarNested: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-  },
-  avatarTxt: {
-    fontSize: 13,
-    fontWeight: '900',
-    color: colors.text,
-  },
-  commentBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  replyMetaRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    marginBottom: 2,
-    gap: 2,
-  },
-  replyMeta: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.muted,
-  },
-  replyMetaStrong: {
-    fontWeight: '800',
-    color: colors.text,
-  },
-  nestedReplySpacing: {
-    marginBottom: 4,
-  },
-  nestedReplyToIcon: {
-    fontWeight: '700',
-    color: colors.moss,
-  },
-  nestedReplyToStrong: {
-    fontWeight: '800',
-    color: colors.text,
-  },
-  commentTopLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  commentActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 6,
-  },
-  actionsRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flexShrink: 0,
-  },
-  commentTime: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.muted,
-  },
-  commentUser: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: colors.text,
-  },
-  replyLink: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.muted,
-  },
-  commentText: {
-    marginTop: 2,
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.muted,
-    lineHeight: 18,
-  },
-  commentTextModal: {
-    fontSize: 15,
-    lineHeight: 21,
-    color: colors.text,
-    fontWeight: '500',
-  },
-  commentDelete: { fontSize: 12, fontWeight: '800', color: colors.coral },
-  deleteColumn: {
-    minWidth: 48,
-    alignItems: 'flex-end',
-    justifyContent: 'flex-start',
-  },
-  deleteSpacer: { width: 44, minHeight: 1 },
 });

@@ -3,7 +3,7 @@ import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View 
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { Screen } from '../components/Screen';
-import { colors } from '../theme/colors';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
 import { useConversations } from '../chat/hooks/useConversations';
@@ -14,6 +14,27 @@ type Props = NativeStackScreenProps<ChatStackParamList, 'ChatSearch'>;
 
 export function ChatSearchScreen({ navigation }: Props) {
   const { user } = useAuth();
+  const { colors } = useTheme();
+  const styles = useThemedStyles((colors) => ({
+    screen: { flex: 1, backgroundColor: colors.bg, padding: 16 },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 14,
+      padding: 12,
+      fontSize: 16,
+      fontWeight: '600',
+      backgroundColor: colors.card,
+      color: colors.text,
+    },
+    btn: { marginTop: 10, alignSelf: 'flex-start', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12, backgroundColor: colors.moss },
+    btnTxt: { color: colors.white, fontWeight: '900' },
+    block: { marginTop: 20 },
+    blockTitle: { fontSize: 15, fontWeight: '900', marginBottom: 8, color: colors.text },
+    hit: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border2 },
+    hitTxt: { fontSize: 14, color: colors.text, fontWeight: '600' },
+  }));
+
   const { rows } = useConversations(user?.uid);
   const [q, setQ] = React.useState('');
   const [hits, setHits] = React.useState<{ convId: string; title: string; messages: ChatMessage[] }[]>([]);
@@ -78,22 +99,3 @@ export function ChatSearchScreen({ navigation }: Props) {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg, padding: 16 },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    padding: 12,
-    fontSize: 16,
-    fontWeight: '600',
-    backgroundColor: colors.white,
-  },
-  btn: { marginTop: 10, alignSelf: 'flex-start', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12, backgroundColor: colors.moss },
-  btnTxt: { color: colors.white, fontWeight: '900' },
-  block: { marginTop: 20 },
-  blockTitle: { fontSize: 15, fontWeight: '900', marginBottom: 8 },
-  hit: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border2 },
-  hitTxt: { fontSize: 14, color: colors.text, fontWeight: '600' },
-});

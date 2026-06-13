@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av';
 import * as Notifications from 'expo-notifications';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -24,6 +23,7 @@ import {
   syncPrivacySettingsToFirestore,
 } from './src/services/userPrivacySettings';
 import { registerAndSavePushToken, unregisterPushDevice } from './src/services/pushNotifications';
+import { ThemeProvider } from './src/theme/ThemeProvider';
 import { getForegroundChatConversationId } from './src/chat/activeConversationRef';
 import { prefetchTodayChallengeCache } from './src/state/challengeCache';
 
@@ -127,11 +127,12 @@ export default function App() {
             <UserNotificationPrefSync />
             <PushTokenRegistrar />
             <AppStateProvider>
-              <RootNavigator />
-              <React.Suspense fallback={null}>
-                <ChallengeWatermarkCaptureHost />
-              </React.Suspense>
-              <StatusBar style="dark" />
+              <ThemeProvider>
+                <RootNavigator />
+                <React.Suspense fallback={null}>
+                  <ChallengeWatermarkCaptureHost />
+                </React.Suspense>
+              </ThemeProvider>
             </AppStateProvider>
           </SettingsPreferencesProvider>
         </AuthProvider>

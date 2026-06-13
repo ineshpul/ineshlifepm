@@ -1,10 +1,10 @@
 import * as React from 'react';
 import type { NavigatorScreenParams } from '@react-navigation/native';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { colors } from '../theme/colors';
+import { useThemedStyles } from '../theme/ThemeProvider';
 import { TodayScreen } from '../screens/TodayScreen';
 import { FeedScreen } from '../screens/FeedScreen';
 import { TopScreen } from '../screens/TopScreen';
@@ -42,6 +42,28 @@ function TabIcon({
 }
 
 export function AppTabs() {
+  const styles = useThemedStyles((colors) => ({
+    tabsRoot: { flex: 1, backgroundColor: colors.bg },
+    tabBarHidden: {
+      position: 'absolute' as const,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: 0,
+      backgroundColor: 'transparent',
+      borderTopWidth: 0,
+      elevation: 0,
+      shadowOpacity: 0,
+    },
+    tabBarIndicator: {
+      height: 0,
+      backgroundColor: 'transparent',
+    },
+    scene: {
+      backgroundColor: colors.bg,
+    },
+  }));
+
   return (
     <View style={styles.tabsRoot}>
       <Tab.Navigator
@@ -121,25 +143,3 @@ export function AppTabs() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  tabsRoot: { flex: 1, backgroundColor: colors.bg },
-  tabBarHidden: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 0,
-    backgroundColor: 'transparent',
-    borderTopWidth: 0,
-    elevation: 0,
-    shadowOpacity: 0,
-  },
-  tabBarIndicator: {
-    height: 0,
-    backgroundColor: 'transparent',
-  },
-  scene: {
-    backgroundColor: colors.bg,
-  },
-});
