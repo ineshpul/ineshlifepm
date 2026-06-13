@@ -25,6 +25,16 @@ export type AppColors = {
   switchTrackOff: string;
   /** Switch thumb on Android when off */
   switchThumbOff: string;
+  /** Leaderboard podium accent (top 3) */
+  podiumAccent: string;
+  podiumBg: string;
+  podiumRank: string;
+  /** Most-improved weekly callout */
+  highlightCardBorder: string;
+  highlightCardBg: string;
+  highlightCardBadge: string;
+  /** Current-user highlight on leaperboard rows */
+  leaderboardMeBg: string;
 };
 
 export const lightColors: AppColors = {
@@ -50,6 +60,13 @@ export const lightColors: AppColors = {
   tabBarPill: 'rgba(255, 255, 255, 0.96)',
   switchTrackOff: '#D1D5DB',
   switchThumbOff: '#F3F4F6',
+  podiumAccent: '#C9A227',
+  podiumBg: 'rgba(255, 215, 0, 0.10)',
+  podiumRank: '#B8860B',
+  highlightCardBorder: '#E67E22',
+  highlightCardBg: 'rgba(255, 152, 0, 0.10)',
+  highlightCardBadge: '#C0392B',
+  leaderboardMeBg: 'rgba(39, 174, 96, 0.08)',
 };
 
 export const darkColors: AppColors = {
@@ -75,6 +92,13 @@ export const darkColors: AppColors = {
   tabBarPill: 'rgba(20, 26, 24, 0.96)',
   switchTrackOff: '#374151',
   switchThumbOff: '#9CA3AF',
+  podiumAccent: '#4A6354',
+  podiumBg: 'rgba(129, 199, 132, 0.10)',
+  podiumRank: '#81C784',
+  highlightCardBorder: '#3D5244',
+  highlightCardBg: 'rgba(129, 199, 132, 0.08)',
+  highlightCardBadge: '#81C784',
+  leaderboardMeBg: 'rgba(129, 199, 132, 0.10)',
 };
 
 /** @deprecated Use `useTheme().colors` — kept for gradual migration. */

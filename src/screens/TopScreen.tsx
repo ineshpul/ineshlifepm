@@ -126,11 +126,8 @@ export function TopScreen() {
   },
   segBtnOn: {
     backgroundColor: colors.card,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   segLabel: { fontSize: 12, fontWeight: '800', color: colors.muted },
   segLabelOn: { color: colors.text },
@@ -138,11 +135,11 @@ export function TopScreen() {
     marginBottom: 12,
     padding: 14,
     borderRadius: 16,
-    borderWidth: 2,
-    borderColor: '#E67E22',
-    backgroundColor: 'rgba(255, 152, 0, 0.12)',
+    borderWidth: 1,
+    borderColor: colors.highlightCardBorder,
+    backgroundColor: colors.highlightCardBg,
   },
-  mostImprovedBadge: { fontSize: 13, fontWeight: '900', color: '#C0392B' },
+  mostImprovedBadge: { fontSize: 13, fontWeight: '900', color: colors.highlightCardBadge },
   mostImprovedName: { marginTop: 4, fontSize: 17, fontWeight: '900', color: colors.text },
   mostImprovedMeta: { marginTop: 4, fontSize: 12, fontWeight: '700', color: colors.muted },
   errorBanner: {
@@ -170,15 +167,14 @@ export function TopScreen() {
     borderColor: colors.border,
     backgroundColor: colors.card,
   },
-  rowGold: {
-    borderColor: '#C9A227',
-    borderWidth: 2,
-    backgroundColor: 'rgba(255, 215, 0, 0.16)',
+  rowPodium: {
+    borderLeftWidth: 3,
+    borderLeftColor: colors.podiumAccent,
+    backgroundColor: colors.podiumBg,
   },
   rowMe: {
     borderColor: colors.moss,
-    borderWidth: 2,
-    backgroundColor: 'rgba(39, 174, 96, 0.08)',
+    backgroundColor: colors.leaderboardMeBg,
   },
   rankCol: {
     width: 40,
@@ -194,7 +190,7 @@ export function TopScreen() {
     fontVariant: ['tabular-nums'],
   },
   rankMe: { color: colors.moss },
-  rankGold: { color: '#B8860B' },
+  rankPodium: { color: colors.podiumRank },
   avatarWrap: {
     width: 40,
     height: 40,
@@ -584,8 +580,8 @@ export function TopScreen() {
         renderItem={({ item }) => {
           const scoreMain = scoreForRow(item);
           const topThree = item.rank <= 3;
-          const podiumRow = topThree ? styles.rowGold : item.isCurrentUser ? styles.rowMe : null;
-          const podiumRank = topThree ? styles.rankGold : item.isCurrentUser ? styles.rankMe : null;
+          const podiumRow = topThree ? styles.rowPodium : item.isCurrentUser ? styles.rowMe : null;
+          const podiumRank = topThree ? styles.rankPodium : item.isCurrentUser ? styles.rankMe : null;
           return (
             <Pressable
               style={({ pressed }) => [styles.row, podiumRow, pressed && { opacity: 0.92 }]}

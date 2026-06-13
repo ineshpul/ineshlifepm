@@ -3,6 +3,7 @@ import { ActivityIndicator, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import {
   NavigationContainer,
+  DefaultTheme,
   createNavigationContainerRef,
   type NavigationState,
 } from '@react-navigation/native';
@@ -37,6 +38,7 @@ import { hasAcceptedTerms, subscribeTermsAcceptance } from '../state/termsAccept
 import { ReferralIntroHost } from '../components/ReferralIntroHost';
 import { AppReviewHost } from '../components/AppReviewHost';
 import { useTheme } from '../theme/ThemeProvider';
+import { useThemedStackScreenOptions } from './themedStackScreenOptions';
 
 const MainStack = createNativeStackNavigator<MainStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -57,8 +59,13 @@ function activeRouteName(state: NavigationState | undefined): string | undefined
 }
 
 function LoggedInStack() {
+  const themedHeader = useThemedStackScreenOptions();
+
   return (
-    <MainStack.Navigator initialRouteName="Tabs" screenOptions={screenOptions}>
+    <MainStack.Navigator
+      initialRouteName="Tabs"
+      screenOptions={{ ...themedHeader, headerShown: false }}
+    >
       <MainStack.Screen name="Tabs" component={AppTabs} />
       <MainStack.Screen
         name="Record"
@@ -175,6 +182,7 @@ function AuthBootSpinner() {
 
 export function RootNavigator() {
   const { user, authReady } = useAuth();
+  const { colors, isDark } = useTheme();
   const authed = Boolean(user?.uid);
   const needsEmailVerification = Boolean(user?.needsEmailVerification);
   const navKey = !authReady
@@ -239,8 +247,30 @@ export function RootNavigator() {
     return <AuthBootSpinner />;
   }
 
+  const navigationTheme = React.useMemo(
+    () => ({
+      ...DefaultTheme,
+      dark: isDark,
+      colors: {
+        ...DefaultTheme.colors,
+        primary: colors.moss,
+        background: colors.bg,
+        card: colors.card,
+        text: colors.text,
+        border: colors.border,
+        notification: colors.coral,
+      },
+    }),
+    [isDark, colors]
+  );
+
   return (
-    <NavigationContainer ref={rootNavigationRef} key={navKey} onStateChange={onNavStateChange}>
+    <NavigationContainer
+      ref={rootNavigationRef}
+      key={navKey}
+      theme={navigationTheme}
+      onStateChange={onNavStateChange}
+    >
       {authed && needsEmailVerification ? (
         <VerifyEmailScreen />
       ) : authed && termsReady && !termsOk ? (

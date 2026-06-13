@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import { useTheme } from '../theme/ThemeProvider';
+import { useThemedStackScreenOptions } from './themedStackScreenOptions';
 import { ChatInboxScreen } from '../screens/ChatInboxScreen';
 import { ConversationScreen } from '../screens/ConversationScreen';
 import { GroupInfoScreen } from '../screens/GroupInfoScreen';
@@ -28,16 +28,10 @@ export type ChatStackParamList = {
 const Stack = createNativeStackNavigator<ChatStackParamList>();
 
 export function ChatStackNavigator() {
-  const { colors } = useTheme();
+  const themedHeader = useThemedStackScreenOptions();
 
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerTintColor: colors.text,
-        headerTitleStyle: { fontWeight: '800' },
-        contentStyle: { backgroundColor: colors.bg },
-      }}
-    >
+    <Stack.Navigator screenOptions={themedHeader}>
       <Stack.Screen name="ChatInbox" component={ChatInboxScreen} options={{ title: 'Chats' }} />
       <Stack.Screen
         name="Conversation"

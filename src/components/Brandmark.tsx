@@ -7,9 +7,10 @@ export function Brandmark({
   style,
   blendOnDark,
 }: {
+  /** Icon size in px (square). */
   size?: number;
   style?: StyleProp<ViewStyle>;
-  /** Helps hide a white matte in the PNG on dark UIs (e.g. Record). */
+  /** Legacy: white-matte PNG on dark UIs (e.g. Record). Transparent asset is default. */
   blendOnDark?: boolean;
 }) {
   const imgStyle = {

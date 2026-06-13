@@ -113,7 +113,7 @@ export function ChatInboxScreen({ navigation }: Props) {
         </View>
       ),
     });
-  }, [navigation]);
+  }, [navigation, colors.text]);
 
   if (!isFirebaseConfigured()) {
     return (
