@@ -13,10 +13,10 @@ export type PodiumTierStyles = {
 
 const LIGHT_PODIUM: Record<PodiumTier, PodiumTierStyles> = {
   1: {
-    accent: '#D4AF37',
-    bg: 'rgba(212, 175, 55, 0.14)',
+    accent: '#C9A227',
+    bg: 'rgba(255, 215, 0, 0.10)',
     rank: '#B8860B',
-    ring: '#D4AF37',
+    ring: '#C9A227',
   },
   2: {
     accent: '#94A3B8',
@@ -34,10 +34,10 @@ const LIGHT_PODIUM: Record<PodiumTier, PodiumTierStyles> = {
 
 const DARK_PODIUM: Record<PodiumTier, PodiumTierStyles> = {
   1: {
-    accent: '#F5C518',
-    bg: 'rgba(245, 197, 24, 0.10)',
-    rank: '#F5C518',
-    ring: '#F5C518',
+    accent: '#C9A227',
+    bg: 'rgba(201, 162, 39, 0.14)',
+    rank: '#B8860B',
+    ring: '#C9A227',
   },
   2: {
     accent: '#B0BEC5',

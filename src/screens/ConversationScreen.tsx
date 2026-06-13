@@ -54,6 +54,7 @@ import { BlockReportModal } from '../chat/components/BlockReportModal';
 import { setForegroundChatConversationId } from '../chat/activeConversationRef';
 import { showError, showInfo } from '../utils/ui';
 import { navigateToUserProfile } from '../navigation/navigationHelpers';
+import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 
 type Props = NativeStackScreenProps<ChatStackParamList, 'Conversation'>;
 
@@ -234,6 +235,7 @@ export function ConversationScreen({ navigation, route }: Props) {
 }));
   const { conversationId, threadTitle, pendingShare } = route.params;
   const insets = useSafeAreaInsets();
+  const tabBarClearance = floatingTabContentClearance(insets.bottom);
   const headerHeight = useHeaderHeight();
   const { user } = useAuth();
   const { conversation, members, myMember } = useConversation(conversationId, user?.uid);
@@ -810,7 +812,7 @@ export function ConversationScreen({ navigation, route }: Props) {
           <Text style={styles.uploadTxt}>Uploading… {uploadProgress}%</Text>
         </View>
       ) : null}
-      <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+      <View style={[styles.composer, { paddingBottom: tabBarClearance }]}>
         <TouchableOpacity
           onPress={async () => {
             try {

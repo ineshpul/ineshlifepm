@@ -158,6 +158,7 @@ export function TopScreen() {
   emptyLoading: { marginTop: 48, alignItems: 'center', gap: 14 },
   emptyLoadingText: { fontSize: 14, fontWeight: '700', color: colors.muted },
   row: {
+    position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -167,9 +168,14 @@ export function TopScreen() {
     backgroundColor: colors.leaderboardRowBg,
     overflow: 'hidden',
   },
+  rowAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+  },
   rowMe: {
-    borderLeftWidth: 3,
-    borderLeftColor: colors.moss,
     backgroundColor: colors.leaderboardMeBg,
   },
   rankCol: {
@@ -186,6 +192,13 @@ export function TopScreen() {
     fontVariant: ['tabular-nums'],
   },
   rankMe: { color: colors.moss },
+  avatarSlot: {
+    width: 48,
+    height: 48,
+    flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   avatarWrap: {
     width: 44,
     height: 44,
@@ -193,11 +206,10 @@ export function TopScreen() {
     overflow: 'hidden',
     backgroundColor: colors.cardTint,
   },
-  avatarImg: { width: 44, height: 44, borderRadius: 22 },
+  avatarImg: { width: '100%', height: '100%' },
   avatarFallback: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.cardTint,
@@ -587,13 +599,7 @@ export function TopScreen() {
             <Pressable
               style={({ pressed }) => [
                 styles.row,
-                podium
-                  ? {
-                      backgroundColor: podium.bg,
-                      borderLeftWidth: 3,
-                      borderLeftColor: podium.accent,
-                    }
-                  : null,
+                podium ? { backgroundColor: podium.bg } : null,
                 isMe ? styles.rowMe : null,
                 pressed && { opacity: 0.92 },
               ]}
@@ -604,6 +610,14 @@ export function TopScreen() {
                 })
               }
             >
+              {podium || isMe ? (
+                <View
+                  style={[
+                    styles.rowAccent,
+                    { backgroundColor: podium?.accent ?? colors.moss },
+                  ]}
+                />
+              ) : null}
               <View style={styles.rankCol}>
                 <Text
                   style={[
@@ -618,19 +632,21 @@ export function TopScreen() {
                   {item.rank}
                 </Text>
               </View>
-              <View
-                style={[
-                  styles.avatarWrap,
-                  podium ? { borderWidth: 2, borderColor: podium.ring } : null,
-                ]}
-              >
-                {item.avatarUrl ? (
-                  <Image source={{ uri: item.avatarUrl }} style={styles.avatarImg} contentFit="cover" />
-                ) : (
-                  <View style={styles.avatarFallback}>
-                    <Text style={styles.avatarInitials}>{initialsFromDisplayName(item.name)}</Text>
-                  </View>
-                )}
+              <View style={styles.avatarSlot}>
+                <View
+                  style={[
+                    styles.avatarWrap,
+                    podium ? { borderWidth: 2, borderColor: podium.ring } : null,
+                  ]}
+                >
+                  {item.avatarUrl ? (
+                    <Image source={{ uri: item.avatarUrl }} style={styles.avatarImg} contentFit="cover" />
+                  ) : (
+                    <View style={styles.avatarFallback}>
+                      <Text style={styles.avatarInitials}>{initialsFromDisplayName(item.name)}</Text>
+                    </View>
+                  )}
+                </View>
               </View>
               <View style={styles.rowBody}>
                 <View style={styles.nameScoreRow}>
