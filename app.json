@@ -25,7 +25,7 @@
         "NSUserNotificationsUsageDescription": "Leap uses notifications to remind you when today's challenge is live and before time runs out.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "37"
+      "buildNumber": "39"
     },
     "android": {
       "package": "com.leapmvp.app",

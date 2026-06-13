@@ -243,10 +243,6 @@ export function RootNavigator() {
     if (name) void logNativeScreenView(name);
   }, []);
 
-  if (!authReady) {
-    return <AuthBootSpinner />;
-  }
-
   const navigationTheme = React.useMemo(
     () => ({
       ...DefaultTheme,
@@ -263,6 +259,10 @@ export function RootNavigator() {
     }),
     [isDark, colors]
   );
+
+  if (!authReady) {
+    return <AuthBootSpinner />;
+  }
 
   return (
     <NavigationContainer
