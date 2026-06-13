@@ -204,8 +204,8 @@ function FeedPostVideoInner(props: {
   const [loaded, setLoaded] = React.useState(false);
   const lastStatusPaintRef = React.useRef(0);
   const [userPaused, setUserPaused] = React.useState(false);
-  const viewTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const viewRecordedKeyRef = React.useRef<string | null>(null);
+  const replayingRef = React.useRef(false);
   const [heartBurst, setHeartBurst] = React.useState<{ x: number; y: number } | null>(null);
   const heartScale = React.useRef(new Animated.Value(0)).current;
   const heartOpacity = React.useRef(new Animated.Value(0)).current;
@@ -229,7 +229,6 @@ function FeedPostVideoInner(props: {
 
   React.useEffect(
     () => () => {
-      if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
       heartAnimRef.current?.stop();
       void unloadVideoPlayer(videoRef.current);
       void unloadVideoPlayer(secondaryVideoRef.current);
@@ -326,42 +325,62 @@ function FeedPostVideoInner(props: {
     void secondaryVideoRef.current?.setPositionAsync(pos).catch(() => {});
   }, [secondaryUrl, status, effectivePlay]);
 
-  React.useEffect(() => {
-    if (viewTimerRef.current) {
-      clearTimeout(viewTimerRef.current);
-      viewTimerRef.current = null;
-    }
-    if (!effectivePlay || !analyticsVideoId || !viewerUid || !videoOwnerUid || viewerUid === videoOwnerUid) {
-      return;
-    }
+  const maybeRecordView = React.useCallback(() => {
+    if (!analyticsVideoId || !viewerUid || !videoOwnerUid || viewerUid === videoOwnerUid) return;
     const key = `${analyticsVideoId}:${viewerUid}`;
     if (viewRecordedKeyRef.current === key) return;
-    viewTimerRef.current = setTimeout(() => {
-      viewTimerRef.current = null;
-      viewRecordedKeyRef.current = key;
-      void recordVideoView(analyticsVideoId);
-    }, 2500);
-    return () => {
-      if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
-      viewTimerRef.current = null;
-    };
-  }, [effectivePlay, analyticsVideoId, viewerUid, videoOwnerUid]);
+    viewRecordedKeyRef.current = key;
+    void recordVideoView(analyticsVideoId);
+  }, [analyticsVideoId, viewerUid, videoOwnerUid]);
 
-  const onPlaybackStatusUpdate = React.useCallback((s: AVPlaybackStatus) => {
-    if (s.isLoaded) setLoaded(true);
+  const replayReel = React.useCallback(async () => {
+    if (replayingRef.current) return;
+    replayingRef.current = true;
+    try {
+      await videoRef.current?.replayAsync();
+      if (secondaryUrl) await secondaryVideoRef.current?.replayAsync();
+    } catch {
+      // native race
+    } finally {
+      replayingRef.current = false;
+    }
+  }, [secondaryUrl]);
 
-    if (!s.isLoaded) {
-      setStatus(s);
-      lastStatusPaintRef.current = 0;
-      return;
-    }
-    const now = Date.now();
-    const justLoaded = lastStatusPaintRef.current === 0;
-    if (justLoaded || now - lastStatusPaintRef.current >= 750) {
-      lastStatusPaintRef.current = now;
-      setStatus(s);
-    }
-  }, []);
+  const onPlaybackStatusUpdate = React.useCallback(
+    (s: AVPlaybackStatus) => {
+      if (s.isLoaded) setLoaded(true);
+
+      if (!s.isLoaded) {
+        setStatus(s);
+        lastStatusPaintRef.current = 0;
+        return;
+      }
+
+      if (effectivePlay && s.didJustFinish) {
+        maybeRecordView();
+        if (reel) void replayReel();
+      } else if (effectivePlay) {
+        const durMs = s.durationMillis ?? 0;
+        const posMs = s.positionMillis ?? 0;
+        // Long clips: count a view once the viewer is most of the way through.
+        if (durMs >= 4000 && posMs >= durMs * 0.85) {
+          maybeRecordView();
+        }
+      }
+
+      const now = Date.now();
+      const justLoaded = lastStatusPaintRef.current === 0;
+      const posMs = s.positionMillis ?? 0;
+      const durMs = s.durationMillis ?? 0;
+      const nearEnd = durMs > 0 && durMs - posMs <= 1200;
+      const paintInterval = nearEnd ? 200 : 750;
+      if (justLoaded || now - lastStatusPaintRef.current >= paintInterval) {
+        lastStatusPaintRef.current = now;
+        setStatus(s);
+      }
+    },
+    [effectivePlay, reel, maybeRecordView, replayReel]
+  );
 
   const doSingleTap = React.useCallback(() => {
     if (!shouldPlay && onReelActivate && analyticsVideoId) {
@@ -429,9 +448,11 @@ function FeedPostVideoInner(props: {
 
   let remainingSec = maxDurationSeconds;
   if (status?.isLoaded) {
+    const reportedMs = status.durationMillis ?? 0;
+    const playableMs = status.playableDurationMillis ?? 0;
     const durMs =
-      status.durationMillis && status.durationMillis > 0
-        ? status.durationMillis
+      Math.max(reportedMs, playableMs) > 0
+        ? Math.max(reportedMs, playableMs)
         : maxDurationSeconds * 1000;
     const posMs = status.positionMillis ?? 0;
     remainingSec = Math.max(0, Math.ceil((durMs - posMs) / 1000));
@@ -467,10 +488,10 @@ function FeedPostVideoInner(props: {
         resizeMode={resizeMode}
         shouldPlay={effectivePlay}
         isMuted={primaryAudioMuted}
-        isLooping={reel}
+        isLooping={false}
         volume={audioOnSecondary ? 0 : 1.0}
         useNativeControls={nativeControls}
-        progressUpdateIntervalMillis={dataSaver ? 1200 : 600}
+        progressUpdateIntervalMillis={dataSaver ? 800 : 250}
         onPlaybackStatusUpdate={onPlaybackStatusUpdate}
         onError={() => {
           setLoaded(false);
@@ -491,9 +512,9 @@ function FeedPostVideoInner(props: {
             resizeMode={ResizeMode.COVER}
             shouldPlay={effectivePlay}
             isMuted={secondaryAudioMuted}
-            isLooping={reel}
+            isLooping={false}
             volume={audioOnSecondary ? 1.0 : 0}
-            progressUpdateIntervalMillis={dataSaver ? 2000 : 1000}
+            progressUpdateIntervalMillis={dataSaver ? 1200 : 400}
           />
         </View>
       ) : null}
