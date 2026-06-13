@@ -55,6 +55,7 @@ import {
   weekOverWeekGrowthPct,
   weeklyLeapInchesFromUser,
 } from '../lib/verticalScore';
+import { podiumTierStyles } from '../lib/leaderboardPodiumTheme';
 
 const LIST_LIMIT = 100;
 
@@ -102,14 +103,14 @@ function pickMostImproved(acc: AccRow[]): {
 }
 
 export function TopScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const styles = useThemedStyles((colors) => ({
   screen: { paddingHorizontal: 18, flex: 1 },
-  header: { paddingTop: 12, paddingBottom: 6 },
+  header: { paddingTop: 12, paddingBottom: 8 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   headerText: { flex: 1, minWidth: 0 },
-  title: { fontSize: 22, fontWeight: '900', color: colors.text },
-  sub: { marginTop: 2, fontSize: 11, fontWeight: '600', color: colors.muted },
+  title: { fontSize: 22, fontWeight: '900', color: colors.text, lineHeight: 28 },
+  sub: { marginTop: 4, fontSize: 12, fontWeight: '600', color: colors.muted },
   segment: {
     flexDirection: 'row',
     gap: 4,
@@ -152,7 +153,7 @@ export function TopScreen() {
     fontSize: 13,
     fontWeight: '700',
   },
-  list: { paddingBottom: 24, gap: 10 },
+  list: { paddingBottom: 24, gap: 8 },
   empty: { marginTop: 24, fontSize: 14, fontWeight: '600', color: colors.muted },
   emptyLoading: { marginTop: 48, alignItems: 'center', gap: 14 },
   emptyLoadingText: { fontSize: 14, fontWeight: '700', color: colors.muted },
@@ -160,49 +161,43 @@ export function TopScreen() {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-  },
-  rowPodium: {
-    borderLeftWidth: 3,
-    borderLeftColor: colors.podiumAccent,
-    backgroundColor: colors.podiumBg,
+    borderRadius: 12,
+    backgroundColor: colors.leaderboardRowBg,
+    overflow: 'hidden',
   },
   rowMe: {
-    borderColor: colors.moss,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.moss,
     backgroundColor: colors.leaderboardMeBg,
   },
   rankCol: {
-    width: 40,
+    width: 28,
     flexShrink: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
   rank: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '900',
-    color: colors.muted,
+    color: colors.muted2,
     textAlign: 'center',
     fontVariant: ['tabular-nums'],
   },
   rankMe: { color: colors.moss },
-  rankPodium: { color: colors.podiumRank },
   avatarWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     overflow: 'hidden',
     backgroundColor: colors.cardTint,
   },
-  avatarImg: { width: 40, height: 40, borderRadius: 20 },
+  avatarImg: { width: 44, height: 44, borderRadius: 22 },
   avatarFallback: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.cardTint,
@@ -215,9 +210,9 @@ export function TopScreen() {
     justifyContent: 'space-between',
     gap: 10,
   },
-  name: { flex: 1, fontSize: 15, fontWeight: '800', color: colors.text, minWidth: 0 },
-  handle: { fontSize: 12, fontWeight: '700', color: colors.muted },
-  score: { fontSize: 15, fontWeight: '900', color: colors.moss },
+  name: { flex: 1, fontSize: 16, fontWeight: '800', color: colors.text, minWidth: 0 },
+  handle: { fontSize: 12, fontWeight: '700', marginTop: 2 },
+  score: { fontSize: 16, fontWeight: '900', color: colors.moss, fontVariant: ['tabular-nums'] },
   scoreMe: { color: colors.moss },
 }));
   const nav = useNavigation<any>();
@@ -499,6 +494,9 @@ export function TopScreen() {
     return formatLeapInchesDisplay(item.score);
   };
 
+  const timeframeSubtitle =
+    timeframe === 'daily' ? 'daily' : timeframe === 'weekly' ? 'weekly' : 'all-time';
+
   return (
     <Screen style={styles.screen}>
       <View style={styles.header}>
@@ -506,7 +504,7 @@ export function TopScreen() {
           <Brandmark size={36} />
           <View style={styles.headerText}>
             <Text style={styles.title}>How high can you jump?</Text>
-            <Text style={styles.sub}>Leaperboard</Text>
+            <Text style={styles.sub}>Leaperboard · {timeframeSubtitle}</Text>
           </View>
         </View>
       </View>
@@ -579,12 +577,26 @@ export function TopScreen() {
         }
         renderItem={({ item }) => {
           const scoreMain = scoreForRow(item);
-          const topThree = item.rank <= 3;
-          const podiumRow = topThree ? styles.rowPodium : item.isCurrentUser ? styles.rowMe : null;
-          const podiumRank = topThree ? styles.rankPodium : item.isCurrentUser ? styles.rankMe : null;
+          const podium =
+            item.rank >= 1 && item.rank <= 3
+              ? podiumTierStyles(item.rank, isDark)
+              : null;
+          const isMe = item.isCurrentUser && !podium;
+
           return (
             <Pressable
-              style={({ pressed }) => [styles.row, podiumRow, pressed && { opacity: 0.92 }]}
+              style={({ pressed }) => [
+                styles.row,
+                podium
+                  ? {
+                      backgroundColor: podium.bg,
+                      borderLeftWidth: 3,
+                      borderLeftColor: podium.accent,
+                    }
+                  : null,
+                isMe ? styles.rowMe : null,
+                pressed && { opacity: 0.92 },
+              ]}
               onPress={() =>
                 navigateToUserProfile(nav, {
                   uid: item.userId,
@@ -594,7 +606,11 @@ export function TopScreen() {
             >
               <View style={styles.rankCol}>
                 <Text
-                  style={[styles.rank, podiumRank]}
+                  style={[
+                    styles.rank,
+                    podium ? { color: podium.rank } : null,
+                    isMe ? styles.rankMe : null,
+                  ]}
                   numberOfLines={1}
                   adjustsFontSizeToFit
                   minimumFontScale={0.85}
@@ -602,7 +618,12 @@ export function TopScreen() {
                   {item.rank}
                 </Text>
               </View>
-              <View style={styles.avatarWrap}>
+              <View
+                style={[
+                  styles.avatarWrap,
+                  podium ? { borderWidth: 2, borderColor: podium.ring } : null,
+                ]}
+              >
                 {item.avatarUrl ? (
                   <Image source={{ uri: item.avatarUrl }} style={styles.avatarImg} contentFit="cover" />
                 ) : (

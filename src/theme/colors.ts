@@ -35,6 +35,8 @@ export type AppColors = {
   highlightCardBadge: string;
   /** Current-user highlight on leaperboard rows */
   leaderboardMeBg: string;
+  /** Leaperboard list row surface */
+  leaderboardRowBg: string;
 };
 
 export const lightColors: AppColors = {
@@ -67,6 +69,7 @@ export const lightColors: AppColors = {
   highlightCardBg: 'rgba(255, 152, 0, 0.10)',
   highlightCardBadge: '#C0392B',
   leaderboardMeBg: 'rgba(39, 174, 96, 0.08)',
+  leaderboardRowBg: '#F5F7F4',
 };
 
 export const darkColors: AppColors = {
@@ -99,6 +102,7 @@ export const darkColors: AppColors = {
   highlightCardBg: 'rgba(129, 199, 132, 0.08)',
   highlightCardBadge: '#81C784',
   leaderboardMeBg: 'rgba(129, 199, 132, 0.10)',
+  leaderboardRowBg: '#161C1A',
 };
 
 /** @deprecated Use `useTheme().colors` — kept for gradual migration. */
