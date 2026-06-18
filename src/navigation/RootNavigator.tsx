@@ -39,6 +39,8 @@ import { ReferralIntroHost } from '../components/ReferralIntroHost';
 import { AppReviewHost } from '../components/AppReviewHost';
 import { useTheme } from '../theme/ThemeProvider';
 import { useThemedStackScreenOptions } from './themedStackScreenOptions';
+import { hasCompletedOnboardingIntro } from '../state/onboardingIntro';
+import { OnboardingIntroGateScreen, OnboardingIntroReplayScreen } from '../screens/OnboardingIntroGate';
 
 const MainStack = createNativeStackNavigator<MainStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -157,6 +159,15 @@ function LoggedInStack() {
         component={AdminVideoModerationScreen}
         options={{ headerShown: true, title: 'Moderate video' }}
       />
+      <MainStack.Screen
+        name="OnboardingIntro"
+        component={OnboardingIntroReplayScreen}
+        options={{
+          headerShown: false,
+          presentation: 'fullScreenModal',
+          animation: 'fade',
+        }}
+      />
     </MainStack.Navigator>
   );
 }
@@ -194,6 +205,21 @@ export function RootNavigator() {
         : `app-${user!.uid}`;
   const [termsOk, setTermsOk] = React.useState<boolean>(false);
   const [termsReady, setTermsReady] = React.useState<boolean>(false);
+  const [onboardingDone, setOnboardingDone] = React.useState(true);
+  const [onboardingReady, setOnboardingReady] = React.useState(false);
+  const [pendingRecordAfterOnboarding, setPendingRecordAfterOnboarding] = React.useState(false);
+
+  React.useEffect(() => {
+    let alive = true;
+    void hasCompletedOnboardingIntro().then((done) => {
+      if (!alive) return;
+      setOnboardingDone(done);
+      setOnboardingReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   React.useEffect(() => {
     let alive = true;
@@ -243,6 +269,27 @@ export function RootNavigator() {
     if (name) void logNativeScreenView(name);
   }, []);
 
+  React.useEffect(() => {
+    if (!pendingRecordAfterOnboarding || !authed || !onboardingDone) return;
+    setPendingRecordAfterOnboarding(false);
+    const id = requestAnimationFrame(() => {
+      if (rootNavigationRef.isReady()) {
+        rootNavigationRef.navigate('Record');
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [pendingRecordAfterOnboarding, authed, onboardingDone]);
+
+  const handleOnboardingComplete = React.useCallback(
+    (action: { type: 'done' } | { type: 'record' }) => {
+      setOnboardingDone(true);
+      if (action.type === 'record' && authed) {
+        setPendingRecordAfterOnboarding(true);
+      }
+    },
+    [authed]
+  );
+
   const navigationTheme = React.useMemo(
     () => ({
       ...DefaultTheme,
@@ -260,18 +307,22 @@ export function RootNavigator() {
     [isDark, colors]
   );
 
-  if (!authReady) {
+  if (!authReady || !onboardingReady) {
     return <AuthBootSpinner />;
   }
+
+  const showOnboardingGate = !onboardingDone;
 
   return (
     <NavigationContainer
       ref={rootNavigationRef}
-      key={navKey}
+      key={showOnboardingGate ? 'onboarding' : navKey}
       theme={navigationTheme}
       onStateChange={onNavStateChange}
     >
-      {authed && needsEmailVerification ? (
+      {showOnboardingGate ? (
+        <OnboardingIntroGateScreen onComplete={handleOnboardingComplete} />
+      ) : authed && needsEmailVerification ? (
         <VerifyEmailScreen />
       ) : authed && termsReady && !termsOk ? (
         <TermsGateScreen />

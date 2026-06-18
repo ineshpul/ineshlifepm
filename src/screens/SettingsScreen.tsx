@@ -664,6 +664,8 @@ export function SettingsScreen() {
             value={preferences.darkMode}
             onValueChange={(v) => patch({ darkMode: v })}
           />
+          <Separator />
+          <RowChevron label="Replay intro" onPress={() => nav.navigate('OnboardingIntro')} />
         </Card>
 
         <SectionHeader title="Feed" />

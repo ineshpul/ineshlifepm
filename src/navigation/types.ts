@@ -28,6 +28,8 @@ export type RootStackParamList = {
   /** Opens a single leap by Firestore `videos/{videoId}` (e.g. profile “best vertical gain” post). */
   VideoPost: { videoId: string };
   AdminVideoModeration: undefined;
+  /** Replay the first-run onboarding carousel (Settings). */
+  OnboardingIntro: undefined;
 };
 
 /** Root stack without auth-only screens (used after login so iOS never keeps a stale Sign In route). */
