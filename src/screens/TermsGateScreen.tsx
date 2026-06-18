@@ -62,9 +62,9 @@ export function TermsGateScreen() {
   return (
     <Screen style={[styles.screen, { paddingTop: Math.max(insets.top, 12) + 4 }]} edges={['bottom', 'left', 'right']}>
       <View style={styles.header}>
-        <Text style={styles.title}>Terms of use</Text>
+        <Text style={styles.title}>Before you continue</Text>
         <Text style={styles.sub}>
-          Before you can view or post content, you must accept the Terms and Community Guidelines.
+          Before you can view or post content, you must accept the Terms of use, Privacy policy, and Community Guidelines.
         </Text>
       </View>
 
@@ -72,6 +72,9 @@ export function TermsGateScreen() {
         <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
           <Text style={styles.h}>Terms</Text>
           <Text style={styles.p}>{LEGAL_DOCS.terms.body}</Text>
+          <View style={styles.div} />
+          <Text style={styles.h}>Privacy policy</Text>
+          <Text style={styles.p}>{LEGAL_DOCS.privacy.body}</Text>
           <View style={styles.div} />
           <Text style={styles.h}>Community guidelines</Text>
           <Text style={styles.p}>{LEGAL_DOCS.community.body}</Text>

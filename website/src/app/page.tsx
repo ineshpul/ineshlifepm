@@ -323,7 +323,11 @@ export default function Home() {
               <span>Leap</span>
             </div>
             <nav className="footer-nav" aria-label="Footer">
-              <a href="https://taketheleap.app">taketheleap.app</a>
+              <a href="/privacy">Privacy</a>
+              <span className="footer-sep" aria-hidden>
+                ·
+              </span>
+              <a href="/terms">Terms</a>
               <span className="footer-sep" aria-hidden>
                 ·
               </span>

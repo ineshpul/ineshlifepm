@@ -1,30 +1,14 @@
-/** In-app copy for Settings → Help / Legal & Safety. Hosted copies: taketheleap.app/privacy and /terms. */
+/** Hosted legal copy — keep in sync with src/content/settingsLegal.ts in the mobile app. */
 
-export type LegalDocId = 'faq' | 'terms' | 'privacy' | 'community';
+export type HostedLegalDocId = "terms" | "privacy" | "community";
 
-export const LEGAL_DOCS: Record<
-  LegalDocId,
-  { title: string; body: string }
+export const HOSTED_LEGAL_DOCS: Record<
+  HostedLegalDocId,
+  { title: string; description: string; body: string }
 > = {
-  faq: {
-    title: 'FAQ',
-    body: `What is Leap?
-Leap is a daily challenge app: one prompt, one short video, shared with friends.
-
-How do streaks work?
-Post before the day’s deadline to keep your streak. Turn streak reminders on in Settings → Notifications if you want a nudge.
-
-Who sees my posts?
-Your feed and privacy choices (e.g. friends-only feed, private account) control visibility. You can block or mute people in Settings.
-
-How do I report a problem?
-Use Safety → Report a problem or Help / Legal → Contact support. We read every message.
-
-Why don’t some links open in my browser?
-Leap shows help and legal text inside the app so it always works. You’re not being sent to unrelated sites.`,
-  },
   terms: {
-    title: 'Terms of use',
+    title: "Terms of use",
+    description: "Terms of use for the Leap mobile app and related services.",
     body: `Last updated: June 18, 2026
 
 These Terms of Use (“Terms”) are a binding agreement between you and Leap (“Leap,” “we,” “us,” or “our”) for your use of the Leap mobile app and related services (the “Service”).
@@ -86,10 +70,11 @@ Changes
 We may update these Terms. If we make material changes, we will provide notice in the app or by other reasonable means. Continued use after the effective date means you accept the updated Terms. If you do not agree, stop using the Service.
 
 Contact
-Questions? Use Help / Legal → Contact support in Settings or email support@leap.app.`,
+Questions? Email support@leap.app.`,
   },
   privacy: {
-    title: 'Privacy policy',
+    title: "Privacy policy",
+    description: "How Leap collects, uses, and shares information.",
     body: `Last updated: June 18, 2026
 
 This Privacy Policy describes how Leap (“Leap,” “we,” “us,” or “our”) collects, uses, and shares information when you use the Leap mobile app and related services (the “Service”).
@@ -136,10 +121,11 @@ Changes
 We may update this Privacy Policy. Material changes will be communicated in the app or by other reasonable means. Continued use after the effective date means you accept the updated policy.
 
 Contact
-Privacy questions? Use Help / Legal → Contact support in Settings or email support@leap.app.`,
+Privacy questions? Email support@leap.app.`,
   },
   community: {
-    title: 'Community guidelines',
+    title: "Community guidelines",
+    description: "Rules for keeping the Leap community welcome and safe.",
     body: `Leap works best when everyone feels welcome and safe.
 
 Be respectful
