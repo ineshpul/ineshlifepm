@@ -61,11 +61,12 @@ function UserNotificationPrefSync() {
     // `updateDoc` throws if the public profile doc does not exist yet (races right after sign-in).
     void updateDoc(doc(firestore(), 'users', user.uid), {
       notificationsEnabled: preferences.notificationsEnabled,
+      streakReminders: preferences.streakReminders,
       updatedAt: serverTimestamp(),
     }).catch(() => {
       // ignore — profile doc may still be creating from auth `syncUserProfileDocs`
     });
-  }, [ready, user?.uid, preferences.notificationsEnabled]);
+  }, [ready, user?.uid, preferences.notificationsEnabled, preferences.streakReminders]);
 
   React.useEffect(() => {
     if (!ready || !user?.uid || !isFirebaseConfigured()) return;

@@ -21,6 +21,11 @@ import { purchaseRecordingAttemptCallable } from './purchaseRecordingAttempt';
 import { adminGrantRecordingAttemptCallable } from './adminGrantRecordingAttempt';
 import { submitChallengeSuggestionCallable } from './challengeSuggestion';
 import { scheduledLeapViewingMeta } from './leapViewingMeta';
+import {
+  scheduledLeapAfternoonReminder,
+  scheduledLeapNoonReminder,
+  scheduledLeapStreakReminder,
+} from './leapDailyReminders';
 import { getWeeklyLeaperboardCallable } from './getWeeklyLeaperboardCallable';
 import { backfillWeeklyLeaperWeekCallable } from './backfillWeeklyLeaperWeekCallable';
 import { backfillUserIdentityFromVideosCallable } from './backfillUserIdentityFromVideosCallable';
@@ -56,6 +61,9 @@ export {
   adminGrantRecordingAttemptCallable,
   submitChallengeSuggestionCallable,
   scheduledLeapViewingMeta,
+  scheduledLeapNoonReminder,
+  scheduledLeapAfternoonReminder,
+  scheduledLeapStreakReminder,
   getWeeklyLeaperboardCallable,
   backfillWeeklyLeaperWeekCallable,
   backfillUserIdentityFromVideosCallable,
