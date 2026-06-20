@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-nativ
 import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc } from 'firebase/firestore';
 
+import { CommentMentionText } from './CommentMentionText';
 import { UsernameLink } from './UsernameLink';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import type { VideoComment } from '../types/videoComment';
@@ -158,6 +159,10 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
       color: colors.text,
       fontWeight: '500',
     },
+    commentMention: {
+      color: colors.coral,
+      fontWeight: '800',
+    },
     commentDelete: { fontSize: 12, fontWeight: '800', color: colors.coral },
     deleteColumn: {
       minWidth: 48,
@@ -266,7 +271,14 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
             <Text style={styles.commentUser}>{c.username}</Text>
           )}
         </View>
-        <Text style={[styles.commentText, isModal && styles.commentTextModal]}>{c.text}</Text>
+        <View style={{ marginTop: 2 }}>
+          <CommentMentionText
+            text={c.text}
+            mentionedUsers={c.mentionedUsers}
+            style={[styles.commentText, isModal && styles.commentTextModal, { marginTop: 0 }]}
+            mentionStyle={styles.commentMention}
+          />
+        </View>
         <View style={styles.commentActionsRow}>
           {timeLabel ? <Text style={styles.commentTime}>{timeLabel}</Text> : <View />}
           <View style={styles.actionsRight}>

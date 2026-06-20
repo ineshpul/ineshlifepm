@@ -25,6 +25,9 @@ function bodyFor(n: InAppNotification) {
     return n.snippet ? String(n.snippet) : 'Your leap was not approved. You can post again today.';
   }
   if (n.type === 'like') return 'liked your leap';
+  if (n.type === 'mention') {
+    return n.snippet ? `mentioned you: ${n.snippet}` : 'mentioned you in a comment';
+  }
   if (n.type === 'follow') return 'started following you';
   if (n.type === 'referral_activation') {
     return n.snippet ? `completed their first leap — ${n.snippet}` : 'completed their first leap — you earned bonus inches';
@@ -162,7 +165,7 @@ export function NotificationsScreen() {
       navigateToUserProfile(nav, { uid: n.fromUid, username: n.fromUsername });
       return;
     }
-    if ((n.type === 'like' || n.type === 'comment') && n.videoId) {
+    if ((n.type === 'like' || n.type === 'comment' || n.type === 'mention') && n.videoId) {
       nav.navigate('VideoPost', { videoId: n.videoId });
       return;
     }

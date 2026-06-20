@@ -1,3 +1,8 @@
+export type CommentMentionRef = {
+  uid: string;
+  username: string;
+};
+
 export type VideoComment = {
   id: string;
   uid: string;
@@ -8,4 +13,5 @@ export type VideoComment = {
   replyToUid?: string;
   replyToUsername?: string;
   replyPreview?: string;
+  mentionedUsers?: CommentMentionRef[];
 };

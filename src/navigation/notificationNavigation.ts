@@ -32,6 +32,7 @@ export async function handleNotificationNavigation(
       kind === 'moderation_rejected' ||
       type === 'like' ||
       type === 'comment' ||
+      type === 'mention' ||
       type === 'follow' ||
       type === 'mod_queue' ||
       type === 'moderation_rejected' ||
@@ -77,12 +78,12 @@ export async function handleNotificationNavigation(
   const fromUsername = str(raw, 'fromUsername');
   const videoId = str(raw, 'videoId');
 
-  if (kind === 'social' || type === 'like' || type === 'comment' || type === 'follow') {
+  if (kind === 'social' || type === 'like' || type === 'comment' || type === 'mention' || type === 'follow') {
     if (type === 'follow' && fromUid) {
       ref.navigate('UserProfile', { uid: fromUid, username: fromUsername || undefined });
       return;
     }
-    if ((type === 'like' || type === 'comment') && videoId) {
+    if ((type === 'like' || type === 'comment' || type === 'mention') && videoId) {
       ref.navigate('VideoPost', { videoId });
       return;
     }

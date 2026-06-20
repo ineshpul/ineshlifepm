@@ -39,10 +39,13 @@ import {
   resolveReferrerUsernameCallable,
 } from './claimReferral';
 import { staffAnnounceAppReviewCallable } from './announceAppReview';
+import { bootstrapUserOnAuthCreate } from './bootstrapUserOnAuthCreate';
+import { toggleVideoLikeCallable } from './toggleVideoLikeCallable';
 
 admin.initializeApp();
 
 export { sendLoginOtp, verifyLoginOtp };
+export { bootstrapUserOnAuthCreate, toggleVideoLikeCallable };
 export {
   onVerticalScoreCommentWrite,
   onVideoLikeCreated,
@@ -95,6 +98,10 @@ type NotifPayload = {
 function buildBody(data: NotifPayload): string {
   const u = String(data.fromUsername ?? 'Someone');
   if (data.type === 'like') return `@${u} liked your leap`;
+  if (data.type === 'mention') {
+    const snip = data.snippet ? `: ${String(data.snippet)}` : '';
+    return `@${u} mentioned you${snip}`;
+  }
   if (data.type === 'follow') return `@${u} started following you`;
   if (data.type === 'mod_queue') {
     return data.snippet ? String(data.snippet) : 'A leap is waiting for moderation';

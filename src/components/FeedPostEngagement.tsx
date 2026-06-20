@@ -44,7 +44,10 @@ import {
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { firestore, firebaseAuth, isFirebaseConfigured } from '../firebase/firebase';
+import { toggleVideoLike } from '../services/videoLikes';
 import { createInAppNotification } from '../services/social';
+import { resolveMentionUsernames } from '../services/mentionLookup';
+import { parseMentionUsernames } from '../utils/commentMentions';
 import { saveRemoteVideoToCameraRoll } from '../services/saveVideoToCameraRoll';
 import { showError, showInfo } from '../utils/ui';
 import { BlockReportModal } from '../chat/components/BlockReportModal';
@@ -358,6 +361,17 @@ export function FeedPostEngagement({
                 data?.replyToUsername != null ? String(data.replyToUsername) : undefined;
               const replyToUid = data?.replyToUid != null ? String(data.replyToUid) : undefined;
               const replyPreview = data?.replyPreview != null ? String(data.replyPreview) : undefined;
+              const mentionedUsersRaw = Array.isArray(data?.mentionedUsers) ? data.mentionedUsers : [];
+              const mentionedUsers = mentionedUsersRaw
+                .map((row: unknown) => {
+                  if (!row || typeof row !== 'object') return null;
+                  const r = row as Record<string, unknown>;
+                  const uid = String(r.uid ?? '').trim();
+                  const username = String(r.username ?? '').trim();
+                  if (!uid || !username) return null;
+                  return { uid, username };
+                })
+                .filter(Boolean) as { uid: string; username: string }[];
               return {
                 id: d.id,
                 uid: String(data?.uid ?? ''),
@@ -368,6 +382,7 @@ export function FeedPostEngagement({
                 replyToUid,
                 replyToUsername,
                 replyPreview,
+                mentionedUsers: mentionedUsers.length ? mentionedUsers : undefined,
               };
             });
             setComments(next);
@@ -399,21 +414,15 @@ export function FeedPostEngagement({
     setDocLikeCount(Math.max(0, prevCount + (nextLiked ? 1 : -1)));
     setLikeBusy(true);
     try {
-      const likeRef = doc(firestore(), 'videos', videoId, 'likes', viewerUid);
-      if (prevLiked) {
-        await deleteDoc(likeRef);
-      } else {
-        await setDoc(likeRef, { createdAt: serverTimestamp() });
-        if (viewerUid !== videoOwnerUid) {
-          void createInAppNotification({
-            recipientUid: videoOwnerUid,
-            type: 'like',
-            fromUid: viewerUid,
-            fromUsername: viewerUsername,
-            videoId,
-          });
-        }
-      }
+      const res = await toggleVideoLike({
+        videoId,
+        viewerUid,
+        viewerUsername,
+        liked: nextLiked,
+      });
+      if (!res.ok) throw new Error('Like could not be saved.');
+      setLiked(res.liked);
+      setDocLikeCount(Math.max(0, res.likesCount));
     } catch (e) {
       setLiked(prevLiked);
       setDocLikeCount(prevCount);
@@ -478,22 +487,33 @@ export function FeedPostEngagement({
     ]);
   };
 
-  const notifyCommentRecipients = async (text: string, reply: ReplyTargetPayload | null) => {
+  const notifyCommentRecipients = async (
+    text: string,
+    reply: ReplyTargetPayload | null,
+    mentionedUsers: { uid: string; username: string }[]
+  ) => {
     if (!viewerUid) return;
     const snippet = text.length > 140 ? `${text.slice(0, 137)}…` : text;
-    const recipients = new Set<string>();
+    const recipients = new Map<string, 'comment' | 'mention'>();
 
     if (reply) {
-      if (reply.uid !== viewerUid) recipients.add(reply.uid);
-      if (videoOwnerUid !== viewerUid && videoOwnerUid !== reply.uid) recipients.add(videoOwnerUid);
+      if (reply.uid !== viewerUid) recipients.set(reply.uid, 'comment');
+      if (videoOwnerUid !== viewerUid && videoOwnerUid !== reply.uid) {
+        recipients.set(videoOwnerUid, 'comment');
+      }
     } else if (videoOwnerUid !== viewerUid) {
-      recipients.add(videoOwnerUid);
+      recipients.set(videoOwnerUid, 'comment');
     }
 
-    for (const uid of recipients) {
+    for (const user of mentionedUsers) {
+      if (user.uid === viewerUid) continue;
+      if (!recipients.has(user.uid)) recipients.set(user.uid, 'mention');
+    }
+
+    for (const [uid, type] of recipients) {
       await createInAppNotification({
         recipientUid: uid,
-        type: 'comment',
+        type,
         fromUid: viewerUid,
         fromUsername: viewerUsername,
         videoId,
@@ -514,6 +534,8 @@ export function FeedPostEngagement({
     const reply = replyTarget;
     setSending(true);
     try {
+      const mentionHandles = parseMentionUsernames(text);
+      const mentionedUsers = await resolveMentionUsernames(mentionHandles);
       const payload: Record<string, unknown> = {
         uid: viewerUid,
         username: viewerUsername,
@@ -525,8 +547,11 @@ export function FeedPostEngagement({
         payload.replyToUid = reply.uid;
         payload.replyToUsername = reply.username;
       }
+      if (mentionedUsers.length) {
+        payload.mentionedUsers = mentionedUsers;
+      }
       await addDoc(collection(firestore(), 'videos', videoId, 'comments'), payload);
-      await notifyCommentRecipients(text, reply);
+      await notifyCommentRecipients(text, reply, mentionedUsers);
       draftRef.current = '';
       setDraft('');
       setReplyTarget(null);
@@ -856,6 +881,7 @@ export function FeedPostEngagement({
                     <EngagementCommentComposer
                       draft={draft}
                       draftTextRef={draftRef}
+                      viewerUid={viewerUid}
                       onChangeText={(text) => {
                         draftRef.current = text;
                         setDraft(text);

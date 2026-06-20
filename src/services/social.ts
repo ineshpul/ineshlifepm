@@ -20,6 +20,7 @@ import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 export type NotificationType =
   | 'like'
   | 'comment'
+  | 'mention'
   | 'follow'
   | 'admin_alert'
   | 'mod_queue'
