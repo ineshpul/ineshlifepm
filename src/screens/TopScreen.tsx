@@ -55,6 +55,7 @@ import {
   weekOverWeekGrowthPct,
   weeklyLeapInchesFromUser,
 } from '../lib/verticalScore';
+import { leaderboardStreakDaysFromUser } from '../lib/profileLeapStats';
 import { podiumTierStyles } from '../lib/leaderboardPodiumTheme';
 
 const LIST_LIMIT = 100;
@@ -70,6 +71,7 @@ type AccRow = {
   avatarUrl?: string;
   lifetimeInches?: number;
   priorWeek?: number;
+  streakDays?: number;
 };
 
 function pickMostImproved(acc: AccRow[]): {
@@ -224,8 +226,16 @@ export function TopScreen() {
   },
   name: { flex: 1, fontSize: 16, fontWeight: '800', color: colors.text, minWidth: 0 },
   handle: { fontSize: 12, fontWeight: '700', marginTop: 2 },
+  scoreCol: { alignItems: 'flex-end', flexShrink: 0 },
   score: { fontSize: 16, fontWeight: '900', color: colors.moss, fontVariant: ['tabular-nums'] },
   scoreMe: { color: colors.moss },
+  streakUnderScore: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.highlightCardBadge,
+    fontVariant: ['tabular-nums'],
+  },
 }));
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
@@ -330,6 +340,11 @@ export function TopScreen() {
                 username: String(data.username ?? '').trim(),
                 avatarUrl: leaderboardAvatarUrl(data),
                 lifetimeInches: cumulativeLeapInchesFromUser(data),
+                streakDays: leaderboardStreakDaysFromUser({
+                  profile: data,
+                  todayLeapDayKey: dayKey,
+                  isCurrentUser: d.id === user?.uid,
+                }),
               });
             });
             setMostImproved(null);
@@ -401,6 +416,11 @@ export function TopScreen() {
                 avatarUrl: leaderboardAvatarUrl(data),
                 lifetimeInches: cumulativeLeapInchesFromUser(data),
                 priorWeek,
+                streakDays: leaderboardStreakDaysFromUser({
+                  profile: data,
+                  todayLeapDayKey: leapDayKey,
+                  isCurrentUser: d.id === user?.uid,
+                }),
               });
             });
             setMostImproved(pickMostImproved(acc));
@@ -468,6 +488,11 @@ export function TopScreen() {
                 username: String(data.username ?? '').trim(),
                 avatarUrl: leaderboardAvatarUrl(data),
                 lifetimeInches: score,
+                streakDays: leaderboardStreakDaysFromUser({
+                  profile: data,
+                  todayLeapDayKey: leapDayKey,
+                  isCurrentUser: d.id === user?.uid,
+                }),
               });
             });
 
@@ -653,7 +678,12 @@ export function TopScreen() {
                   <Text style={styles.name} numberOfLines={1}>
                     {item.name}
                   </Text>
-                  <Text style={[styles.score, item.isCurrentUser && styles.scoreMe]}>{scoreMain}</Text>
+                  <View style={styles.scoreCol}>
+                    <Text style={[styles.score, item.isCurrentUser && styles.scoreMe]}>{scoreMain}</Text>
+                    {item.streakDays && item.streakDays > 0 ? (
+                      <Text style={styles.streakUnderScore}>🔥 {item.streakDays}</Text>
+                    ) : null}
+                  </View>
                 </View>
                 {item.username?.trim() ? (
                   <UsernameLink uid={item.userId} username={item.username.trim()} style={styles.handle} />

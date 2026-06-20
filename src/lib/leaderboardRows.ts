@@ -23,6 +23,8 @@ export type LeaderboardWireRow = {
   score: number;
   /** All-time tie-break (cumulative inches). */
   lifetimeInches?: number;
+  /** Active leap streak days (0 when hidden or inactive). */
+  streakDays?: number;
   isCurrentUser: boolean;
 };
 
@@ -77,6 +79,7 @@ export function wireRowsFromSorted<
     username: string;
     avatarUrl?: string;
     lifetimeInches?: number;
+    streakDays?: number;
   },
 >(sorted: T[], currentUid: string | undefined): LeaderboardWireRow[] {
   return sorted.map((row, i) => ({
@@ -87,6 +90,7 @@ export function wireRowsFromSorted<
     avatarUrl: row.avatarUrl,
     score: row.score,
     lifetimeInches: row.lifetimeInches,
+    streakDays: row.streakDays,
     isCurrentUser: Boolean(currentUid && row.id === currentUid),
   }));
 }

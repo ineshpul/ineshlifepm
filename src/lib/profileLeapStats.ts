@@ -78,6 +78,35 @@ export function activeLeapStreakForDisplay(args: {
   return stored;
 }
 
+export function isStreakPublicOnProfile(profile?: Record<string, unknown>): boolean {
+  return profile?.showStreakPublic !== false;
+}
+
+/** Leaderboard / user-doc-only streak (no video list). */
+export function activeLeapStreakFromUserProfile(args: {
+  profile?: Record<string, unknown>;
+  todayLeapDayKey: string;
+}): number {
+  const stored = Math.max(0, Math.floor(Number(args.profile?.activeLeapStreakDays ?? 0)));
+  if (stored <= 0) return 0;
+  const lastKey = String(args.profile?.lastApprovedLeapDateKey ?? '').trim();
+  if (!lastKey) return 0;
+  if (!isActiveLeapStreakAlive(lastKey, args.todayLeapDayKey)) return 0;
+  return stored;
+}
+
+export function leaderboardStreakDaysFromUser(args: {
+  profile: Record<string, unknown>;
+  todayLeapDayKey: string;
+  isCurrentUser: boolean;
+}): number {
+  if (!args.isCurrentUser && !isStreakPublicOnProfile(args.profile)) return 0;
+  return activeLeapStreakFromUserProfile({
+    profile: args.profile,
+    todayLeapDayKey: args.todayLeapDayKey,
+  });
+}
+
 function inchFromVideo(v: ProfileLeapVideo): number {
   const raw = Number(v.leapInches ?? 0);
   return Number.isFinite(raw) && raw > 0 ? raw : 0;

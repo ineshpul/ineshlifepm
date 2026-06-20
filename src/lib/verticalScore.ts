@@ -22,6 +22,39 @@ export function streakMultiplierForDays(streakDays: number): number {
   return 1;
 }
 
+export const STREAK_MULTIPLIER_TIERS = [
+  { minDays: 30, multiplier: 1.5 },
+  { minDays: 14, multiplier: 1.4 },
+  { minDays: 7, multiplier: 1.25 },
+  { minDays: 2, multiplier: 1.1 },
+] as const;
+
+export function formatStreakMultiplierDisplay(multiplier: number): string {
+  const m = Number(multiplier);
+  if (!Number.isFinite(m) || m <= 1) return '1×';
+  const label = Number.isInteger(m) ? String(m) : String(Math.round(m * 100) / 100);
+  return `${label}×`;
+}
+
+export function nextStreakMultiplierMilestone(streakDays: number): {
+  targetDays: number;
+  multiplier: number;
+  daysRemaining: number;
+} | null {
+  const s = Math.max(0, Math.floor(Number(streakDays ?? 0)));
+  if (s >= 30) return null;
+  if (s >= 14) return { targetDays: 30, multiplier: 1.5, daysRemaining: 30 - s };
+  if (s >= 7) return { targetDays: 14, multiplier: 1.4, daysRemaining: 14 - s };
+  if (s >= 2) return { targetDays: 7, multiplier: 1.25, daysRemaining: 7 - s };
+  return { targetDays: 2, multiplier: 1.1, daysRemaining: Math.max(1, 2 - s) };
+}
+
+export function formatLeaderboardStreakDays(streakDays: number): string {
+  const s = Math.max(0, Math.floor(Number(streakDays ?? 0)));
+  if (s <= 0) return '';
+  return s === 1 ? '1 day' : `${s} days`;
+}
+
 export type PostLeapInchesInput = {
   streakDays: number;
   isFirstEverLeap: boolean;
