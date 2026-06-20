@@ -218,22 +218,31 @@ export function TopScreen() {
   },
   avatarInitials: { fontSize: 14, fontWeight: '900', color: colors.text },
   rowBody: { flex: 1, minWidth: 0 },
-  nameScoreRow: {
+  rowMeta: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 10,
   },
-  name: { flex: 1, fontSize: 16, fontWeight: '800', color: colors.text, minWidth: 0 },
-  handle: { fontSize: 12, fontWeight: '700', marginTop: 2 },
-  scoreCol: { alignItems: 'flex-end', flexShrink: 0 },
-  score: { fontSize: 16, fontWeight: '900', color: colors.moss, fontVariant: ['tabular-nums'] },
+  identityCol: { flex: 1, minWidth: 0 },
+  name: { fontSize: 16, fontWeight: '800', color: colors.text, lineHeight: 20, minWidth: 0 },
+  metaLine: { fontSize: 12, fontWeight: '700', marginTop: 2, lineHeight: 16 },
+  metaLinePlaceholder: { height: 16, marginTop: 2 },
+  scoreCol: { alignItems: 'flex-end', flexShrink: 0, minWidth: 72 },
+  score: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: colors.moss,
+    lineHeight: 20,
+    fontVariant: ['tabular-nums'],
+  },
   scoreMe: { color: colors.moss },
-  streakUnderScore: {
+  streakLine: {
     marginTop: 2,
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: '800',
-    color: colors.highlightCardBadge,
+    lineHeight: 16,
+    color: colors.highlightCardBorder,
     fontVariant: ['tabular-nums'],
   },
 }));
@@ -614,6 +623,9 @@ export function TopScreen() {
         }
         renderItem={({ item }) => {
           const scoreMain = scoreForRow(item);
+          const hasMetaLine = Boolean(
+            item.username?.trim() || (item.streakDays && item.streakDays > 0)
+          );
           const podium =
             item.rank >= 1 && item.rank <= 3
               ? podiumTierStyles(item.rank, isDark)
@@ -674,20 +686,34 @@ export function TopScreen() {
                 </View>
               </View>
               <View style={styles.rowBody}>
-                <View style={styles.nameScoreRow}>
-                  <Text style={styles.name} numberOfLines={1}>
-                    {item.name}
-                  </Text>
+                <View style={styles.rowMeta}>
+                  <View style={styles.identityCol}>
+                    <Text style={styles.name} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    {hasMetaLine ? (
+                      item.username?.trim() ? (
+                        <UsernameLink
+                          uid={item.userId}
+                          username={item.username.trim()}
+                          style={styles.metaLine}
+                        />
+                      ) : (
+                        <View style={styles.metaLinePlaceholder} />
+                      )
+                    ) : null}
+                  </View>
                   <View style={styles.scoreCol}>
                     <Text style={[styles.score, item.isCurrentUser && styles.scoreMe]}>{scoreMain}</Text>
-                    {item.streakDays && item.streakDays > 0 ? (
-                      <Text style={styles.streakUnderScore}>🔥 {item.streakDays}</Text>
+                    {hasMetaLine ? (
+                      item.streakDays && item.streakDays > 0 ? (
+                        <Text style={styles.streakLine}>🔥 {item.streakDays}</Text>
+                      ) : (
+                        <View style={styles.metaLinePlaceholder} />
+                      )
                     ) : null}
                   </View>
                 </View>
-                {item.username?.trim() ? (
-                  <UsernameLink uid={item.userId} username={item.username.trim()} style={styles.handle} />
-                ) : null}
               </View>
             </Pressable>
           );
