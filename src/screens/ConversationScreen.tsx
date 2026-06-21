@@ -18,7 +18,7 @@ import {
   View,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { useHeaderHeight } from '@react-navigation/elements';
+import { HeaderBackButton, useHeaderHeight } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -319,6 +319,20 @@ export function ConversationScreen({ navigation, route }: Props) {
     );
   }, [dmPeer?.memberUid]);
 
+  const headerBack = React.useCallback(
+    (props: React.ComponentProps<typeof HeaderBackButton>) => (
+      <HeaderBackButton
+        {...props}
+        tintColor={colors.text}
+        onPress={() => {
+          if (navigation.canGoBack()) navigation.goBack();
+          else navigation.navigate('ChatInbox');
+        }}
+      />
+    ),
+    [colors.text, navigation]
+  );
+
   React.useLayoutEffect(() => {
     // `conversation.name` is often stale or defaulted to "Chat" on older DM docs; `myMember.convTitle`
     // is the per-user denormalized thread label (peer name for DMs). Prefer those over the conv doc.
@@ -363,6 +377,8 @@ export function ConversationScreen({ navigation, route }: Props) {
       const showAt = handle.startsWith('@') ? handle : `@${handle.replace(/^@+/u, '')}`;
       navigation.setOptions({
         title: undefined,
+        headerBackVisible: true,
+        headerLeft: headerBack,
         headerTitleAlign: 'center',
         headerTitle: () => (
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', minHeight: 40 }}>
@@ -404,28 +420,32 @@ export function ConversationScreen({ navigation, route }: Props) {
             </Pressable>
           </View>
         ),
-        headerRight: () => <View style={{ width: 8 }} />,
+        headerRight: undefined,
       });
     } else {
       navigation.setOptions({
         title,
+        headerBackVisible: true,
+        headerLeft: headerBack,
         headerTitleAlign: undefined,
         headerTitle: undefined,
-        headerRight: () =>
-          conversation?.type === 'group' ? (
-            <TouchableOpacity
-              style={{ paddingHorizontal: 8, marginRight: 4 }}
-              onPress={() => navigation.navigate('GroupInfo', { conversationId })}
-            >
-              <Ionicons name="information-circle-outline" size={24} color={colors.text} />
-            </TouchableOpacity>
-          ) : (
-            <View style={{ width: 8 }} />
-          ),
+        headerRight:
+          conversation?.type === 'group'
+            ? () => (
+                <TouchableOpacity
+                  style={{ paddingHorizontal: 8, marginRight: 4 }}
+                  onPress={() => navigation.navigate('GroupInfo', { conversationId })}
+                >
+                  <Ionicons name="information-circle-outline" size={24} color={colors.text} />
+                </TouchableOpacity>
+              )
+            : undefined,
       });
     }
   }, [
     navigation,
+    headerBack,
+    colors.text,
     conversation?.name,
     conversation?.type,
     conversation?.avatarUrl,
@@ -874,7 +894,7 @@ export function ConversationScreen({ navigation, route }: Props) {
   );
 
   return (
-    <Screen style={styles.screen} edges={['top', 'left', 'right']}>
+    <Screen style={styles.screen} edges={['bottom', 'left', 'right']}>
       <KeyboardAvoidingView
         style={styles.flex}
         enabled
