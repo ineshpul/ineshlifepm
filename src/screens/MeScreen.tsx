@@ -17,7 +17,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { collection, doc, limit, onSnapshot, query, where } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { useProfileScreenStyles } from '../styles/profileScreenStyles';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
@@ -25,6 +25,7 @@ import { Brandmark } from '../components/Brandmark';
 import { Screen } from '../components/Screen';
 import { useAuth } from '../state/auth';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { userVideosQuery } from '../lib/userVideosQuery';
 import { showError } from '../utils/ui';
 import { markAllNotificationsRead, subscribeFollowing, type FollowingRow } from '../services/social';
 import { setAppBadgeCount } from '../services/pushNotifications';
@@ -359,7 +360,7 @@ export function MeScreen() {
       setMyVideos([]);
       return;
     }
-    const q = query(collection(firestore(), 'videos'), where('uid', '==', user.uid), limit(120));
+    const q = userVideosQuery({ uid: user.uid, limitN: 120 });
     return onSnapshot(
       q,
       (snap) => {

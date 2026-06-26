@@ -16,13 +16,16 @@
     "recompute:all": "npm run build && node lib/runRecomputeAllVerticalScoresScript.js",
     "dedupe:usernames": "npm run build && node lib/scripts/dedupeUsernames.js",
     "dedupe:usernames:execute": "npm run build && node lib/scripts/dedupeUsernames.js --execute",
+    "backfill:username-lower": "npm run build && node lib/scripts/backfillUsernameLower.js",
+    "backfill:username-lower:execute": "npm run build && node lib/scripts/backfillUsernameLower.js --execute",
     "reset:recording-attempts": "npm run build && node lib/runResetRecordingAttemptsForLeapDayScript.js",
     "reset:recording-attempts:user": "npm run build && node lib/runResetRecordingAttemptsForUserScript.js",
     "heal:leap-day": "npm run build && node lib/runHealLeapDayPostAndAttemptsScript.js",
     "check:referral": "npm run build && node lib/runReferralRewardsSelfCheck.js",
     "heal:stale-streaks": "npm run build && node lib/runHealStaleStreaksScript.js",
     "test:inches": "npm run build && node lib/runInchCountingTestScript.js",
-    "grant:app-review": "npm run build && node lib/scripts/grantAppReviewAccess.js"
+    "grant:app-review": "npm run build && node lib/scripts/grantAppReviewAccess.js",
+    "allow:repost": "npm run build && node lib/scripts/allowRepostToday.js"
   },
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.758.0",

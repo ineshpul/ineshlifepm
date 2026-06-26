@@ -41,6 +41,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useThemedStackScreenOptions } from './themedStackScreenOptions';
 import { hasCompletedOnboardingIntro } from '../state/onboardingIntro';
 import { OnboardingIntroGateScreen, OnboardingIntroReplayScreen } from '../screens/OnboardingIntroGate';
+import { navigateToTodayAndRecord } from './navigationHelpers';
 
 const MainStack = createNativeStackNavigator<MainStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -273,9 +274,7 @@ export function RootNavigator() {
     if (!pendingRecordAfterOnboarding || !authed || !onboardingDone) return;
     setPendingRecordAfterOnboarding(false);
     const id = requestAnimationFrame(() => {
-      if (rootNavigationRef.isReady()) {
-        rootNavigationRef.navigate('Record');
-      }
+      navigateToTodayAndRecord();
     });
     return () => cancelAnimationFrame(id);
   }, [pendingRecordAfterOnboarding, authed, onboardingDone]);

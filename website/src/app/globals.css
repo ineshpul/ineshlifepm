@@ -45,6 +45,8 @@
   --leap-max-width-site: 1040px;
   --leap-max-width-copy: 520px;
   --leap-max-width-form: 640px;
+
+  --leap-shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.08);
 }
 
 body {
@@ -87,9 +89,15 @@ a {
 .top-bar-inner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
   min-height: 68px;
+}
+
+.top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 
 .brand-lockup {
@@ -145,6 +153,19 @@ a {
 .band-pad-sm {
   padding-top: 48px;
   padding-bottom: 48px;
+}
+
+/* Tight spacing between hero and live card */
+.hero-live-band {
+  padding-top: 0;
+  padding-bottom: 52px;
+}
+
+@media (min-width: 768px) {
+  .hero-live-band {
+    padding-top: 0;
+    padding-bottom: 60px;
+  }
 }
 
 /* ——— Typography ——— */
@@ -223,13 +244,13 @@ a {
 /* ——— Hero ——— */
 .hero-band {
   padding-top: 36px;
-  padding-bottom: 52px;
+  padding-bottom: 22px;
 }
 
 @media (min-width: 768px) {
   .hero-band {
     padding-top: 52px;
-    padding-bottom: 64px;
+    padding-bottom: 28px;
   }
 }
 
@@ -238,9 +259,20 @@ a {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 28px;
+  gap: 20px;
   max-width: 36em;
   margin: 0 auto;
+}
+
+@media (min-width: 980px) {
+  .hero-layout {
+    max-width: 36em;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 20px;
+  }
 }
 
 .brandmark-hero {
@@ -255,6 +287,12 @@ a {
   align-items: center;
   gap: 22px;
   width: 100%;
+}
+
+@media (min-width: 980px) {
+  .hero-copy {
+    align-items: center;
+  }
 }
 
 .hero-lead {
@@ -279,6 +317,13 @@ a {
   }
 }
 
+@media (min-width: 980px) {
+  .hero-highlights {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
 .hero-highlight {
   display: flex;
   flex-direction: column;
@@ -286,16 +331,22 @@ a {
   gap: 4px;
   padding: 14px 16px;
   border-radius: var(--leap-radius-card);
-  border: 1px solid var(--leap-border);
-  background: var(--leap-card-tint);
+  border: 1px solid color-mix(in srgb, var(--leap-coral) 30%, var(--leap-border));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--leap-coral) 10%, var(--leap-white)),
+      color-mix(in srgb, var(--leap-card-tint) 78%, var(--leap-white))
+    );
   text-align: left;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.06);
 }
 
 .hero-highlight-tag {
   font-size: 13px;
   font-weight: var(--leap-weight-bold);
   letter-spacing: 0.02em;
-  color: var(--leap-green);
+  color: var(--leap-coral);
 }
 
 .hero-highlight-text {
@@ -310,6 +361,60 @@ a {
   justify-content: center;
   width: 100%;
   padding-top: 4px;
+}
+
+@media (min-width: 980px) {
+  .hero-actions {
+    justify-content: center;
+  }
+}
+
+/* ——— Leap of the Day card (near top) ——— */
+.hero-module {
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.hero-module-grid {
+  display: grid;
+  gap: 14px;
+}
+
+@media (min-width: 900px) {
+  .hero-module-grid {
+    grid-template-columns: 1.2fr 0.8fr;
+    align-items: start;
+    gap: 16px;
+  }
+}
+
+.hero-live {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 18px 18px;
+  border-radius: var(--leap-radius-card);
+  border: 1px solid color-mix(in srgb, var(--leap-green) 30%, var(--leap-border));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--leap-green) 9%, var(--leap-white)),
+      color-mix(in srgb, var(--leap-card-tint) 78%, var(--leap-white))
+    );
+  text-align: left;
+  box-shadow: var(--leap-shadow-soft);
+}
+
+.hero-live .section-label {
+  color: var(--leap-green);
+}
+
+.hero-live .market-title {
+  margin-top: 8px;
+}
+
+.hero-live .market-actions {
+  margin-top: 14px;
 }
 
 /* ——— Problem: vision copy + horizontal stats ——— */
@@ -483,6 +588,98 @@ a {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* ——— Live marketing: today's leap + leaperboard ——— */
+.market-grid {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+@media (min-width: 900px) {
+  .market-grid {
+    grid-template-columns: 1.1fr 0.9fr;
+    align-items: start;
+    gap: 18px;
+  }
+}
+
+.market-card {
+  padding: 22px 20px;
+  border-radius: var(--leap-radius-card);
+  border: 1px solid var(--leap-border);
+  background: var(--leap-card);
+}
+
+.market-title {
+  margin: 10px 0 0;
+  font-size: 22px;
+  font-weight: var(--leap-weight-black);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--leap-text);
+}
+
+.market-meta {
+  margin: 8px 0 0;
+  font-size: 14px;
+  font-weight: var(--leap-weight-semibold);
+  color: var(--leap-muted);
+}
+
+.market-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.leaderboard-list {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.leaderboard-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--leap-border-2);
+  background: color-mix(in srgb, var(--leap-card-tint) 70%, var(--leap-white));
+}
+
+.leaderboard-rank {
+  font-size: 13px;
+  font-weight: var(--leap-weight-black);
+  color: var(--leap-green);
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+
+.leaderboard-user {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: var(--leap-weight-bold);
+  color: var(--leap-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leaderboard-score {
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: var(--leap-weight-black);
+  color: var(--leap-moss);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ——— Suggest: vertical, aligned ——— */

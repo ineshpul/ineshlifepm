@@ -14,7 +14,9 @@
 
 import * as admin from 'firebase-admin';
 
-admin.initializeApp();
+admin.initializeApp({
+  projectId: process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT || 'leap-e4cce',
+});
 
 const db = admin.firestore();
 const auth = admin.auth();
@@ -31,11 +33,30 @@ function usernameClaimDocId(raw: string): string {
   return s.length > 40 ? s.slice(0, 40) : s;
 }
 
-function score(data: FirebaseFirestore.DocumentData | undefined): number {
+function activityScore(data: FirebaseFirestore.DocumentData | undefined): number {
   if (!data) return 0;
   const vs = Number(data.verticalScore ?? 0);
   const life = Number(data.leaperLifetimePoints ?? 0);
-  return vs * 1e12 + life;
+  const challenges = Number(data.challengesCompleted ?? 0);
+  const streak = Number(data.activeLeapStreakDays ?? 0);
+  const updatedMs =
+    typeof data.updatedAt?.toMillis === 'function' ? (data.updatedAt as FirebaseFirestore.Timestamp).toMillis() : 0;
+  return vs * 1e15 + life * 1e9 + challenges * 1e6 + streak * 1e3 + updatedMs;
+}
+
+/** @deprecated use {@link activityScore} */
+function score(data: FirebaseFirestore.DocumentData | undefined): number {
+  return activityScore(data);
+}
+
+function normalizedKeyForUser(data: FirebaseFirestore.DocumentData | undefined): string {
+  const lower =
+    typeof data?.usernameLower === 'string' && String(data.usernameLower).trim()
+      ? String(data.usernameLower).trim()
+      : '';
+  if (lower) return lower;
+  const username = String(data?.username ?? '').trim() || 'user';
+  return usernameClaimDocId(username);
 }
 
 async function deleteQueryInBatches(
@@ -104,8 +125,7 @@ async function main(): Promise<void> {
   const byKey = new Map<string, { id: string; data: FirebaseFirestore.DocumentData }[]>();
 
   for (const d of snap.docs) {
-    const username = String(d.data()?.username ?? '').trim() || 'user';
-    const key = usernameClaimDocId(username);
+    const key = normalizedKeyForUser(d.data());
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key)!.push({ id: d.id, data: d.data() });
   }
@@ -121,17 +141,17 @@ async function main(): Promise<void> {
       continue;
     }
 
-    group.sort((a, b) => score(b.data) - score(a.data));
+    group.sort((a, b) => activityScore(b.data) - activityScore(a.data));
     const winner = group[0];
     const rest = group.slice(1);
 
     duplicateGroups += 1;
     console.log(
-      `[${key}] keep ${winner.id} (score=${score(winner.data).toFixed(0)} vertical=${winner.data?.verticalScore ?? 0})`
+      `[${key}] keep ${winner.id} (activity=${activityScore(winner.data).toFixed(0)} username=${winner.data?.username ?? '?'})`
     );
     for (const l of rest) {
       console.log(
-        `    drop ${l.id} (score=${score(l.data).toFixed(0)} vertical=${l.data?.verticalScore ?? 0})`
+        `    drop ${l.id} (activity=${activityScore(l.data).toFixed(0)} username=${l.data?.username ?? '?'})`
       );
       accountsRemoved += 1;
       if (!dryRun) {

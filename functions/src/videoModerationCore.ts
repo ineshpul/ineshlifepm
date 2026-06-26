@@ -163,12 +163,30 @@ async function finishModerationJobDoc(
   if (s3Key) await deleteModerationS3Object(s3, bucket, s3Key);
 }
 
+/** When AWS moderation is unavailable, approve once the Firestore video doc exists. */
+export async function processAutoApproveWhenReadyJob(
+  jobRef: admin.firestore.DocumentReference,
+  data: Record<string, unknown>
+): Promise<boolean> {
+  const videoDocId = String(data.videoDocId ?? jobRef.id);
+  const applyResult = await applyModerationResult(videoDocId, false);
+  if (applyResult === 'not_ready') return false;
+  await jobRef.delete().catch(() => {});
+  logger.info('Video auto-approved (moderation fallback)', { videoDocId });
+  return true;
+}
+
 /** Poll one Firestore moderation job doc; returns true when the job doc was removed or failed out. */
 export async function processOneModerationJobDoc(
   jobRef: admin.firestore.DocumentReference,
   data: Record<string, unknown>,
   clients: { s3: S3Client; rekognition: RekognitionClient; bucket: string }
 ): Promise<boolean> {
+  const status = String(data.status ?? '');
+  if (status === 'auto_approve_when_ready') {
+    return processAutoApproveWhenReadyJob(jobRef, data);
+  }
+
   const { s3, rekognition, bucket } = clients;
   const videoDocId = String(data.videoDocId ?? jobRef.id);
   const jobId = String(data.jobId ?? '');
@@ -180,12 +198,10 @@ export async function processOneModerationJobDoc(
 
   const createdMs = jobCreatedMs(data);
   if (createdMs && Date.now() - createdMs > JOB_MAX_AGE_MS) {
-    logger.error('Moderation job timed out', { videoDocId, jobId });
-    await jobRef.set(
-      { status: 'timeout', updatedAt: admin.firestore.FieldValue.serverTimestamp() },
-      { merge: true }
-    );
-    await deleteModerationS3Object(s3, bucket, s3Key);
+    logger.error('Moderation job timed out — auto-approving', { videoDocId, jobId });
+    const applyResult = await applyModerationResult(videoDocId, false);
+    if (applyResult === 'not_ready') return false;
+    await finishModerationJobDoc(jobRef, data, s3, bucket);
     return true;
   }
 
@@ -193,12 +209,10 @@ export async function processOneModerationJobDoc(
   if (result.state === 'pending') return false;
 
   if (result.state === 'failed') {
-    logger.error('Rekognition job FAILED', { videoDocId, message: result.message });
-    await jobRef.set(
-      { status: 'failed', updatedAt: admin.firestore.FieldValue.serverTimestamp() },
-      { merge: true }
-    );
-    await deleteModerationS3Object(s3, bucket, s3Key);
+    logger.error('Rekognition job FAILED — auto-approving', { videoDocId, message: result.message });
+    const applyResult = await applyModerationResult(videoDocId, false);
+    if (applyResult === 'not_ready') return false;
+    await finishModerationJobDoc(jobRef, data, s3, bucket);
     return true;
   }
 
@@ -213,9 +227,6 @@ export async function pollModerationJobWithRetries(
   videoDocId: string,
   opts?: { maxAttempts?: number; intervalMs?: number }
 ): Promise<void> {
-  const clients = awsClients();
-  if (!clients) return;
-
   const maxAttempts = opts?.maxAttempts ?? 18;
   const intervalMs = opts?.intervalMs ?? 10_000;
   const db = admin.firestore();
@@ -225,7 +236,17 @@ export async function pollModerationJobWithRetries(
     const snap = await jobRef.get();
     if (!snap.exists) return;
     const data = snap.data() as Record<string, unknown>;
-    if (String(data.status ?? '') !== 'running') return;
+    const status = String(data.status ?? '');
+    if (status === 'auto_approve_when_ready') {
+      const done = await processAutoApproveWhenReadyJob(jobRef, data);
+      if (done) return;
+      await sleep(intervalMs);
+      continue;
+    }
+
+    const clients = awsClients();
+    if (!clients) return;
+    if (status !== 'running') return;
 
     try {
       const done = await processOneModerationJobDoc(jobRef, data, clients);
@@ -240,12 +261,29 @@ export async function pollModerationJobWithRetries(
 
 /** Polls pending Rekognition jobs (scheduler backup; upload trigger does the fast path). */
 export async function processPendingModerationJobs(limit = 15): Promise<void> {
+  const db = admin.firestore();
+  const fallbackSnap = await db
+    .collection(MODERATION_JOBS_COLLECTION)
+    .where('status', '==', 'auto_approve_when_ready')
+    .limit(limit)
+    .get();
+
+  for (const doc of fallbackSnap.docs) {
+    try {
+      await processAutoApproveWhenReadyJob(doc.ref, doc.data() as Record<string, unknown>);
+    } catch (e) {
+      logger.error('auto-approve moderation job error', { videoDocId: doc.id, e });
+    }
+  }
+
   const clients = awsClients();
   if (!clients) {
-    logger.error('pollVideoModerationJobs: missing AWS config');
+    if (fallbackSnap.empty) {
+      logger.error('pollVideoModerationJobs: missing AWS config');
+    }
     return;
   }
-  const db = admin.firestore();
+
   const snap = await db
     .collection(MODERATION_JOBS_COLLECTION)
     .where('status', '==', 'running')

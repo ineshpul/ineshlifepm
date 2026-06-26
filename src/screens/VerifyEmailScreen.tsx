@@ -29,6 +29,12 @@ export function VerifyEmailScreen() {
     title: { fontSize: 20, fontWeight: '900', color: colors.text },
     body: { fontSize: 14, lineHeight: 20, fontWeight: '600', color: colors.muted },
     emph: { color: colors.text, fontWeight: '800' },
+    spamHint: {
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: '700',
+      color: colors.text,
+    },
     row: { flexDirection: 'row', gap: 10, marginTop: 4 },
     btn: {
       flex: 1,
@@ -72,7 +78,10 @@ export function VerifyEmailScreen() {
     try {
       await resendEmailVerification();
       setResendCooldownSec(30);
-      Alert.alert('Verification email sent', 'Check your inbox (and spam) for the latest email.');
+      Alert.alert(
+        'Verification email sent',
+        `Check your inbox for ${email || 'your email'}. If you do not see it, look in spam or junk.`
+      );
     } catch (e) {
       Alert.alert('Could not resend', friendlySignInError(e));
     } finally {
@@ -115,6 +124,9 @@ export function VerifyEmailScreen() {
         <Text style={styles.body}>
           We sent a link to <Text style={styles.emph}>{email}</Text>. Tap it in your mail app, then return here and
           use “I’ve verified”.
+        </Text>
+        <Text style={styles.spamHint}>
+          Did not see it? Check spam or junk — verification emails often land there.
         </Text>
         <View style={styles.row}>
           <TouchableOpacity

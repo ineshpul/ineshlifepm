@@ -13,7 +13,7 @@ import { FlatList, ScrollView } from 'react-native-gesture-handler';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { collection, limit, onSnapshot, query, where } from 'firebase/firestore';
+import { onSnapshot } from 'firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
@@ -22,7 +22,8 @@ import { FeedPostEngagement } from '../components/FeedPostEngagement';
 import { Screen } from '../components/Screen';
 import { deleteOwnedVideo } from '../services/deleteVideo';
 import { useAuth } from '../state/auth';
-import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { firebaseAuth, isFirebaseConfigured } from '../firebase/firebase';
+import { userVideosQuery } from '../lib/userVideosQuery';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { showError } from '../utils/ui';
 import { FeedPostVideo, ReelVideoPlaceholder } from '../components/FeedPostVideo';
@@ -218,10 +219,11 @@ export function UserLeapsScreen({ route }: Props) {
       return;
     }
     setHydrated(false);
-    const col = collection(firestore(), 'videos');
-    const q = isOwnerViewer
-      ? query(col, where('uid', '==', targetUid), limit(40))
-      : query(col, where('uid', '==', targetUid), where('moderationStatus', '==', 'approved'), limit(40));
+    const q = userVideosQuery({
+      uid: targetUid,
+      approvedOnly: !isOwnerViewer,
+      limitN: 40,
+    });
     const unsub = onSnapshot(
       q,
       (snap) => {

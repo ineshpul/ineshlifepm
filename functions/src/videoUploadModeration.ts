@@ -51,12 +51,20 @@ export const onLeapVideoUploadedModerate = onObjectFinalized(
     }
 
     const clients = awsClients();
+    const jobRef = admin.firestore().doc(`${MODERATION_JOBS_COLLECTION}/${videoDocId}`);
     if (!clients) {
-      logger.error('Missing AWS env; skipping moderation', { videoDocId });
+      logger.error('Missing AWS env; queue auto-approve when video doc exists', { videoDocId });
+      await jobRef.set(
+        {
+          videoDocId,
+          status: 'auto_approve_when_ready',
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
       return;
     }
 
-    const jobRef = admin.firestore().doc(`${MODERATION_JOBS_COLLECTION}/${videoDocId}`);
     const existingJob = await jobRef.get();
     if (existingJob.exists && String(existingJob.data()?.status ?? '') === 'running') {
       logger.info('Skip moderation: job already running for video', { videoDocId, objectPath });

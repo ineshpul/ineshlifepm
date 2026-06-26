@@ -202,6 +202,8 @@ function FeedPostVideoInner(props: {
   const secondarySyncPosRef = React.useRef(0);
   const [status, setStatus] = React.useState<AVPlaybackStatus | null>(null);
   const [loaded, setLoaded] = React.useState(false);
+  const [playbackRetryKey, setPlaybackRetryKey] = React.useState(0);
+  const playbackRetryCountRef = React.useRef(0);
   const lastStatusPaintRef = React.useRef(0);
   const [userPaused, setUserPaused] = React.useState(false);
   const viewRecordedKeyRef = React.useRef<string | null>(null);
@@ -218,6 +220,7 @@ function FeedPostVideoInner(props: {
 
   React.useEffect(() => {
     setLoaded(false);
+    playbackRetryCountRef.current = 0;
     lastStatusPaintRef.current = 0;
     prevEffectivePlayRef.current = false;
     secondarySyncPosRef.current = 0;
@@ -296,6 +299,20 @@ function FeedPostVideoInner(props: {
     void pauseVideoPlayer(player, reel);
     void pauseVideoPlayer(secondary, false);
   }, [effectivePlay, reel]);
+
+  // expo-av does not always apply mute/volume prop changes while a clip is playing.
+  React.useEffect(() => {
+    const player = videoRef.current;
+    if (!player) return;
+    void (async () => {
+      try {
+        await player.setIsMutedAsync(primaryAudioMuted);
+        await player.setVolumeAsync(audioOnSecondary ? 0 : playerMuted ? 0 : 1.0);
+      } catch {
+        // native race
+      }
+    })();
+  }, [primaryAudioMuted, audioOnSecondary, playerMuted]);
 
   // Dual-camera PIP must follow the main reel on every play/replay/loop.
   React.useEffect(() => {
@@ -482,6 +499,7 @@ function FeedPostVideoInner(props: {
   return (
     <View style={reel ? styles.videoStageReel : styles.videoStage}>
       <Video
+        key={`${url}-${playbackRetryKey}`}
         ref={videoRef}
         source={{ uri: url }}
         style={videoStyle}
@@ -494,6 +512,13 @@ function FeedPostVideoInner(props: {
         progressUpdateIntervalMillis={dataSaver ? 800 : 250}
         onPlaybackStatusUpdate={onPlaybackStatusUpdate}
         onError={() => {
+          if (playbackRetryCountRef.current < 2) {
+            playbackRetryCountRef.current += 1;
+            setLoaded(false);
+            setUserPaused(false);
+            setPlaybackRetryKey((k) => k + 1);
+            return;
+          }
           setLoaded(false);
           setUserPaused(false);
         }}

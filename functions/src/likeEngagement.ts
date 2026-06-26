@@ -5,12 +5,16 @@ import { onDocumentCreated, onDocumentDeleted } from 'firebase-functions/v2/fire
 const REGION = 'us-central1';
 const POST_COLLECTION = 'videos';
 
+/** Set by `toggleVideoLikeCallable` so trigger handlers skip a second increment. */
+export const COUNT_SYNCED_FIELD = 'countSynced';
+
 async function bumpLikesCount(videoId: string, delta: number): Promise<void> {
   if (!delta) return;
   try {
-    await admin.firestore().doc(`${POST_COLLECTION}/${videoId}`).update({
-      likesCount: admin.firestore.FieldValue.increment(delta),
-    });
+    await admin
+      .firestore()
+      .doc(`${POST_COLLECTION}/${videoId}`)
+      .set({ likesCount: admin.firestore.FieldValue.increment(delta) }, { merge: true });
   } catch (e) {
     logger.warn('likesCount sync failed', { videoId, delta, e });
   }
@@ -22,6 +26,8 @@ export const onVideoLikeCreated = onDocumentCreated(
   async (event) => {
     const videoId = event.params.videoId as string;
     if (!videoId) return;
+    const data = event.data?.data() as Record<string, unknown> | undefined;
+    if (data?.[COUNT_SYNCED_FIELD] === true) return;
     await bumpLikesCount(videoId, 1);
   }
 );
@@ -32,6 +38,8 @@ export const onVideoLikeDeleted = onDocumentDeleted(
   async (event) => {
     const videoId = event.params.videoId as string;
     if (!videoId) return;
+    const data = event.data?.data() as Record<string, unknown> | undefined;
+    if (data?.[COUNT_SYNCED_FIELD] === true) return;
     await bumpLikesCount(videoId, -1);
   }
 );

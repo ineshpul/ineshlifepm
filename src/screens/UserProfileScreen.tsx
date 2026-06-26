@@ -12,13 +12,9 @@ import { Image } from 'expo-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import {
-  collection,
   doc,
   getDoc,
-  limit,
   onSnapshot,
-  query,
-  where,
   type DocumentSnapshot,
 } from 'firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +24,7 @@ import { Screen } from '../components/Screen';
 import { HighestLeapSheet } from '../components/profile/HighestLeapSheet';
 import { useProfileStats } from '../components/profile/useProfileStats';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { userVideosQuery } from '../lib/userVideosQuery';
 import type { MainStackParamList } from '../navigation/types';
 import { useAuth } from '../state/auth';
 import { useCanViewOtherUsersVideos } from '../state/posting';
@@ -216,10 +213,11 @@ export function UserProfileScreen({ route, navigation }: Props) {
       setVideosHydrated(true);
       return;
     }
-    const col = collection(firestore(), 'videos');
-    const q = isViewerOwner
-      ? query(col, where('uid', '==', uid), limit(120))
-      : query(col, where('uid', '==', uid), where('moderationStatus', '==', 'approved'), limit(120));
+    const q = userVideosQuery({
+      uid,
+      approvedOnly: !isViewerOwner,
+      limitN: 120,
+    });
     return onSnapshot(
       q,
       (snap) => {

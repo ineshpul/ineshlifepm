@@ -50,12 +50,40 @@ export function navigateToUserProfile(
 }
 
 export function navigateToRecord(navigation: NavigationProp<ParamListBase>) {
+  if (rootNavigationRef.isReady()) {
+    rootNavigationRef.navigate('Record');
+    return;
+  }
   const parent = navigation.getParent?.();
   if (parent?.navigate) {
     parent.navigate('Record' as never);
     return;
   }
   navigation.navigate('Record' as never);
+}
+
+const tabsStateToday = {
+  index: 0,
+  routes: [
+    { name: 'Today' as const },
+    { name: 'Feed' as const },
+    { name: 'Top' as const },
+    { name: 'Chat' as const },
+    { name: 'Me' as const },
+  ],
+};
+
+/** Dismisses Settings / intro modals and opens Record with Today (home) underneath. */
+export function navigateToTodayAndRecord() {
+  const resetAction = CommonActions.reset({
+    index: 1,
+    routes: [{ name: 'Tabs', state: tabsStateToday }, { name: 'Record' }],
+  });
+
+  if (rootNavigationRef.isReady()) {
+    rootNavigationRef.dispatch(resetAction);
+    return;
+  }
 }
 
 export type ChatSharePostPayload = {

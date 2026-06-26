@@ -364,6 +364,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await updateProfile(cred.user, { displayName: username });
       await sendEmailVerification(cred.user);
       const u = cred.user;
+
+      // Username search queries `users.usernameLower` — must exist before others can find this account.
+      try {
+        const resolved = await bootstrapUserDocWithUsername({ uid: u.uid, candidateUsername: username });
+        await syncAuthDisplayNameIfNeeded(resolved.username);
+      } catch {
+        // Offline / transient rules — applyFirebaseSession retries bootstrap on next session tick.
+      }
+
       setUser((prev) =>
         mergeAuthUser(prev, {
           uid: u.uid,
@@ -379,8 +388,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           await auth.authStateReady();
           if (auth.currentUser?.uid === u.uid) {
-            // claimReferralCallable requires `users/{uid}` — bootstrap runs async in applyFirebaseSession.
-            await bootstrapUserDocWithUsername({ uid: u.uid, candidateUsername: username });
             await claimReferral(invite);
           }
         } catch {

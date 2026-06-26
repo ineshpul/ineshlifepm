@@ -84,6 +84,25 @@ export function SignInScreen() {
       fontWeight: '800',
       color: colors.moss,
     },
+    spamNotice: {
+      padding: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      gap: 4,
+    },
+    spamNoticeTitle: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: colors.text,
+    },
+    spamNoticeBody: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.muted,
+      lineHeight: 17,
+    },
   }));
 
   const [email, setEmail] = React.useState('');
@@ -173,6 +192,10 @@ export function SignInScreen() {
         setOtpId(id);
         setOtpCode('');
         setStep('otp');
+        Alert.alert(
+          'Check your email',
+          `We sent a 6-digit sign-in code to ${email.trim()}. It may land in spam or junk — check there if you do not see it in your inbox within a minute.`
+        );
         return;
       }
       await finishEmailSignIn();
@@ -209,7 +232,7 @@ export function SignInScreen() {
       setOtpCode('');
       Alert.alert(
         'Code sent',
-        'Check your inbox for a new 6-digit code. If it does not arrive, look in spam or junk.'
+        `A new 6-digit code was sent to ${email.trim()}. If it is not in your inbox, check spam or junk.`
       );
     } catch (e: unknown) {
       Alert.alert('Could not resend', friendlySignInError(e));
@@ -233,13 +256,24 @@ export function SignInScreen() {
 
       <View style={styles.form}>
         {step === 'otp' ? (
-          <Text style={styles.rules}>
-            We sent a 6-digit code to <Text style={styles.emailEmph}>{email.trim()}</Text>. Enter it
-            below, then sign in. If you do not see it, check spam or junk. Codes expire in 10 minutes.
-          </Text>
+          <>
+            <Text style={styles.rules}>
+              We sent a 6-digit code to <Text style={styles.emailEmph}>{email.trim()}</Text>. Enter it
+              below to finish signing in. Codes expire in 10 minutes.
+            </Text>
+            <View style={styles.spamNotice}>
+              <Text style={styles.spamNoticeTitle}>Did not get the email?</Text>
+              <Text style={styles.spamNoticeBody}>
+                Sign-in codes often land in spam or junk. Open that folder and search for messages from
+                Leap — then tap Resend code if you still do not see it.
+              </Text>
+            </View>
+          </>
         ) : (
           <Text style={styles.rules}>
-            Use a valid email address. Password must be at least {PASSWORD_MIN_LENGTH} characters.
+            {otpEnabled
+              ? `Use a valid email address and password (at least ${PASSWORD_MIN_LENGTH} characters). After Continue we email a 6-digit code — check spam or junk if it does not arrive.`
+              : `Use a valid email address. Password must be at least ${PASSWORD_MIN_LENGTH} characters.`}
           </Text>
         )}
 

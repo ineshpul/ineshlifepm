@@ -19,13 +19,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import {
-  collection,
   doc,
-  limit,
   onSnapshot,
-  orderBy,
-  query,
-  where,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 
@@ -70,15 +65,18 @@ import {
   persistFeedPreviewStarted,
 } from '../state/feedPreviewLock';
 import {
-  challengeDateKeysForFirestoreIn,
   computeFeedViewingFromNow,
-  groupDayKeysForFirestoreInQuery,
   normalizeNyDateKey,
   nyDateKey,
   nyDateKeyToSortUtcMs,
   nyLeapDayChainBackward,
   prevNyDateKey,
 } from '../utils/nyTime';
+import {
+  fetchFirstApprovedFeedPage,
+  fetchNextApprovedFeedPage,
+  type FeedApprovedPageCursor,
+} from '../lib/feedApprovedPagination';
 import { shareReferralInvite } from '../utils/shareReferralInvite';
 type FeedVideo = {
   id: string;
@@ -104,8 +102,6 @@ const REEL_BOTTOM_SHEET = 232;
 /** Prior days use {@link nyLeapDayChainBackward} → {@link prevNyDateKey} — **same stepping as streaks** (one NY calendar day per step). */
 const FEED_DAY_WINDOW = 14;
 const FEED_HYDRATE_SAFETY_MS = 8_000;
-/** Per batched approved-feed listener (same as 1.0.1). */
-const FEED_APPROVED_PER_BATCH_LIMIT = 80;
 
 /** Same visibility rules as the feed FlatList data (friends / block / mute / hidden; no preview slice). */
 function filterFeedVideosForViewer(
@@ -394,6 +390,18 @@ export function FeedScreen() {
   },
   reelEngagementScroll: {
     alignSelf: 'stretch',
+  },
+  reelEngagementPlaceholder: {
+    minHeight: 48,
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  reelEngagementPlaceholderText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+    textAlign: 'center',
   },
   reelSwipeRail: {
     flexDirection: 'row',
@@ -759,6 +767,8 @@ export function FeedScreen() {
   const activeScrollIndexRef = React.useRef(0);
   const displayVideosRef = React.useRef<FeedVideo[]>([]);
   const feedSlotRef = React.useRef<View>(null);
+  const loadMoreFeedRef = React.useRef<(() => void) | null>(null);
+  const refreshFeedRef = React.useRef<(() => Promise<void>) | null>(null);
   const canViewEveryoneFeedRef = React.useRef(canViewEveryoneFeed);
   canViewEveryoneFeedRef.current = canViewEveryoneFeed;
 
@@ -791,8 +801,18 @@ export function FeedScreen() {
   const onPullRefreshFeed = React.useCallback(() => {
     if (!isFirebaseConfigured() || !user?.uid || feedPreviewMode) return;
     setFeedRefreshing(true);
-    setTimeout(() => setFeedRefreshing(false), 400);
+    void (async () => {
+      try {
+        await refreshFeedRef.current?.();
+      } finally {
+        setFeedRefreshing(false);
+      }
+    })();
   }, [user?.uid, feedPreviewMode]);
+
+  const onEndReachedFeed = React.useCallback(() => {
+    loadMoreFeedRef.current?.();
+  }, []);
 
   const onReelSheetLayoutFor = React.useCallback((videoId: string) => (e: LayoutChangeEvent) => {
     const h = Math.ceil(e.nativeEvent.layout.height);
@@ -837,18 +857,6 @@ export function FeedScreen() {
       logEngagementScrollingThrottled();
       const on = y >= scrollTopThreshold;
       setShowScrollTop((prev) => (prev === on ? prev : on));
-
-      if (pageHeight > 40) {
-        const list = displayVideosRef.current;
-        if (list.length > 0) {
-          const idx = Math.min(list.length - 1, Math.max(0, Math.round(y / pageHeight)));
-          if (idx !== activeScrollIndexRef.current) {
-            activeScrollIndexRef.current = idx;
-            const id = list[idx]?.id;
-            if (id) setActiveVideoId(id);
-          }
-        }
-      }
 
       if (
         feedPreviewMode &&
@@ -897,14 +905,8 @@ export function FeedScreen() {
   );
 
   const flatListExtraData = React.useMemo(
-    () => ({
-      pageHeight,
-      activeVideoId,
-      feedHydrated,
-      focused: isFocused ? 1 : 0,
-      reelSheetHeights,
-    }),
-    [pageHeight, activeVideoId, feedHydrated, isFocused, reelSheetHeights]
+    () => `${pageHeight}-${activeVideoId}-${feedHydrated ? 1 : 0}-${isFocused ? 1 : 0}`,
+    [pageHeight, activeVideoId, feedHydrated, isFocused]
   );
 
   React.useEffect(() => {
@@ -1031,39 +1033,67 @@ export function FeedScreen() {
     if (!isFirebaseConfigured() || !user?.uid) {
       setVideos([]);
       setFeedHydrated(true);
+      loadMoreFeedRef.current = null;
+      refreshFeedRef.current = null;
       return;
     }
 
     setFeedHydrated(false);
     let cancelled = false;
-    let approvedUnsubs: (() => void)[] = [];
     let mineUnsub: (() => void) | null = null;
-    let approvedDocsByBatch: FeedVideo[][] = [];
+    let approvedVideos: FeedVideo[] = [];
     let mineDocs: FeedVideo[] = [];
-    let approvedListenersDone = false;
+    let feedCursor: FeedApprovedPageCursor = { dayIndex: 0, lastDoc: null };
+    let feedHasMore = true;
+    let feedDayChain: string[] = [];
+    let approvedLoadDone = false;
     let mineListenerSeen = false;
+    let loadingMore = false;
 
     const bumpHydrated = () => {
       if (cancelled) return;
-      const hasPosts =
-        mineDocs.length > 0 || approvedDocsByBatch.some((batch) => batch.length > 0);
-      if (hasPosts || (approvedListenersDone && mineListenerSeen)) {
+      const hasPosts = mineDocs.length > 0 || approvedVideos.length > 0;
+      if (hasPosts || (approvedLoadDone && mineListenerSeen)) {
         setFeedHydrated(true);
       }
     };
 
+    const docToFeedVideo = (d: QueryDocumentSnapshot): FeedVideo => {
+      const data: any = d.data();
+      const createdAtMs =
+        typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+      const rawCd = data?.challengeDate;
+      const cdRaw =
+        rawCd && typeof (rawCd as { toDate?: () => Date }).toDate === 'function'
+          ? nyDateKey((rawCd as { toDate: () => Date }).toDate())
+          : String(rawCd ?? '');
+      const challengeDate = normalizeNyDateKey(cdRaw, viewingChallengeDateKey);
+      const secondaryUrlRaw = String(data?.secondaryUrl ?? '').trim();
+      const dualFrontIsPrimary = data?.dualFrontIsPrimary === true;
+      return {
+        id: d.id,
+        username: String(data?.username ?? 'user'),
+        prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
+        url: String(data?.url ?? ''),
+        ...(secondaryUrlRaw ? { secondaryUrl: secondaryUrlRaw } : {}),
+        ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
+        createdAtMs,
+        ownerUid: String(data?.uid ?? ''),
+        moderationStatus: String(data?.moderationStatus ?? 'approved'),
+        maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
+        challengeDate,
+        likesCount: Math.max(0, Number(data?.likesCount ?? 0)),
+        commentsCount: Math.max(0, Number(data?.commentsCount ?? 0)),
+      };
+    };
+
     const merge = () => {
       if (cancelled) return;
-      /** Posted users: wait for mine + approved so the feed never flashes only their clip. */
-      if (
-        canViewEveryoneFeedRef.current &&
-        (!approvedListenersDone || !mineListenerSeen)
-      ) {
+      if (canViewEveryoneFeedRef.current && (!approvedLoadDone || !mineListenerSeen)) {
         return;
       }
       const map = new Map<string, FeedVideo>();
-      const approvedFlat = approvedDocsByBatch.flat();
-      for (const v of [...mineDocs, ...approvedFlat]) {
+      for (const v of [...mineDocs, ...approvedVideos]) {
         if (!v.url) continue;
         map.set(v.id, v);
       }
@@ -1077,9 +1107,47 @@ export function FeedScreen() {
       if (merged.length > 0) bumpHydrated();
     };
 
+    const loadApprovedPage = async (reset: boolean) => {
+      if (cancelled) return;
+      if (!reset && (!feedHasMore || loadingMore || feedDayChain.length === 0)) return;
+      loadingMore = true;
+      try {
+        const result = reset
+          ? await fetchFirstApprovedFeedPage(feedDayChain, docToFeedVideo)
+          : await fetchNextApprovedFeedPage(feedDayChain, feedCursor, docToFeedVideo);
+        if (cancelled) return;
+        feedCursor = result.cursor;
+        feedHasMore = result.hasMore;
+        if (reset) {
+          approvedVideos = result.videos;
+        } else if (result.videos.length > 0) {
+          const existingIds = new Set(approvedVideos.map((v) => v.id));
+          for (const v of result.videos) {
+            if (!existingIds.has(v.id)) approvedVideos.push(v);
+          }
+        }
+        approvedLoadDone = true;
+        merge();
+        bumpHydrated();
+      } catch {
+        if (!cancelled) {
+          approvedLoadDone = true;
+          merge();
+          bumpHydrated();
+        }
+      } finally {
+        loadingMore = false;
+      }
+    };
+
+    refreshFeedRef.current = () => loadApprovedPage(true);
+    loadMoreFeedRef.current = () => {
+      void loadApprovedPage(false);
+    };
+
     const safetyTimer = setTimeout(() => {
       if (cancelled) return;
-      approvedListenersDone = true;
+      approvedLoadDone = true;
       mineListenerSeen = true;
       merge();
       setFeedHydrated(true);
@@ -1094,85 +1162,10 @@ export function FeedScreen() {
         const anchorKey = normalizeNyDateKey(viewingChallengeDateKey, calToday);
         const leapChain = nyLeapDayChainBackward(anchorKey, FEED_DAY_WINDOW);
         const calNorm = normalizeNyDateKey(calToday, calToday);
-        const dayChain =
+        feedDayChain =
           calNorm && calNorm !== anchorKey ? [calNorm, ...leapChain] : leapChain;
-        const dayGroups = groupDayKeysForFirestoreInQuery(dayChain);
-        approvedDocsByBatch = dayGroups.map(() => []);
 
-        const docToFeedVideo = (d: QueryDocumentSnapshot): FeedVideo => {
-          const data: any = d.data();
-          const createdAtMs =
-            typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
-          const rawCd = data?.challengeDate;
-          const cdRaw =
-            rawCd && typeof (rawCd as { toDate?: () => Date }).toDate === 'function'
-              ? nyDateKey((rawCd as { toDate: () => Date }).toDate())
-              : String(rawCd ?? '');
-          const challengeDate = normalizeNyDateKey(cdRaw, viewingChallengeDateKey);
-          const secondaryUrlRaw = String(data?.secondaryUrl ?? '').trim();
-          const dualFrontIsPrimary = data?.dualFrontIsPrimary === true;
-          return {
-            id: d.id,
-            username: String(data?.username ?? 'user'),
-            prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
-            url: String(data?.url ?? ''),
-            ...(secondaryUrlRaw ? { secondaryUrl: secondaryUrlRaw } : {}),
-            ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
-            createdAtMs,
-            ownerUid: String(data?.uid ?? ''),
-            moderationStatus: String(data?.moderationStatus ?? 'approved'),
-            maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
-            challengeDate,
-            likesCount: Math.max(0, Number(data?.likesCount ?? 0)),
-            commentsCount: Math.max(0, Number(data?.commentsCount ?? 0)),
-          };
-        };
-
-        const segmentSeen = dayGroups.map(() => false);
-        const markApprovedReady = () => {
-          approvedListenersDone = segmentSeen.length === 0 || segmentSeen.every(Boolean);
-          bumpHydrated();
-        };
-
-        if (dayGroups.length === 0) {
-          approvedListenersDone = true;
-          markApprovedReady();
-        } else {
-          approvedUnsubs = dayGroups.map((group, idx) => {
-            const inVals = challengeDateKeysForFirestoreIn(group);
-            if (inVals.length === 0) {
-              segmentSeen[idx] = true;
-              approvedDocsByBatch[idx] = [];
-              merge();
-              markApprovedReady();
-              return () => {};
-            }
-            const approvedQ = query(
-              collection(firestore(), 'videos'),
-              where('challengeDate', 'in', inVals),
-              where('moderationStatus', '==', 'approved'),
-              orderBy('createdAt', 'desc'),
-              limit(FEED_APPROVED_PER_BATCH_LIMIT)
-            );
-            return onSnapshot(
-              approvedQ,
-              (snap) => {
-                if (cancelled) return;
-                approvedDocsByBatch[idx] = snap.docs.map(docToFeedVideo);
-                merge();
-                segmentSeen[idx] = true;
-                markApprovedReady();
-              },
-              () => {
-                if (cancelled) return;
-                approvedDocsByBatch[idx] = [];
-                merge();
-                segmentSeen[idx] = true;
-                markApprovedReady();
-              }
-            );
-          });
-        }
+        void loadApprovedPage(true);
 
         const mineRef = doc(
           firestore(),
@@ -1234,8 +1227,9 @@ export function FeedScreen() {
     return () => {
       cancelled = true;
       clearTimeout(safetyTimer);
-      for (const u of approvedUnsubs) u();
       mineUnsub?.();
+      loadMoreFeedRef.current = null;
+      refreshFeedRef.current = null;
     };
   }, [nyCalendarDay, viewingChallengeDateKey, user?.uid]);
 
@@ -1355,6 +1349,8 @@ export function FeedScreen() {
           onViewableItemsChanged={onViewableItemsChanged}
           onScroll={onFeedScroll}
           scrollEventThrottle={16}
+          onEndReached={canViewEveryoneFeed && !feedPreviewMode ? onEndReachedFeed : undefined}
+          onEndReachedThreshold={2}
           contentContainerStyle={displayVideos.length === 0 ? { flexGrow: 1 } : undefined}
           pagingEnabled
           snapToInterval={pageHeight}
@@ -1363,8 +1359,11 @@ export function FeedScreen() {
           disableIntervalMomentum
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
-          removeClippedSubviews={false}
-          windowSize={5}
+          removeClippedSubviews={Platform.OS === 'android'}
+          initialNumToRender={3}
+          maxToRenderPerBatch={3}
+          windowSize={3}
+          updateCellsBatchingPeriod={50}
           getItemLayout={
             slotHeight > 0 && pageHeight > 40
               ? (_, index) => ({
@@ -1446,7 +1445,7 @@ export function FeedScreen() {
                     </Text>
                   </View>
                   <View style={styles.reelSheetActions}>
-                    {user?.uid && item.ownerUid !== user.uid ? (
+                    {user?.uid && item.ownerUid !== user.uid && item.id === activeVideoId ? (
                       <FollowButton
                         viewerUid={user.uid}
                         viewerUsername={user.username}
@@ -1491,7 +1490,7 @@ export function FeedScreen() {
                     ) : null}
                   </View>
                 </View>
-                {user?.uid ? (
+                {user?.uid && item.id === activeVideoId ? (
                   <View style={styles.reelEngagementScroll}>
                     <FeedPostEngagement
                       reelLayout
@@ -1506,6 +1505,12 @@ export function FeedScreen() {
                       initialLikesCount={item.likesCount}
                       initialCommentsCount={item.commentsCount}
                     />
+                  </View>
+                ) : user?.uid ? (
+                  <View style={styles.reelEngagementPlaceholder}>
+                    <Text style={styles.reelEngagementPlaceholderText}>
+                      Swipe to this leap — likes and comments load on the clip in view.
+                    </Text>
                   </View>
                 ) : null}
                 {displayVideos.length > 1 ? (

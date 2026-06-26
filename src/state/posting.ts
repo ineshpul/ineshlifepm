@@ -1,7 +1,8 @@
 import * as React from 'react';
-import { collection, doc, limit, onSnapshot, query, where } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { userVideosQuery } from '../lib/userVideosQuery';
 import { computeFeedViewingFromNow } from '../utils/nyTime';
 
 /** Matches `videos` doc id from `commitPostedVideo` — avoids a composite index on (uid, challengeDate). */
@@ -83,7 +84,7 @@ export function useHasPostedAnyVideo(uid: string | undefined) {
       setHasAny(false);
       return;
     }
-    const q = query(collection(firestore(), 'videos'), where('uid', '==', uid), limit(40));
+    const q = userVideosQuery({ uid, limitN: 1 });
     return onSnapshot(
       q,
       (snap) => {

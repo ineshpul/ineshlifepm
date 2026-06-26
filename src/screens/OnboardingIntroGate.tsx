@@ -3,7 +3,7 @@ import { useNavigation } from '@react-navigation/native';
 
 import { OnboardingIntroScreen } from './OnboardingIntroScreen';
 import { markOnboardingIntroCompleted } from '../state/onboardingIntro';
-import { navigateToRecord } from '../navigation/navigationHelpers';
+import { navigateToTodayAndRecord } from '../navigation/navigationHelpers';
 
 /** Onboarding replay from Settings (logged-in stack). */
 export function OnboardingIntroReplayScreen() {
@@ -12,7 +12,8 @@ export function OnboardingIntroReplayScreen() {
   const onFinish = React.useCallback(
     (action: { type: 'done' } | { type: 'record' }) => {
       if (action.type === 'record') {
-        navigateToRecord(navigation);
+        navigateToTodayAndRecord();
+        return;
       }
       if (navigation.canGoBack()) {
         navigation.goBack();

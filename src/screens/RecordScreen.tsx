@@ -47,6 +47,7 @@ import {
 } from '../state/postAttempts';
 import { useHasPostedToday } from '../state/posting';
 import { showError, showInfo } from '../utils/ui';
+import { withRetries } from '../utils/retry';
 import { CHALLENGE_INSTRUCTIONS } from '../content/challengeCopy';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import { BONUS_ATTEMPT_BASE_REDUCTION_INCHES } from '../lib/verticalScore';
@@ -904,7 +905,10 @@ export function RecordScreen() {
         return await getDownloadURL(task.snapshot.ref);
       };
 
-      const downloadUrl = await runResumableUpload(primaryRef, clipUri, 0, primaryShare);
+      const downloadUrl = await withRetries(
+        () => runResumableUpload(primaryRef, clipUri, 0, primaryShare),
+        { maxAttempts: 3 }
+      );
 
       let secondaryDownloadUrl: string | null = null;
       let secondaryRef: typeof primaryRef | null = null;
@@ -913,11 +917,10 @@ export function RecordScreen() {
         secondaryPath = `videos/${user.uid}/${viewingChallengeDateKey}/${Date.now()}_pip.${ext}`;
         secondaryRef = ref(storage(), secondaryPath);
         try {
-          secondaryDownloadUrl = await runResumableUpload(
-            secondaryRef,
-            secondaryClipUri,
-            primaryShare,
-            secondaryShare
+          secondaryDownloadUrl = await withRetries(
+            () =>
+              runResumableUpload(secondaryRef!, secondaryClipUri, primaryShare, secondaryShare),
+            { maxAttempts: 3 }
           );
         } catch (e) {
           // PIP upload failed. Roll back the primary so we don't strand a half-posted dual take.
@@ -941,29 +944,33 @@ export function RecordScreen() {
         } catch {
           // optional denormalized avatar on the leap doc
         }
-        await commitPostedVideo({
-          payload: {
-            uid: user.uid,
-            username: String(user.username ?? 'user').trim() || 'user',
-            ...(posterPhotoUrl ? { photoUrl: posterPhotoUrl } : {}),
-            challengeDate: viewingChallengeDateKey,
-            challengeTitle: challenge.title,
-            challengeSubtitle: CHALLENGE_INSTRUCTIONS,
-            prompt: challenge.title,
-            maxDurationSeconds: maxSec,
-            source: clipSource ?? 'unknown',
-            url: downloadUrl,
-            storagePath: primaryPath,
-            ...(secondaryDownloadUrl && secondaryPath
-              ? {
-                  secondaryUrl: secondaryDownloadUrl,
-                  secondaryStoragePath: secondaryPath,
-                  ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
-                }
-              : {}),
-            moderationStatus: requireMod ? 'pending' : 'approved',
-          },
-        });
+        await withRetries(
+          () =>
+            commitPostedVideo({
+              payload: {
+                uid: user.uid,
+                username: String(user.username ?? 'user').trim() || 'user',
+                ...(posterPhotoUrl ? { photoUrl: posterPhotoUrl } : {}),
+                challengeDate: viewingChallengeDateKey,
+                challengeTitle: challenge.title,
+                challengeSubtitle: CHALLENGE_INSTRUCTIONS,
+                prompt: challenge.title,
+                maxDurationSeconds: maxSec,
+                source: clipSource ?? 'unknown',
+                url: downloadUrl,
+                storagePath: primaryPath,
+                ...(secondaryDownloadUrl && secondaryPath
+                  ? {
+                      secondaryUrl: secondaryDownloadUrl,
+                      secondaryStoragePath: secondaryPath,
+                      ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
+                    }
+                  : {}),
+                moderationStatus: requireMod ? 'pending' : 'approved',
+              },
+            }),
+          { maxAttempts: 3 }
+        );
       } catch (e) {
         try {
           await deleteObject(primaryRef);
@@ -997,10 +1004,14 @@ export function RecordScreen() {
       setDualFrontIsPrimary(false);
       await navigateAfterPost({ recordedForSave, clipUriForOffer, watermarkInfo });
 
-      void syncAttemptLedgerAfterSuccessfulPost({
-        uid: user.uid,
-        challengeDate: viewingChallengeDateKey,
-      }).catch(() => {});
+      try {
+        await syncAttemptLedgerAfterSuccessfulPost({
+          uid: user.uid,
+          challengeDate: viewingChallengeDateKey,
+        });
+      } catch {
+        // ledger will self-heal on next post; video doc is the source of truth
+      }
       void updateDoc(doc(firestore(), 'users', user.uid), {
         challengesCompleted: increment(1),
         updatedAt: serverTimestamp(),

@@ -10,6 +10,7 @@
     "deploy": "vercel deploy --prod"
   },
   "dependencies": {
+    "firebase-admin": "^13.5.0",
     "next": "^15.5.18",
     "react": "19.2.4",
     "react-dom": "19.2.4",

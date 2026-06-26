@@ -12,7 +12,7 @@ import {
 import { FlatList, ScrollView } from 'react-native-gesture-handler';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { collection, limit, onSnapshot, query, where } from 'firebase/firestore';
+import { onSnapshot } from 'firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
@@ -21,7 +21,8 @@ import { FeedPostEngagement } from '../components/FeedPostEngagement';
 import { Screen } from '../components/Screen';
 import { deleteOwnedVideo } from '../services/deleteVideo';
 import { useAuth } from '../state/auth';
-import { firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { isFirebaseConfigured } from '../firebase/firebase';
+import { userVideosQuery } from '../lib/userVideosQuery';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { showError } from '../utils/ui';
 import { FeedPostVideo, ReelVideoPlaceholder } from '../components/FeedPostVideo';
@@ -174,7 +175,7 @@ export function YourLeapsScreen() {
       return;
     }
     setHydrated(false);
-    const q = query(collection(firestore(), 'videos'), where('uid', '==', user.uid), limit(40));
+    const q = userVideosQuery({ uid: user.uid, limitN: 40 });
     const unsub = onSnapshot(
       q,
       (snap) => {

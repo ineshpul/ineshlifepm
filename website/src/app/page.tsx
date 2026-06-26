@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import React, { FormEvent, useEffect, useState } from "react";
 
 import { ContactLinks } from "../components/ContactLinks";
 import { FrogDecor } from "../components/FrogDecor";
@@ -10,6 +10,15 @@ const APP_STORE_URL =
 const LEAP_EMAIL = "taketheleap.app@gmail.com";
 const CHALLENGE_TIME = "12:00PM ET";
 
+type MarketingResponse = {
+  leapDayKey: string;
+  isLive?: boolean;
+  leapTitle: string;
+  postersCount: number;
+  updatedAtMs: number;
+  error?: string;
+};
+
 export default function Home() {
   const [name, setName] = useState("");
   const [challenge, setChallenge] = useState("");
@@ -18,6 +27,8 @@ export default function Home() {
     "idle",
   );
   const [submitMessage, setSubmitMessage] = useState("");
+  const [marketing, setMarketing] = useState<MarketingResponse | null>(null);
+  const [marketingError, setMarketingError] = useState<string | null>(null);
 
   async function handleSuggestSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -54,29 +65,57 @@ export default function Home() {
     }
   }
 
+  async function refreshMarketing(signal?: AbortSignal) {
+    try {
+      const res = await fetch("/api/marketing", { signal, cache: "no-store" });
+      const data = (await res.json()) as MarketingResponse;
+      if (!res.ok) {
+        setMarketingError(data.error ?? "Could not load today's leap.");
+        return;
+      }
+      setMarketingError(null);
+      setMarketing(data);
+    } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") return;
+      setMarketingError("Could not load today's leap.");
+    }
+  }
+
+  // Live-updating marketing panel (safe: reads from server API route).
+  useEffect(() => {
+    const ctrl = new AbortController();
+    void refreshMarketing(ctrl.signal);
+    const id = setInterval(() => void refreshMarketing(ctrl.signal), 30_000);
+    return () => {
+      ctrl.abort();
+      clearInterval(id);
+    };
+  }, []);
+
+  const leapTitle = marketing?.leapTitle ?? "Loading today's leap…";
+  const leapMeta = marketingError
+    ? `Live leap is unavailable right now.`
+    : marketing?.isLive
+      ? `${marketing.postersCount.toLocaleString()} people posted today`
+      : `Drops at ${CHALLENGE_TIME}`;
+
   return (
     <>
       <header className="top-bar">
         <div className="site-inner top-bar-inner">
-          <a href="#top" className="brand-lockup">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/brandmark.png"
-              alt=""
-              width={36}
-              height={36}
-              className="brandmark-sm"
-            />
-            <span className="wordmark">Leap</span>
-          </a>
-          <a
-            href={APP_STORE_URL}
-            className="btn-primary top-cta"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Take the Leap
-          </a>
+          <div className="top-bar-right">
+            <a href="#top" className="brand-lockup">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/brandmark.png"
+                alt=""
+                width={36}
+                height={36}
+                className="brandmark-sm"
+              />
+              <span className="wordmark">Leap</span>
+            </a>
+          </div>
         </div>
       </header>
 
@@ -104,30 +143,50 @@ export default function Home() {
                 showed up, and join in with your community.
               </p>
 
-              <div className="hero-highlights" aria-label="What you get each day">
-                <div className="hero-highlight">
-                  <span className="hero-highlight-tag">{CHALLENGE_TIME}</span>
-                  <span className="hero-highlight-text">Same leap for everyone</span>
-                </div>
-                <div className="hero-highlight">
-                  <span className="hero-highlight-tag">No edits</span>
-                  <span className="hero-highlight-text">Post what you recorded</span>
-                </div>
-                <div className="hero-highlight">
-                  <span className="hero-highlight-tag">Together</span>
-                  <span className="hero-highlight-text">Show up with your community</span>
-                </div>
-              </div>
-
               <div className="hero-actions">
-                <a
-                  href={APP_STORE_URL}
-                  className="btn-primary"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Take the Leap
-                </a>
+                {/* CTAs moved into "Leap of the Day" card for emphasis */}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="band hero-live-band" aria-label="Leap of the Day">
+          <div className="site-inner">
+            <div className="hero-module">
+              <div className="hero-module-grid">
+                <div className="hero-live">
+                  <p className="section-label">Leap of the Day</p>
+                  <p className="market-title">{leapTitle}</p>
+                  <p className="market-meta">{leapMeta}</p>
+                  <div className="market-actions">
+                    <a
+                      href={APP_STORE_URL}
+                      className="btn-primary"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Take the Leap
+                    </a>
+                    <a href="#suggest-heading" className="btn-primary btn-secondary">
+                      Suggest tomorrow’s leap
+                    </a>
+                  </div>
+                </div>
+
+                <div className="hero-highlights" aria-label="What you get each day">
+                  <div className="hero-highlight">
+                    <span className="hero-highlight-tag">{CHALLENGE_TIME}</span>
+                    <span className="hero-highlight-text">Same leap for everyone</span>
+                  </div>
+                  <div className="hero-highlight">
+                    <span className="hero-highlight-tag">No edits</span>
+                    <span className="hero-highlight-text">Post what you recorded</span>
+                  </div>
+                  <div className="hero-highlight">
+                    <span className="hero-highlight-tag">Together</span>
+                    <span className="hero-highlight-text">Show up with your community</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
