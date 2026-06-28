@@ -58,8 +58,11 @@ export function VideoWatermarkOverlay({
     },
   }));
 
-  const layout = React.useMemo(() => computeVideoWatermarkLayout(width, height), [width, height]);
   const displayTitle = title.trim() || "Today's leap";
+  const layout = React.useMemo(
+    () => computeVideoWatermarkLayout(width, height, displayTitle),
+    [width, height, displayTitle]
+  );
   const handle = username.trim() || 'user';
   const gradientStop = Math.min(1, layout.strip.gradientHeight / layout.strip.height);
 
@@ -95,8 +98,6 @@ export function VideoWatermarkOverlay({
                 lineHeight: layout.strip.promptLineHeight,
               },
             ]}
-            numberOfLines={1}
-            ellipsizeMode="tail"
           >
             {displayTitle}
           </Text>

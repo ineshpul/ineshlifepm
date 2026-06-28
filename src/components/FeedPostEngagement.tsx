@@ -1,6 +1,5 @@
 import * as React from 'react';
 import {
-  ActionSheetIOS,
   ActivityIndicator,
   Alert,
   Animated,
@@ -454,7 +453,7 @@ export function FeedPostEngagement({
       await saveRemoteVideoToCameraRoll(
         shareUrl,
         prompt
-          ? { title: prompt, username: viewerUsername.trim() || 'user' }
+          ? { title: prompt, username: videoOwnerUsername.trim() || 'user' }
           : undefined
       );
       showInfo('Saved', 'Video saved to camera roll.');
@@ -466,20 +465,6 @@ export function FeedPostEngagement({
   };
 
   const onShare = () => {
-    const options = ['Share link', 'Save to camera roll', 'Cancel'];
-    const run = (index: number) => {
-      if (index === 0) void shareLink();
-      else if (index === 1) void saveToCameraRoll();
-    };
-
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options, cancelButtonIndex: 2, title: shareTitle },
-        run
-      );
-      return;
-    }
-
     Alert.alert('Share', shareTitle, [
       { text: 'Share link', onPress: () => void shareLink() },
       { text: 'Save to camera roll', onPress: () => void saveToCameraRoll() },

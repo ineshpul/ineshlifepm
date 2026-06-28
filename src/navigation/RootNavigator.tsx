@@ -75,6 +75,7 @@ function LoggedInStack() {
         component={RecordScreen}
         options={{
           headerShown: false,
+          headerBackVisible: false,
           presentation: 'fullScreenModal',
           animation: 'fade',
           gestureEnabled: true,

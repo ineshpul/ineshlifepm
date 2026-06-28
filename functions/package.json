@@ -25,14 +25,17 @@
     "heal:stale-streaks": "npm run build && node lib/runHealStaleStreaksScript.js",
     "test:inches": "npm run build && node lib/runInchCountingTestScript.js",
     "grant:app-review": "npm run build && node lib/scripts/grantAppReviewAccess.js",
-    "allow:repost": "npm run build && node lib/scripts/allowRepostToday.js"
+    "allow:repost": "npm run build && node lib/scripts/allowRepostToday.js",
+    "export:challenge-posts": "npm run build && node lib/scripts/exportChallengePostStats.js",
+    "export:challenge-posts:upload": "npm run build && node lib/scripts/exportChallengePostStats.js --upload"
   },
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.758.0",
     "@aws-sdk/client-s3": "^3.758.0",
     "@aws-sdk/lib-storage": "^3.758.0",
     "firebase-admin": "^12.6.0",
-    "firebase-functions": "^5.1.1"
+    "firebase-functions": "^5.1.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "typescript": "^5.6.3"

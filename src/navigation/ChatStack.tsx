@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useIsFocused } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { useThemedStackScreenOptions } from './themedStackScreenOptions';
@@ -28,10 +29,11 @@ export type ChatStackParamList = {
 const Stack = createNativeStackNavigator<ChatStackParamList>();
 
 export function ChatStackNavigator() {
+  const tabFocused = useIsFocused();
   const themedHeader = useThemedStackScreenOptions();
 
   return (
-    <Stack.Navigator screenOptions={themedHeader}>
+    <Stack.Navigator screenOptions={{ ...themedHeader, headerShown: tabFocused }}>
       <Stack.Screen name="ChatInbox" component={ChatInboxScreen} options={{ title: 'Chats' }} />
       <Stack.Screen
         name="Conversation"

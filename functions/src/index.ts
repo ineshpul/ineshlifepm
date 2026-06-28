@@ -31,8 +31,10 @@ import { backfillWeeklyLeaperWeekCallable } from './backfillWeeklyLeaperWeekCall
 import { backfillUserIdentityFromVideosCallable } from './backfillUserIdentityFromVideosCallable';
 import { backfillApprovedPostCountCallable } from './backfillApprovedPostCountCallable';
 import { syncApprovedPostCountForLeapDay } from './dailyChallengeStatsPosts';
+import { exportChallengePostStatsCallable } from './exportChallengePostStatsCallable';
 import { healGlobalFirstPostForDayCallable } from './healGlobalFirstPostForDayCallable';
 import { resetRecordingAttemptsForLeapDayCallable } from './resetRecordingAttemptsForLeapDayCallable';
+import { scheduledChallengePostStatsExport } from './scheduledChallengePostStatsExport';
 import {
   adminAnnounceReferralProgramCallable,
   claimReferralCallable,
@@ -72,6 +74,8 @@ export {
   backfillUserIdentityFromVideosCallable,
   backfillApprovedPostCountCallable,
   syncApprovedPostCountForLeapDay,
+  exportChallengePostStatsCallable,
+  scheduledChallengePostStatsExport,
   healGlobalFirstPostForDayCallable,
   resetRecordingAttemptsForLeapDayCallable,
   resolveReferrerUsernameCallable,

@@ -84,7 +84,8 @@ export async function saveVideoToCameraRoll(
     throw new Error('No video to save.');
   }
 
-  const p = await MediaLibrary.requestPermissionsAsync();
+  const existing = await MediaLibrary.getPermissionsAsync(true);
+  const p = existing.granted ? existing : await MediaLibrary.requestPermissionsAsync(true);
   if (!p.granted) {
     throw new Error('Photo library access was not granted. You can allow it in Settings.');
   }

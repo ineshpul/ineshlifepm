@@ -84,5 +84,16 @@ service firebase.storage {
       allow read: if isChatConvMember();
       allow write, delete: if isChatConvMember() && request.auth.uid == uploaderUid;
     }
+
+    // Admin analytics exports (auto-updated at end of each leap day).
+    match /exports/{fileName} {
+      function requestUserIsAdminExport() {
+        return firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+          && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+      }
+
+      allow read: if requestUserIsAdminExport();
+      allow write: if false;
+    }
   }
 }
