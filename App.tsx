@@ -14,6 +14,7 @@ const ChallengeWatermarkCaptureHost = React.lazy(() =>
 );
 import { AuthProvider, useAuth } from './src/state/auth';
 import { AppStateProvider } from './src/state/appState';
+import { BackgroundPostUploadProvider } from './src/state/backgroundPostUpload';
 import { SettingsPreferencesProvider, useSettingsPreferences } from './src/state/settingsPreferences';
 import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { initAppCheck } from './src/firebase/appCheck';
@@ -128,12 +129,14 @@ export default function App() {
             <UserNotificationPrefSync />
             <PushTokenRegistrar />
             <AppStateProvider>
+              <BackgroundPostUploadProvider>
               <ThemeProvider>
                 <RootNavigator />
                 <React.Suspense fallback={null}>
                   <ChallengeWatermarkCaptureHost />
                 </React.Suspense>
               </ThemeProvider>
+              </BackgroundPostUploadProvider>
             </AppStateProvider>
           </SettingsPreferencesProvider>
         </AuthProvider>

@@ -13,8 +13,7 @@ import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/n
 import { Ionicons } from '@expo/vector-icons';
 import { useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
-import { doc, getDoc, increment, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { DualCameraRecorder, type DualCameraController } from '../components/DualCameraRecorder';
@@ -35,29 +34,20 @@ import {
   useChallengeWindow,
   useTodayChallenge,
 } from '../state/challenge';
-import { firestore, isFirebaseConfigured, storage } from '../firebase/firebase';
+import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import {
   ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES,
-  commitPostedVideo,
   consumeRecordingAttempt,
-  refundRecordingAttemptIfNoPostedVideo,
   resetAdminRecordingAttemptsForToday,
-  syncAttemptLedgerAfterSuccessfulPost,
   useAttemptsRemaining,
 } from '../state/postAttempts';
-import { useHasPostedToday } from '../state/posting';
+import { useBackgroundPostUpload } from '../state/backgroundPostUpload';
 import { showError, showInfo } from '../utils/ui';
-import { withRetries } from '../utils/retry';
-import { CHALLENGE_INSTRUCTIONS } from '../content/challengeCopy';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import { BONUS_ATTEMPT_BASE_REDUCTION_INCHES } from '../lib/verticalScore';
-import { getExpoExtra } from '../config/expoExtra';
 import { purchaseRecordingAttemptWithScore } from '../services/recordingAttemptsPurchase';
-import { logEngagementMetric } from '../services/nativeAnalytics';
 import { computeFeedViewingFromNow } from '../utils/nyTime';
 import { navigateToFeedTab } from '../navigation/navigationHelpers';
-import { offerCameraRollSaveAfterPost } from '../state/pendingCameraRollSave';
-import { saveVideoToCameraRoll } from '../services/saveVideoToCameraRoll';
 
 async function setAudioSessionForRecording() {
   await Audio.setAudioModeAsync({
@@ -90,20 +80,6 @@ async function setAudioSessionForPlayback() {
 async function ensureMicrophonePermissionForRecording(): Promise<boolean> {
   const audioPerm = await Audio.requestPermissionsAsync();
   return audioPerm.granted;
-}
-
-async function clipUriToBlob(uri: string): Promise<Blob> {
-  const res = await fetch(uri);
-  if (!res.ok) {
-    throw new Error(
-      `Could not read your clip (HTTP ${res.status}). Try recording again or pick another video.`
-    );
-  }
-  const blob = await res.blob();
-  if (!blob || blob.size < 64) {
-    throw new Error('This video looks empty or unreadable. Try recording again or choose another clip.');
-  }
-  return blob;
 }
 
 export function RecordScreen() {
@@ -359,14 +335,15 @@ export function RecordScreen() {
   const nav = useNavigation<any>();
   const isFocused = useIsFocused();
   const { preferences } = useSettingsPreferences();
-  const { markPostedToday } = useAppState();
+  const { hasPostedToday, markPostedToday } = useAppState();
+  const { startBackgroundPost, isActive: backgroundUploadActive } = useBackgroundPostUpload();
   const { user } = useAuth();
   useChallengeWindow();
   const { challenge, window } = useTodayChallenge();
   const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
   const playerFacing = getPlayerFacingChallenge(challenge, window);
   const maxSec = normalizeTaskDurationSeconds(challenge.maxDurationSeconds);
-  const postedToday = useHasPostedToday(user?.uid, viewingChallengeDateKey);
+  const postedToday = hasPostedToday;
   const attemptsRemaining = useAttemptsRemaining(
     user?.uid,
     viewingChallengeDateKey,
@@ -396,17 +373,11 @@ export function RecordScreen() {
   const dualControllerRef = React.useRef<DualCameraController | null>(null);
   const singleControllerRef = React.useRef<SingleCameraController | null>(null);
   const adminAttemptsResetRef = React.useRef(false);
-  const [uploading, setUploading] = React.useState(false);
-  const [uploadPct, setUploadPct] = React.useState(0);
-  /** After bytes finish uploading, Firestore commit can take a while — show a distinct phase. */
-  const [postSaving, setPostSaving] = React.useState(false);
   const recordingAbortRef = React.useRef(false);
   const isRecordingRef = React.useRef(false);
   const recordTapBusyRef = React.useRef(false);
   /** Bumped on blur/unmount so the active take is invalidated. */
   const recordingSessionRef = React.useRef(0);
-  /** Fewer React commits while Firebase reports many tiny upload progress ticks. */
-  const uploadProgressGateRef = React.useRef({ lastShown: -1, lastAt: 0 });
 
   React.useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -538,26 +509,6 @@ export function RecordScreen() {
     });
     return () => sub.remove();
   }, [isFocused, postedToday, clipUri, canUseCamera]);
-
-  const navigateAfterPost = React.useCallback(
-    async (opts: {
-      recordedForSave: boolean;
-      clipUriForOffer: string | null;
-      watermarkInfo: { title: string; username: string };
-    }) => {
-      const { recordedForSave, clipUriForOffer, watermarkInfo } = opts;
-      if (
-        recordedForSave &&
-        !preferences.autoSavePosts &&
-        clipUriForOffer &&
-        !clipUriForOffer.startsWith('demo://')
-      ) {
-        await offerCameraRollSaveAfterPost(clipUriForOffer, watermarkInfo);
-      }
-      navigateToFeedTab(nav);
-    },
-    [nav, preferences.autoSavePosts]
-  );
 
   const startDualRecordingSession = async () => {
     recordingAbortRef.current = false;
@@ -742,8 +693,8 @@ export function RecordScreen() {
       );
       return;
     }
-    if (attemptsLeft <= 0 || uploading) {
-      if (attemptsLeft <= 0 && !uploading) {
+    if (attemptsLeft <= 0 || backgroundUploadActive) {
+      if (attemptsLeft <= 0 && !backgroundUploadActive) {
         showInfo(
           'Out of attempts',
           'Spend Vertical Score for another try (below), or post your clip if you are done.'
@@ -798,244 +749,55 @@ export function RecordScreen() {
   };
 
   const onPost = async () => {
-    if (postedToday) return;
-    if (uploading) return;
+    if (postedToday || backgroundUploadActive) return;
+    if (!clipUri) return;
     if (!playerFacing.canRecord) {
       showInfo('Not yet', 'Today’s leap is not live yet.');
       return;
     }
 
-    const runUpload = async () => {
-      setUploading(true);
-      setPostSaving(false);
-      uploadProgressGateRef.current = { lastShown: -1, lastAt: 0 };
-      try {
-      // If Firebase isn't configured yet (or user isn't authenticated), still unlock the app
-      // so you can test flows end-to-end.
-      if (!isFirebaseConfigured() || !user || !clipUri || clipUri.startsWith('demo://')) {
-        const clipUriForOffer =
-          clipSource === 'recorded' && clipUri && !clipUri.startsWith('demo://') ? clipUri : null;
+    const submitPost = () => {
+      const watermarkInfo = getChallengeWatermarkInfo(
+        challenge,
+        window,
+        String(user?.username ?? 'user')
+      );
+
+      if (!isFirebaseConfigured() || !user || clipUri.startsWith('demo://')) {
         markPostedToday();
         setClipUri(null);
         setClipSource(null);
         setSecondaryClipUri(null);
         setDualFrontIsPrimary(false);
-        await navigateAfterPost({
-          recordedForSave: clipSource === 'recorded',
-          clipUriForOffer,
-          watermarkInfo: getChallengeWatermarkInfo(
-            challenge,
-            window,
-            String(user?.username ?? 'user')
-          ),
-        });
+        navigateToFeedTab(nav);
         return;
       }
 
-      // Let the "POSTING…" frame paint before we read the whole file into memory.
-      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      const uploadClipUri = clipUri;
+      const uploadSecondaryClipUri = secondaryClipUri;
+      const uploadClipSource = clipSource ?? 'unknown';
+      const uploadDualFrontIsPrimary = dualFrontIsPrimary;
 
-      const ext = 'mp4';
-      const contentType = 'video/mp4';
-      const UPLOAD_TIMEOUT_MS = 12 * 60 * 1000;
-      const primaryPath = `videos/${user.uid}/${viewingChallengeDateKey}/${Date.now()}.${ext}`;
-      const primaryRef = ref(storage(), primaryPath);
-      const hasSecondary = Boolean(secondaryClipUri);
-      // Reserve more of the bar for the (larger) primary file. The PIP file is
-      // ~half the bitrate, so this roughly maps to clock time on Wi-Fi.
-      const primaryShare = hasSecondary ? 70 : 100;
-      const secondaryShare = 100 - primaryShare;
-      setUploadPct(0);
-
-      const reportUploadProgress = (rawPct: number) => {
-        const pct = Math.min(99, Math.max(0, Math.round(rawPct)));
-        if (pct >= 99) {
-          setUploadPct(pct);
-          uploadProgressGateRef.current = { lastShown: pct, lastAt: Date.now() };
-          return;
-        }
-        const now = Date.now();
-        const g = uploadProgressGateRef.current;
-        if (pct - g.lastShown < 4 && now - g.lastAt < 280) return;
-        g.lastShown = pct;
-        g.lastAt = now;
-        setUploadPct(pct);
-      };
-
-      const runResumableUpload = async (
-        storageRef: typeof primaryRef,
-        sourceUri: string,
-        scaleStart: number,
-        scaleSpan: number
-      ): Promise<string> => {
-        const blob = await clipUriToBlob(sourceUri);
-        const task = uploadBytesResumable(storageRef, blob, { contentType });
-        await new Promise<void>((resolve, reject) => {
-          const uploadTimeout = setTimeout(() => {
-            try {
-              task.cancel();
-            } catch {
-              /* ignore */
-            }
-            reject(
-              new Error(
-                'Upload timed out. Stay on this screen on Wi‑Fi and try again, or use a shorter clip.'
-              )
-            );
-          }, UPLOAD_TIMEOUT_MS);
-          task.on(
-            'state_changed',
-            (snapshot) => {
-              const total = snapshot.totalBytes;
-              if (total > 0) {
-                const localPct = (100 * snapshot.bytesTransferred) / total;
-                reportUploadProgress(scaleStart + (localPct * scaleSpan) / 100);
-              }
-            },
-            (err) => {
-              clearTimeout(uploadTimeout);
-              reject(err);
-            },
-            () => {
-              clearTimeout(uploadTimeout);
-              resolve();
-            }
-          );
-        });
-        return await getDownloadURL(task.snapshot.ref);
-      };
-
-      const downloadUrl = await withRetries(
-        () => runResumableUpload(primaryRef, clipUri, 0, primaryShare),
-        { maxAttempts: 3 }
-      );
-
-      let secondaryDownloadUrl: string | null = null;
-      let secondaryRef: typeof primaryRef | null = null;
-      let secondaryPath: string | null = null;
-      if (hasSecondary && secondaryClipUri) {
-        secondaryPath = `videos/${user.uid}/${viewingChallengeDateKey}/${Date.now()}_pip.${ext}`;
-        secondaryRef = ref(storage(), secondaryPath);
-        try {
-          secondaryDownloadUrl = await withRetries(
-            () =>
-              runResumableUpload(secondaryRef!, secondaryClipUri, primaryShare, secondaryShare),
-            { maxAttempts: 3 }
-          );
-        } catch (e) {
-          // PIP upload failed. Roll back the primary so we don't strand a half-posted dual take.
-          try {
-            await deleteObject(primaryRef);
-          } catch {
-            /* ignore */
-          }
-          throw e;
-        }
-      }
-      setUploadPct(100);
-      setPostSaving(true);
-
-      try {
-        const requireMod = Boolean(getExpoExtra().requirePostModeration);
-        let posterPhotoUrl = '';
-        try {
-          const userSnap = await getDoc(doc(firestore(), 'users', user.uid));
-          posterPhotoUrl = String(userSnap.data()?.photoUrl ?? '').trim();
-        } catch {
-          // optional denormalized avatar on the leap doc
-        }
-        await withRetries(
-          () =>
-            commitPostedVideo({
-              payload: {
-                uid: user.uid,
-                username: String(user.username ?? 'user').trim() || 'user',
-                ...(posterPhotoUrl ? { photoUrl: posterPhotoUrl } : {}),
-                challengeDate: viewingChallengeDateKey,
-                challengeTitle: challenge.title,
-                challengeSubtitle: CHALLENGE_INSTRUCTIONS,
-                prompt: challenge.title,
-                maxDurationSeconds: maxSec,
-                source: clipSource ?? 'unknown',
-                url: downloadUrl,
-                storagePath: primaryPath,
-                ...(secondaryDownloadUrl && secondaryPath
-                  ? {
-                      secondaryUrl: secondaryDownloadUrl,
-                      secondaryStoragePath: secondaryPath,
-                      ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
-                    }
-                  : {}),
-                moderationStatus: requireMod ? 'pending' : 'approved',
-              },
-            }),
-          { maxAttempts: 3 }
-        );
-      } catch (e) {
-        try {
-          await deleteObject(primaryRef);
-        } catch {
-          // ignore cleanup failures
-        }
-        if (secondaryRef) {
-          try {
-            await deleteObject(secondaryRef);
-          } catch {
-            /* ignore */
-          }
-        }
-        throw e;
-      }
-
-      const recordedForSave = clipSource === 'recorded';
-      const autoSaveClip = preferences.autoSavePosts;
-      const clipUriForOffer = recordedForSave ? clipUri : null;
-      const watermarkInfo = getChallengeWatermarkInfo(
-        challenge,
-        window,
-        String(user.username ?? 'user')
-      );
-
-      markPostedToday();
-      void logEngagementMetric('posting', { challenge_date: viewingChallengeDateKey });
       setClipUri(null);
       setClipSource(null);
       setSecondaryClipUri(null);
       setDualFrontIsPrimary(false);
-      await navigateAfterPost({ recordedForSave, clipUriForOffer, watermarkInfo });
 
-      try {
-        await syncAttemptLedgerAfterSuccessfulPost({
-          uid: user.uid,
-          challengeDate: viewingChallengeDateKey,
-        });
-      } catch {
-        // ledger will self-heal on next post; video doc is the source of truth
-      }
-      void updateDoc(doc(firestore(), 'users', user.uid), {
-        challengesCompleted: increment(1),
-        updatedAt: serverTimestamp(),
-      }).catch(() => {});
-      if (recordedForSave && autoSaveClip && clipUriForOffer) {
-        void saveVideoToCameraRoll(clipUriForOffer, watermarkInfo).catch(() => {});
-      }
-    } catch (e) {
-      if (user?.uid && isFirebaseConfigured()) {
-        try {
-          await refundRecordingAttemptIfNoPostedVideo({
-            uid: user.uid,
-            challengeDate: viewingChallengeDateKey,
-          });
-        } catch {
-          // ignore ledger cleanup failures
-        }
-      }
-      showError('Post failed', e);
-    } finally {
-      setUploadPct(0);
-      setPostSaving(false);
-      setUploading(false);
-    }
+      startBackgroundPost({
+        uid: user.uid,
+        username: String(user.username ?? 'user'),
+        viewingChallengeDateKey,
+        challengeTitle: challenge.title,
+        maxDurationSeconds: maxSec,
+        clipUri: uploadClipUri,
+        secondaryClipUri: uploadSecondaryClipUri,
+        dualFrontIsPrimary: uploadDualFrontIsPrimary,
+        clipSource: uploadClipSource,
+        autoSavePosts: preferences.autoSavePosts,
+        watermarkInfo,
+      });
+
+      navigateToFeedTab(nav);
     };
 
     if (!preferences.uploadOnCellular) {
@@ -1044,13 +806,13 @@ export function RecordScreen() {
         'Cellular uploads are turned off in Settings. Upload this video anyway?',
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Upload', onPress: () => void runUpload() },
+          { text: 'Upload', onPress: submitPost },
         ]
       );
       return;
     }
 
-    await runUpload();
+    submitPost();
   };
 
   const cameraActive = isFocused && canUseCamera && !clipUri && !postedToday;
@@ -1324,25 +1086,16 @@ export function RecordScreen() {
               </Text>
             </View>
             <PrimaryButton
-              title={
-                postSaving
-                  ? 'SAVING…'
-                  : uploading
-                    ? uploadPct > 0
-                      ? `UPLOAD ${uploadPct}%`
-                      : 'UPLOADING…'
-                    : 'POST'
-              }
+              title="POST"
               variant="green"
               onPress={onPost}
               style={styles.postBtn}
-              disabled={uploading}
             />
             <PrimaryButton
               title="RECORD AGAIN"
               variant="outline"
               onPress={clearPreview}
-              disabled={uploading || postedToday}
+              disabled={postedToday || backgroundUploadActive}
               style={styles.attachBtn}
             />
           </>
@@ -1354,7 +1107,7 @@ export function RecordScreen() {
               style={[
                 styles.recordBtn,
                 (attemptsLeft <= 0 ||
-                  uploading ||
+                  backgroundUploadActive ||
                   !playerFacing.canRecord ||
                   preRecordCountdown != null) &&
                   styles.recordBtnDisabled,
@@ -1364,7 +1117,7 @@ export function RecordScreen() {
                 style={[
                   styles.recordOuter,
                   (attemptsLeft <= 0 ||
-                    uploading ||
+                    backgroundUploadActive ||
                     !playerFacing.canRecord ||
                     preRecordCountdown != null) &&
                     styles.recordOuterDisabled,

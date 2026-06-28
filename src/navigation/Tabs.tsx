@@ -12,6 +12,7 @@ import { MeScreen } from '../screens/MeScreen';
 import { ChatStackNavigator } from './ChatStack';
 import type { ChatStackParamList } from './ChatStack';
 import { FloatingTabBar } from './FloatingTabBar';
+import { BackgroundUploadBar } from '../components/BackgroundUploadBar';
 
 export type TabsParamList = {
   Today: undefined;
@@ -66,6 +67,7 @@ export function AppTabs() {
 
   return (
     <View style={styles.tabsRoot}>
+      <BackgroundUploadBar />
       <Tab.Navigator
         initialRouteName="Today"
         tabBarPosition="bottom"
