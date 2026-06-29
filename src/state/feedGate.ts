@@ -108,3 +108,46 @@ export function isTier2CardLocked(args: {
   const lastMs = nyDateKeyToSortUtcMs(lastKey, 0);
   return cdMs > lastMs;
 }
+
+type FeedJumpVideo = {
+  id: string;
+  ownerUid: string;
+  challengeDate: string;
+};
+
+/**
+ * FlatList index to jump to for the tier-2 "Last post" chip — viewer's post on their last
+ * leap day, else the first card on that day, else the newest unlocked card in the feed.
+ */
+export function tier2LastPostJumpIndex(args: {
+  videos: ReadonlyArray<FeedJumpVideo>;
+  viewerUid: string | undefined;
+  lastPostedDateKey: string | null;
+}): number {
+  const { viewerUid, lastPostedDateKey, videos } = args;
+  if (!viewerUid || !lastPostedDateKey || videos.length === 0) return -1;
+
+  const lastKey = normalizeNyDateKey(lastPostedDateKey, '');
+  if (!lastKey) return -1;
+
+  const ownId = `${viewerUid}_${lastKey}`;
+  const ownIdx = videos.findIndex((v) => v.id === ownId);
+  if (ownIdx >= 0) return ownIdx;
+
+  const ownDayIdx = videos.findIndex(
+    (v) => v.ownerUid === viewerUid && normalizeNyDateKey(v.challengeDate, '') === lastKey
+  );
+  if (ownDayIdx >= 0) return ownDayIdx;
+
+  const dayIdx = videos.findIndex(
+    (v) => normalizeNyDateKey(v.challengeDate, '') === lastKey
+  );
+  if (dayIdx >= 0) return dayIdx;
+
+  const lastMs = nyDateKeyToSortUtcMs(lastKey, 0);
+  for (let i = 0; i < videos.length; i++) {
+    const cd = normalizeNyDateKey(videos[i].challengeDate, '');
+    if (nyDateKeyToSortUtcMs(cd, 0) <= lastMs) return i;
+  }
+  return -1;
+}

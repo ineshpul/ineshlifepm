@@ -29,6 +29,7 @@ import { FeedCameraRollSaveBanner } from '../components/FeedCameraRollSaveBanner
 import { FeedGraduationMoment } from '../components/FeedGraduationMoment';
 import { FeedLockedCardOverlay } from '../components/FeedLockedCardOverlay';
 import { FeedPreviewChoice } from '../components/FeedPreviewChoice';
+import { FeedLastPostJumpChip } from '../components/FeedLastPostJumpChip';
 import { FeedSinceLastLeapBanner } from '../components/FeedSinceLastLeapBanner';
 import { FeedTier1ExploreBanner } from '../components/FeedTier1ExploreBanner';
 import { FeedTeaserWallBar } from '../components/FeedTeaserWallBar';
@@ -55,6 +56,7 @@ import {
   FEED_GATE_V2,
   isAtTier1Wall,
   isTier2CardLocked,
+  tier2LastPostJumpIndex,
   resolveFeedGateTier,
   tier1MaxScrollOffset,
 } from '../state/feedGate';
@@ -123,6 +125,8 @@ const REEL_BOTTOM_SHEET = 232;
 /** Prior days use {@link nyLeapDayChainBackward} → {@link prevNyDateKey} — **same stepping as streaks** (one NY calendar day per step). */
 const FEED_DAY_WINDOW = 14;
 const FEED_HYDRATE_SAFETY_MS = 8_000;
+/** Bottom offset stack for last-post chip above tab bar (chip height + padding). */
+const LAST_POST_JUMP_CHIP_STACK = 38;
 
 /** Same visibility rules as the feed FlatList data (friends / block / mute / hidden; no preview slice). */
 function filterFeedVideosForViewer(
@@ -1079,6 +1083,36 @@ export function FeedScreen() {
     if (firstId) setActiveVideoId(firstId);
   }, [displayVideos]);
 
+  const lastPostJumpIndex = React.useMemo(
+    () =>
+      tier2LastPostJumpIndex({
+        videos: displayVideos,
+        viewerUid: user?.uid,
+        lastPostedDateKey,
+      }),
+    [displayVideos, user?.uid, lastPostedDateKey]
+  );
+
+  const showLastPostJump =
+    tier2NeedsPostToUnlock &&
+    lastPostJumpIndex >= 0 &&
+    Math.abs(activeScrollIndex - lastPostJumpIndex) > 1;
+
+  const scrollToLastPost = React.useCallback(() => {
+    const idx = lastPostJumpIndex;
+    if (idx < 0 || pageHeight <= 0) return;
+    flatListRef.current?.scrollToOffset({ offset: idx * pageHeight, animated: true });
+    const id = displayVideos[idx]?.id;
+    if (id) setActiveVideoId(id);
+    activeScrollIndexRef.current = idx;
+    setActiveScrollIndex(idx);
+  }, [lastPostJumpIndex, pageHeight, displayVideos]);
+
+  const lastPostChipBottom = tabBarClearance + 8;
+  const scrollTopFabBottom = showLastPostJump
+    ? tabBarClearance + 8 + LAST_POST_JUMP_CHIP_STACK + 8
+    : tabBarClearance + 8;
+
   const activateReelVideo = React.useCallback((videoId: string) => {
     setActiveVideoId(videoId);
   }, []);
@@ -1808,9 +1842,12 @@ export function FeedScreen() {
             );
           }}
         />
+        {showLastPostJump ? (
+          <FeedLastPostJumpChip onPress={scrollToLastPost} bottom={lastPostChipBottom} />
+        ) : null}
         {showScrollTop ? (
           <TouchableOpacity
-            style={[styles.scrollTopFab, { bottom: tabBarClearance + 8 }]}
+            style={[styles.scrollTopFab, { bottom: scrollTopFabBottom }]}
             onPress={scrollToTop}
             activeOpacity={0.85}
             accessibilityRole="button"
