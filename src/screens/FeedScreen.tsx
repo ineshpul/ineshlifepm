@@ -1866,7 +1866,6 @@ export function FeedScreen() {
             ) : null}
             {showSinceLastLeapBanner ? (
               <FeedSinceLastLeapBanner
-                lastPostedDateKey={lastPostedDateKey}
                 count={leapsSinceLastPost}
                 loading={!leapsSinceLastPostReady}
               />
