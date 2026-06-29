@@ -87,7 +87,7 @@ export function FeedLockedCardOverlay({ unlocking = false }: Props) {
       <View style={styles.lockIcon}>
         <Ionicons name="lock-closed-outline" size={28} color={colors.green} />
       </View>
-      <Text style={styles.title}>Post today&apos;s to see future Leaps</Text>
+      <Text style={styles.title}>Post today&apos;s leap to unlock newer leaps</Text>
       <PrimaryButton
         title="Leap"
         variant="green"

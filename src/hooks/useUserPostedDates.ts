@@ -4,6 +4,7 @@ import { onSnapshot } from 'firebase/firestore';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { userVideosQuery } from '../lib/userVideosQuery';
 import { normalizeNyDateKey, nyDateKey } from '../utils/nyTime';
+import { maxPostedChallengeDateKey } from '../state/feedGate';
 
 function challengeDateFromVideoData(data: Record<string, unknown> | undefined): string {
   if (!data) return '';
@@ -47,5 +48,9 @@ export function useUserPostedDates(uid: string | undefined) {
     );
   }, [uid]);
 
-  return { postedDates, postedDatesReady: ready };
+  return {
+    postedDates,
+    postedDatesReady: ready,
+    lastPostedDateKey: React.useMemo(() => maxPostedChallengeDateKey(postedDates), [postedDates]),
+  };
 }

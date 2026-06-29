@@ -30,6 +30,7 @@ import { FeedGraduationMoment } from '../components/FeedGraduationMoment';
 import { FeedLockedCardOverlay } from '../components/FeedLockedCardOverlay';
 import { FeedPreviewChoice } from '../components/FeedPreviewChoice';
 import { FeedSinceLastLeapBanner } from '../components/FeedSinceLastLeapBanner';
+import { FeedTier1ExploreBanner } from '../components/FeedTier1ExploreBanner';
 import { FeedTeaserWallBar } from '../components/FeedTeaserWallBar';
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
 import { UsernameLink } from '../components/UsernameLink';
@@ -628,18 +629,20 @@ export function FeedScreen() {
   /** Legacy daily preview gate — dormant when {@link FEED_GATE_V2}. */
   const feedPreviewMode = !FEED_GATE_V2 && Boolean(user?.uid && !canViewEveryoneFeed);
 
-  const hasEverPosted = useHasPostedAnyVideo(user?.uid);
-  const gateTier = resolveFeedGateTier(hasEverPosted);
-  const isTier1Teaser = FEED_GATE_V2 && gateTier === 'tier1_teaser' && !bypassFeedGate;
-  const isTier2Daily = FEED_GATE_V2 && gateTier === 'tier2_daily';
+  const { hasEverPosted, hasEverPostedHydrated } = useHasPostedAnyVideo(user?.uid);
+  const gateTierResolved = hasEverPostedHydrated
+    ? resolveFeedGateTier(hasEverPosted)
+    : null;
+  const isTier1Teaser =
+    FEED_GATE_V2 && gateTierResolved === 'tier1_teaser' && !bypassFeedGate;
+  const isTier2Established =
+    FEED_GATE_V2 && gateTierResolved === 'tier2_daily' && !bypassFeedGate;
 
   const { teaserLimit, teaserLimitReady } = useFeedTeaserCardLimit(
     user?.uid,
     isTier1Teaser
   );
-  const { postedDates, postedDatesReady } = useUserPostedDates(
-    isTier2Daily ? user?.uid : undefined
-  );
+  const { postedDates, postedDatesReady, lastPostedDateKey } = useUserPostedDates(user?.uid);
   const { graduationSeen, graduationSeenHydrated } = useFeedGraduationSeen(user?.uid);
 
   const [activeScrollIndex, setActiveScrollIndex] = React.useState(0);
@@ -648,31 +651,35 @@ export function FeedScreen() {
   const [tier2UnlockAnimating, setTier2UnlockAnimating] = React.useState(false);
 
   const activeScrollIndexRef = React.useRef(0);
-  const hasEverPostedHydratedRef = React.useRef(false);
+  const everPostedBaselineSetRef = React.useRef(false);
   const prevHasEverPostedRef = React.useRef(false);
   const prevHasPostedTodayRef = React.useRef(hasPostedToday);
 
   React.useEffect(() => {
-    hasEverPostedHydratedRef.current = false;
+    everPostedBaselineSetRef.current = false;
     prevHasEverPostedRef.current = false;
   }, [user?.uid]);
 
   React.useEffect(() => {
-    if (!FEED_GATE_V2 || !user?.uid || !graduationSeenHydrated) return;
+    if (!FEED_GATE_V2 || !user?.uid || !graduationSeenHydrated || !hasEverPostedHydrated) return;
 
-    if (!hasEverPostedHydratedRef.current) {
-      hasEverPostedHydratedRef.current = true;
+    if (!everPostedBaselineSetRef.current) {
+      everPostedBaselineSetRef.current = true;
       prevHasEverPostedRef.current = hasEverPosted;
+      if (hasEverPosted && !graduationSeen) {
+        void markFeedGraduationSeen(user.uid);
+      }
       return;
     }
 
     if (!prevHasEverPostedRef.current && hasEverPosted && !graduationSeen) {
-      setGraduationWallDissolving(isAtTier1Wall(activeScrollIndexRef.current, teaserLimit ?? 20));
+      setGraduationWallDissolving(isAtTier1Wall(activeScrollIndexRef.current, teaserLimit ?? 15));
       setShowGraduation(true);
     }
     prevHasEverPostedRef.current = hasEverPosted;
   }, [
     hasEverPosted,
+    hasEverPostedHydrated,
     graduationSeen,
     graduationSeenHydrated,
     user?.uid,
@@ -680,7 +687,7 @@ export function FeedScreen() {
   ]);
 
   React.useEffect(() => {
-    if (!FEED_GATE_V2 || !isTier2Daily) return;
+    if (!FEED_GATE_V2 || !isTier2Established) return;
     if (!prevHasPostedTodayRef.current && hasPostedToday) {
       setTier2UnlockAnimating(true);
       const t = setTimeout(() => setTier2UnlockAnimating(false), 620);
@@ -688,7 +695,7 @@ export function FeedScreen() {
       return () => clearTimeout(t);
     }
     prevHasPostedTodayRef.current = hasPostedToday;
-  }, [hasPostedToday, isTier2Daily]);
+  }, [hasPostedToday, isTier2Established]);
 
   const dismissGraduation = React.useCallback(() => {
     setShowGraduation(false);
@@ -696,7 +703,7 @@ export function FeedScreen() {
     if (user?.uid) void markFeedGraduationSeen(user.uid);
   }, [user?.uid]);
 
-  const effectiveTeaserLimit = teaserLimit ?? 20;
+  const effectiveTeaserLimit = teaserLimit ?? 15;
 
   /** Preview skipped or finished for this challenge day — gate only, persisted across restarts. */
   const [feedPreviewConsumed, setFeedPreviewConsumed] = React.useState(false);
@@ -738,24 +745,6 @@ export function FeedScreen() {
     const id = setInterval(tick, 5000);
     return () => clearInterval(id);
   }, []);
-
-  const tier2HasActiveLocks =
-    isTier2Daily &&
-    !hasPostedToday &&
-    !bypassFeedGate &&
-    postedDatesReady;
-
-  const { leapsSinceLastPost, leapsSinceLastPostReady } = useLeapsSinceLastPostCount({
-    enabled: tier2HasActiveLocks,
-    postedDates,
-    viewingChallengeDateKey,
-  });
-
-  const showSinceLastLeapBanner =
-    tier2HasActiveLocks &&
-    leapsSinceLastPostReady &&
-    typeof leapsSinceLastPost === 'number' &&
-    leapsSinceLastPost > 0;
 
   const inviteUsername = preferences.profileUsername || user?.username || '';
 
@@ -925,6 +914,22 @@ export function FeedScreen() {
     teaserLimitReady &&
     effectiveTeaserLimit > 0 &&
     isAtTier1Wall(activeScrollIndex, effectiveTeaserLimit);
+
+  const tier2NeedsPostToUnlock =
+    isTier2Established && !hasPostedToday && postedDatesReady;
+
+  const tier2HasActiveLocks = tier2NeedsPostToUnlock;
+
+  const { leapsSinceLastPost, leapsSinceLastPostReady } = useLeapsSinceLastPostCount({
+    enabled: tier2NeedsPostToUnlock,
+    postedDates,
+    viewingChallengeDateKey,
+  });
+
+  const showSinceLastLeapBanner = tier2NeedsPostToUnlock;
+
+  const showTier1ExploreBanner =
+    isTier1Teaser && teaserLimitReady && !showTeaserWallBar && !graduationWallDissolving;
 
   const scrollTopThreshold = Math.max(800, pageHeight * 2.2);
   const maxFeedPreviewOffset = React.useMemo(
@@ -1102,7 +1107,7 @@ export function FeedScreen() {
         feedHydrated ? 1 : 0,
         isFocused ? 1 : 0,
         hasPostedToday ? 1 : 0,
-        gateTier,
+        gateTierResolved ?? 'pending',
         tier2UnlockAnimating ? 1 : 0,
         bypassFeedGate ? 1 : 0,
         postedDatesReady ? [...postedDates].sort().join(',') : 'pending',
@@ -1114,7 +1119,7 @@ export function FeedScreen() {
       feedHydrated,
       isFocused,
       hasPostedToday,
-      gateTier,
+      gateTierResolved,
       tier2UnlockAnimating,
       bypassFeedGate,
       postedDatesReady,
@@ -1457,6 +1462,16 @@ export function FeedScreen() {
     return <TakeTheLeapGate variant="feed" />;
   }
 
+  if (FEED_GATE_V2 && user?.uid && !hasEverPostedHydrated) {
+    return (
+      <Screen style={styles.feedScreen}>
+        <View style={styles.previewLockLoading}>
+          <ActivityIndicator size="large" color={colors.text} />
+        </View>
+      </Screen>
+    );
+  }
+
   if (FEED_GATE_V2 && isTier1Teaser && !teaserLimitReady) {
     return (
       <Screen style={styles.feedScreen}>
@@ -1632,20 +1647,20 @@ export function FeedScreen() {
               index === firstPreviousLeapsIndex;
 
             const wouldBeTier2Locked =
-              isTier2Daily &&
+              isTier2Established &&
               isTier2CardLocked({
                 challengeDate: item.challengeDate,
-                viewingChallengeDateKey,
                 userPostedDates: postedDates,
+                lastPostedDateKey,
                 hasPostedToday: false,
                 bypassFeedGate,
               });
             const isTier2Locked =
-              isTier2Daily &&
+              isTier2Established &&
               isTier2CardLocked({
                 challengeDate: item.challengeDate,
-                viewingChallengeDateKey,
                 userPostedDates: postedDates,
+                lastPostedDateKey,
                 hasPostedToday,
                 bypassFeedGate,
               });
@@ -1822,11 +1837,13 @@ export function FeedScreen() {
         (!FEED_GATE_V2 && feedPreviewMode && feedPreviewStarted && !feedPreviewConsumed) ||
         showTeaserWallBar ||
         graduationWallDissolving ||
+        showTier1ExploreBanner ||
         showSinceLastLeapBanner ||
         (showReferralNudge &&
           referralNudgeHydrated &&
           !showTeaserWallBar &&
           !graduationWallDissolving &&
+          !showTier1ExploreBanner &&
           !showSinceLastLeapBanner) ? (
           <View style={styles.feedBannerStack} pointerEvents="box-none">
             {cameraRollSaveOffer ? (
@@ -1846,13 +1863,20 @@ export function FeedScreen() {
             {showTeaserWallBar || graduationWallDissolving ? (
               <FeedTeaserWallBar dissolving={graduationWallDissolving} />
             ) : null}
-            {showSinceLastLeapBanner && leapsSinceLastPost != null ? (
-              <FeedSinceLastLeapBanner count={leapsSinceLastPost} />
+            {showTier1ExploreBanner ? (
+              <FeedTier1ExploreBanner teaserLimit={effectiveTeaserLimit} />
+            ) : null}
+            {showSinceLastLeapBanner ? (
+              <FeedSinceLastLeapBanner
+                count={leapsSinceLastPost}
+                loading={!leapsSinceLastPostReady}
+              />
             ) : null}
             {showReferralNudge &&
             referralNudgeHydrated &&
             !showTeaserWallBar &&
             !graduationWallDissolving &&
+            !showTier1ExploreBanner &&
             !showSinceLastLeapBanner ? (
               <View style={styles.referralNudge}>
                 <Text style={styles.referralNudgeText}>

@@ -4,7 +4,9 @@ import { doc, onSnapshot, runTransaction } from 'firebase/firestore';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 
 const MIN_TEASER = 10;
-const MAX_TEASER = 30;
+const MAX_TEASER = 20;
+/** Accept legacy rolls up to 30 so existing accounts keep their stored limit. */
+const MAX_TEASER_STORED = 30;
 
 export function randomFeedTeaserCardLimit(): number {
   return MIN_TEASER + Math.floor(Math.random() * (MAX_TEASER - MIN_TEASER + 1));
@@ -12,7 +14,7 @@ export function randomFeedTeaserCardLimit(): number {
 
 function parseTeaserLimit(raw: unknown): number | null {
   const n = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isFinite(n) || n < MIN_TEASER || n > MAX_TEASER) return null;
+  if (!Number.isFinite(n) || n < MIN_TEASER || n > MAX_TEASER_STORED) return null;
   return Math.floor(n);
 }
 

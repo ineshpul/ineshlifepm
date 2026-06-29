@@ -20,23 +20,13 @@ export function missedLeapDayKeysSinceLastPost(args: {
   const viewing = normalizeNyDateKey(args.viewingChallengeDateKey, '');
   if (!viewing) return [];
 
-  let lastMs = -1;
-  let lastKey = '';
-  for (const raw of args.postedDates) {
-    const k = normalizeNyDateKey(raw, '');
-    if (!k) continue;
-    const ms = nyDateKeyToSortUtcMs(k, 0);
-    if (ms > lastMs) {
-      lastMs = ms;
-      lastKey = k;
-    }
-  }
-
+  const lastKey = maxPostedChallengeDateKey(args.postedDates);
   if (!lastKey) return [viewing];
 
+  const lastMs = nyDateKeyToSortUtcMs(lastKey, 0);
   const viewingMs = nyDateKeyToSortUtcMs(viewing, 0);
   if (lastMs >= viewingMs) {
-    return args.postedDates.has(viewing) ? [] : [viewing];
+    return userPostedOnChallengeDate(args.postedDates, viewing) ? [] : [viewing];
   }
 
   const keys: string[] = [];
@@ -49,6 +39,33 @@ export function missedLeapDayKeysSinceLastPost(args: {
     cur = nextNyDateKey(cur);
   }
   return keys;
+}
+
+export function maxPostedChallengeDateKey(postedDates: ReadonlySet<string>): string | null {
+  let best: string | null = null;
+  let bestMs = -1;
+  for (const raw of postedDates) {
+    const k = normalizeNyDateKey(raw, '');
+    if (!k) continue;
+    const ms = nyDateKeyToSortUtcMs(k, 0);
+    if (ms > bestMs) {
+      bestMs = ms;
+      best = k;
+    }
+  }
+  return best;
+}
+
+export function userPostedOnChallengeDate(
+  postedDates: ReadonlySet<string>,
+  challengeDate: string
+): boolean {
+  const cd = normalizeNyDateKey(challengeDate, '');
+  if (!cd) return false;
+  for (const raw of postedDates) {
+    if (normalizeNyDateKey(raw, '') === cd) return true;
+  }
+  return false;
 }
 
 export function tier1MaxScrollIndex(teaserLimit: number): number {
@@ -67,13 +84,13 @@ export function isAtTier1Wall(activeScrollIndex: number, teaserLimit: number): b
 }
 
 /**
- * Tier 2 per-card lock: past dates and dates the user posted stay open; today + future lock
- * until the user has posted for `viewingChallengeDateKey`.
+ * Tier 2 per-card lock: open on the user's last posted leap day and everything before it.
+ * Days after their last post stay locked until they post for the active cycle.
  */
 export function isTier2CardLocked(args: {
   challengeDate: string;
-  viewingChallengeDateKey: string;
   userPostedDates: ReadonlySet<string>;
+  lastPostedDateKey: string | null;
   hasPostedToday: boolean;
   bypassFeedGate?: boolean;
 }): boolean {
@@ -81,14 +98,18 @@ export function isTier2CardLocked(args: {
   if (args.hasPostedToday) return false;
 
   const cd = normalizeNyDateKey(args.challengeDate, '');
-  const viewing = normalizeNyDateKey(args.viewingChallengeDateKey, '');
-  if (!cd || !viewing) return false;
+  if (!cd) return false;
 
-  if (args.userPostedDates.has(cd)) return false;
+  if (userPostedOnChallengeDate(args.userPostedDates, cd)) return false;
+
+  const lastKey = args.lastPostedDateKey
+    ? normalizeNyDateKey(args.lastPostedDateKey, '')
+    : '';
+  if (!lastKey) return true;
 
   const cdMs = nyDateKeyToSortUtcMs(cd, 0);
-  const viewingMs = nyDateKeyToSortUtcMs(viewing, 0);
-  if (cdMs < viewingMs) return false;
+  const lastMs = nyDateKeyToSortUtcMs(lastKey, 0);
+  if (cdMs <= lastMs) return false;
 
-  return cdMs >= viewingMs;
+  return true;
 }

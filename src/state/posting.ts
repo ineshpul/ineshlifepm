@@ -78,22 +78,29 @@ export function useCanViewOtherUsersVideos(args: {
  */
 export function useHasPostedAnyVideo(uid: string | undefined) {
   const [hasAny, setHasAny] = React.useState(false);
+  const [hydrated, setHydrated] = React.useState(() => !uid || !isFirebaseConfigured());
 
   React.useEffect(() => {
     if (!uid || !isFirebaseConfigured()) {
       setHasAny(false);
+      setHydrated(true);
       return;
     }
+    setHydrated(false);
     const q = userVideosQuery({ uid, limitN: 1 });
     return onSnapshot(
       q,
       (snap) => {
         const ok = snap.docs.some((d) => !Boolean((d.data() as { deleted?: boolean })?.deleted));
         setHasAny(ok);
+        setHydrated(true);
       },
-      () => setHasAny(false)
+      () => {
+        setHasAny(false);
+        setHydrated(true);
+      }
     );
   }, [uid]);
 
-  return hasAny;
+  return { hasEverPosted: hasAny, hasEverPostedHydrated: hydrated };
 }

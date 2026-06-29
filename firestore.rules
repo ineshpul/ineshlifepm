@@ -76,7 +76,7 @@ service cloud.firestore {
     }
 
     function validFeedTeaserCardLimit(v) {
-      return v is int && v >= 10 && v <= 30;
+      return v is int && v >= 10 && v <= 20;
     }
 
     /** One-time write of `users/{uid}.feedTeaserCardLimit` by the account owner. */
