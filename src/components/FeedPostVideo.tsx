@@ -224,7 +224,7 @@ function FeedPostVideoInner(props: {
     lastStatusPaintRef.current = 0;
     prevEffectivePlayRef.current = false;
     secondarySyncPosRef.current = 0;
-  }, [url, secondaryUrl]);
+  }, [analyticsVideoId]);
 
   React.useEffect(() => {
     if (!shouldPlay) setUserPaused(false);
@@ -281,6 +281,7 @@ function FeedPostVideoInner(props: {
   );
 
   const effectivePlay = shouldPlay && !userPaused;
+  const isLocalPlayback = /^file:\/\//i.test(url);
   const playerMuted = !effectivePlay || isMuted;
   const isDualPost = Boolean(secondaryUrl);
   const audioOnSecondary = isDualPost && dualFrontIsPrimary;
@@ -499,7 +500,7 @@ function FeedPostVideoInner(props: {
   return (
     <View style={reel ? styles.videoStageReel : styles.videoStage}>
       <Video
-        key={`${url}-${playbackRetryKey}`}
+        key={`${analyticsVideoId ?? url}-${playbackRetryKey}`}
         ref={videoRef}
         source={{ uri: url }}
         style={videoStyle}
@@ -523,7 +524,7 @@ function FeedPostVideoInner(props: {
           setUserPaused(false);
         }}
       />
-      {reel && url && !loaded ? (
+      {reel && url && !loaded && !isLocalPlayback ? (
         <View style={styles.reelLoading} pointerEvents="none">
           <ActivityIndicator size="large" color={colors.white} />
         </View>
