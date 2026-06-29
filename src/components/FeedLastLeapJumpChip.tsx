@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
@@ -9,8 +9,8 @@ type Props = {
   bottom: number;
 };
 
-/** TikTok-style chip — jumps to the viewer's last posted leap in the feed. */
-export function FeedLastPostJumpChip({ onPress, bottom }: Props) {
+/** TikTok-style chip — jumps to the last allowed leap day in the feed. */
+export function FeedLastLeapJumpChip({ onPress, bottom }: Props) {
   const { colors } = useTheme();
   const styles = useThemedStyles((c) => ({
     chip: {
@@ -39,11 +39,11 @@ export function FeedLastPostJumpChip({ onPress, bottom }: Props) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Jump to your last post"
+      accessibilityLabel="Jump to your last allowed leap"
       onPress={onPress}
       style={({ pressed }) => [styles.chip, { bottom }, pressed && { opacity: 0.88 }]}
     >
-      <Text style={styles.label}>Last post</Text>
+      <Text style={styles.label}>Last leap</Text>
       <Ionicons name="chevron-down" size={16} color={colors.coral} />
     </Pressable>
   );
