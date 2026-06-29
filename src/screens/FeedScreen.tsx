@@ -2,7 +2,6 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   Alert,
-  InteractionManager,
   LayoutChangeEvent,
   Platform,
   RefreshControl,
@@ -30,6 +29,7 @@ import { FeedCameraRollSaveBanner } from '../components/FeedCameraRollSaveBanner
 import { FeedGraduationMoment } from '../components/FeedGraduationMoment';
 import { FeedLockedCardOverlay } from '../components/FeedLockedCardOverlay';
 import { FeedPreviewChoice } from '../components/FeedPreviewChoice';
+import { FeedSinceLastLeapBanner } from '../components/FeedSinceLastLeapBanner';
 import { FeedTeaserWallBar } from '../components/FeedTeaserWallBar';
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
 import { UsernameLink } from '../components/UsernameLink';
@@ -59,6 +59,7 @@ import {
 } from '../state/feedGate';
 import { useFeedTeaserCardLimit } from '../state/feedTeaserLimit';
 import { useHasPostedAnyVideo, todayVideoDocId } from '../state/posting';
+import { useLeapsSinceLastPostCount } from '../hooks/useLeapsSinceLastPostCount';
 import { useUserPostedDates } from '../hooks/useUserPostedDates';
 import { showError } from '../utils/ui';
 import {
@@ -91,6 +92,12 @@ import {
   type FeedApprovedPageCursor,
 } from '../lib/feedApprovedPagination';
 import { shareReferralInvite } from '../utils/shareReferralInvite';
+import {
+  loadReferralNudgeShownForDay,
+  persistReferralNudgeShownForDay,
+} from '../state/referralNudgeDay';
+import { resolveFeedPlaybackUrls } from '../lib/feedPlaybackUrls';
+import { useBackgroundPostUpload } from '../state/backgroundPostUpload';
 type FeedVideo = {
   id: string;
   username: string;
@@ -612,6 +619,7 @@ export function FeedScreen() {
   const nav = useNavigation<any>();
   const { preferences, patch } = useSettingsPreferences();
   const { clearPostedOverride, hasPostedToday } = useAppState();
+  const { pendingFeedPlayback, clearPendingFeedPlayback } = useBackgroundPostUpload();
   const { user } = useAuth();
   const isStaffUser = Boolean(user?.isAdmin || user?.isModerator);
   /** Review demo accounts only — staff admin still posts to unlock the feed. */
@@ -690,12 +698,6 @@ export function FeedScreen() {
 
   const effectiveTeaserLimit = teaserLimit ?? 20;
 
-  const tier2HasActiveLocks =
-    isTier2Daily &&
-    !hasPostedToday &&
-    !bypassFeedGate &&
-    postedDatesReady;
-
   /** Preview skipped or finished for this challenge day — gate only, persisted across restarts. */
   const [feedPreviewConsumed, setFeedPreviewConsumed] = React.useState(false);
   /** User tapped Preview — can resume reels until they skip or finish swiping. */
@@ -705,6 +707,7 @@ export function FeedScreen() {
   /** False until AsyncStorage is read so we do not flash the feed after a prior consume. */
   const [feedPreviewLockHydrated, setFeedPreviewLockHydrated] = React.useState(!feedPreviewMode);
   const [showReferralNudge, setShowReferralNudge] = React.useState(false);
+  const [referralNudgeHydrated, setReferralNudgeHydrated] = React.useState(false);
 
   /**
    * NY calendar day for queries — not `useChallengeWindow()` (that ticked 250ms and re-rendered this whole screen constantly).
@@ -736,19 +739,55 @@ export function FeedScreen() {
     return () => clearInterval(id);
   }, []);
 
+  const tier2HasActiveLocks =
+    isTier2Daily &&
+    !hasPostedToday &&
+    !bypassFeedGate &&
+    postedDatesReady;
+
+  const { leapsSinceLastPost, leapsSinceLastPostReady } = useLeapsSinceLastPostCount({
+    enabled: tier2HasActiveLocks,
+    postedDates,
+    viewingChallengeDateKey,
+  });
+
+  const showSinceLastLeapBanner =
+    tier2HasActiveLocks &&
+    leapsSinceLastPostReady &&
+    typeof leapsSinceLastPost === 'number' &&
+    leapsSinceLastPost > 0;
+
   const inviteUsername = preferences.profileUsername || user?.username || '';
 
-  useFocusEffect(
-    React.useCallback(() => {
-      if (user?.uid) {
-        setShowReferralNudge(true);
-      }
-    }, [user?.uid])
-  );
+  React.useEffect(() => {
+    if (!user?.uid) {
+      setShowReferralNudge(false);
+      setReferralNudgeHydrated(true);
+      return;
+    }
+    let cancelled = false;
+    setReferralNudgeHydrated(false);
+    void loadReferralNudgeShownForDay(user.uid, viewingChallengeDateKey).then((shown) => {
+      if (cancelled) return;
+      setReferralNudgeHydrated(true);
+      if (!shown) setShowReferralNudge(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, viewingChallengeDateKey]);
 
   const dismissReferralNudge = React.useCallback(() => {
     setShowReferralNudge(false);
-  }, []);
+    if (user?.uid) {
+      void persistReferralNudgeShownForDay(user.uid, viewingChallengeDateKey);
+    }
+  }, [user?.uid, viewingChallengeDateKey]);
+
+  React.useEffect(() => {
+    if (!showReferralNudge || !user?.uid) return;
+    void persistReferralNudgeShownForDay(user.uid, viewingChallengeDateKey);
+  }, [showReferralNudge, user?.uid, viewingChallengeDateKey]);
 
   const persistPreviewConsumedForDay = React.useCallback(() => {
     if (!user?.uid || isStaffUser) return;
@@ -936,6 +975,35 @@ export function FeedScreen() {
       mutedUsernames: preferences.mutedUsernames,
       hiddenVideoIds: preferences.hiddenVideoIds,
     });
+
+    if (
+      pendingFeedPlayback &&
+      user?.uid === pendingFeedPlayback.uid &&
+      pendingFeedPlayback.viewingChallengeDateKey === viewingChallengeDateKey
+    ) {
+      const docId = pendingFeedPlayback.videoDocId;
+      if (!v.some((item) => item.id === docId)) {
+        const optimistic: FeedVideo = {
+          id: docId,
+          username: pendingFeedPlayback.username.trim() || 'user',
+          prompt: pendingFeedPlayback.challengeTitle,
+          url: pendingFeedPlayback.clipUri,
+          ...(pendingFeedPlayback.secondaryClipUri
+            ? { secondaryUrl: pendingFeedPlayback.secondaryClipUri }
+            : {}),
+          ...(pendingFeedPlayback.dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
+          createdAtMs: Date.now(),
+          ownerUid: pendingFeedPlayback.uid,
+          moderationStatus: 'pending',
+          maxDurationSeconds: pendingFeedPlayback.maxDurationSeconds,
+          challengeDate: viewingChallengeDateKey,
+          likesCount: 0,
+          commentsCount: 0,
+        };
+        v = [optimistic, ...v];
+      }
+    }
+
     if (feedPreviewMode) {
       v = v.slice(0, FEED_PREVIEW_SCROLL_LIMIT);
     }
@@ -949,6 +1017,8 @@ export function FeedScreen() {
     user?.uid,
     followingTargetUids,
     feedPreviewMode,
+    pendingFeedPlayback,
+    viewingChallengeDateKey,
   ]);
 
   displayVideosRef.current = displayVideos;
@@ -1113,13 +1183,11 @@ export function FeedScreen() {
     if (!wasEmpty) return;
 
     const firstId = displayVideos[0]?.id;
-    const handle = InteractionManager.runAfterInteractions(() => {
-      requestAnimationFrame(() => {
-        flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
-        if (firstId) setActiveVideoId(firstId);
-      });
+    const frame = requestAnimationFrame(() => {
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+      if (firstId) setActiveVideoId(firstId);
     });
-    return () => handle.cancel?.();
+    return () => cancelAnimationFrame(frame);
   }, [user?.uid, canViewEveryoneFeed, feedPreviewMode, feedHydrated, pageHeight, displayVideos]);
 
   const canStaffMod = Boolean(user?.isAdmin || user?.isModerator);
@@ -1167,6 +1235,7 @@ export function FeedScreen() {
               try {
                 await deleteOwnedVideo({ videoId: item.id, viewerUid: user.uid });
                 clearPostedOverride();
+                clearPendingFeedPlayback();
               } catch (e) {
                 showError('Delete failed', e);
               } finally {
@@ -1585,6 +1654,7 @@ export function FeedScreen() {
             const overlayUnlocking = tier2UnlockAnimating && wouldBeTier2Locked && !isTier2Locked;
             const videoShouldPlay =
               isFocused && activeVideoId === item.id && !showLockedOverlay;
+            const playback = resolveFeedPlaybackUrls(item, pendingFeedPlayback);
 
             return (
             <View
@@ -1595,9 +1665,9 @@ export function FeedScreen() {
                 {isFocused ? (
                   <FeedPostVideo
                     reel
-                    url={item.url}
-                    secondaryUrl={item.secondaryUrl}
-                    dualFrontIsPrimary={item.dualFrontIsPrimary}
+                    url={playback.url}
+                    secondaryUrl={playback.secondaryUrl}
+                    dualFrontIsPrimary={playback.dualFrontIsPrimary}
                     shouldPlay={videoShouldPlay}
                     isMuted={false}
                     useNativeControls
@@ -1752,7 +1822,12 @@ export function FeedScreen() {
         (!FEED_GATE_V2 && feedPreviewMode && feedPreviewStarted && !feedPreviewConsumed) ||
         showTeaserWallBar ||
         graduationWallDissolving ||
-        (showReferralNudge && !showTeaserWallBar && !graduationWallDissolving) ? (
+        showSinceLastLeapBanner ||
+        (showReferralNudge &&
+          referralNudgeHydrated &&
+          !showTeaserWallBar &&
+          !graduationWallDissolving &&
+          !showSinceLastLeapBanner) ? (
           <View style={styles.feedBannerStack} pointerEvents="box-none">
             {cameraRollSaveOffer ? (
               <FeedCameraRollSaveBanner
@@ -1771,7 +1846,14 @@ export function FeedScreen() {
             {showTeaserWallBar || graduationWallDissolving ? (
               <FeedTeaserWallBar dissolving={graduationWallDissolving} />
             ) : null}
-            {showReferralNudge && !showTeaserWallBar && !graduationWallDissolving ? (
+            {showSinceLastLeapBanner && leapsSinceLastPost != null ? (
+              <FeedSinceLastLeapBanner count={leapsSinceLastPost} />
+            ) : null}
+            {showReferralNudge &&
+            referralNudgeHydrated &&
+            !showTeaserWallBar &&
+            !graduationWallDissolving &&
+            !showSinceLastLeapBanner ? (
               <View style={styles.referralNudge}>
                 <Text style={styles.referralNudgeText}>
                   Know someone who&apos;d leap with you?{' '}

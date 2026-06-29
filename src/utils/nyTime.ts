@@ -260,6 +260,18 @@ export function prevNyDateKey(dateKey: string): string {
   return `${prev.y}-${String(prev.mo).padStart(2, '0')}-${String(prev.d).padStart(2, '0')}`;
 }
 
+/** Next `YYYY-MM-DD` label in NY (one calendar day forward). Mirrors {@link prevNyDateKey}. */
+export function nextNyDateKey(dateKey: string): string {
+  const n = normalizeNyDateKey(dateKey, '');
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(n);
+  if (!m) return dateKey;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const next = nextNyCalendarDay(y, mo, d);
+  return `${next.y}-${String(next.mo).padStart(2, '0')}-${String(next.d).padStart(2, '0')}`;
+}
+
 export function nyRecentChallengeDateKeys(anchorDateKey: string, totalDays: number): string[] {
   const keys: string[] = [];
   const n0 = normalizeNyDateKey(anchorDateKey.trim(), '');

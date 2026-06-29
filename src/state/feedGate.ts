@@ -1,4 +1,4 @@
-import { normalizeNyDateKey, nyDateKeyToSortUtcMs } from '../utils/nyTime';
+import { normalizeNyDateKey, nextNyDateKey, nyDateKeyToSortUtcMs } from '../utils/nyTime';
 
 /** Feature flag — new tier-based feed gate (legacy preview path dormant when true). */
 export const FEED_GATE_V2 = true;
@@ -7,6 +7,48 @@ export type FeedGateTier = 'tier1_teaser' | 'tier2_daily';
 
 export function resolveFeedGateTier(hasEverPosted: boolean): FeedGateTier {
   return hasEverPosted ? 'tier2_daily' : 'tier1_teaser';
+}
+
+/**
+ * Leap day keys from the day after the user's most recent post through the active viewing cycle
+ * (accumulates across missed days). Empty when the user already posted for `viewingChallengeDateKey`.
+ */
+export function missedLeapDayKeysSinceLastPost(args: {
+  postedDates: ReadonlySet<string>;
+  viewingChallengeDateKey: string;
+}): string[] {
+  const viewing = normalizeNyDateKey(args.viewingChallengeDateKey, '');
+  if (!viewing) return [];
+
+  let lastMs = -1;
+  let lastKey = '';
+  for (const raw of args.postedDates) {
+    const k = normalizeNyDateKey(raw, '');
+    if (!k) continue;
+    const ms = nyDateKeyToSortUtcMs(k, 0);
+    if (ms > lastMs) {
+      lastMs = ms;
+      lastKey = k;
+    }
+  }
+
+  if (!lastKey) return [viewing];
+
+  const viewingMs = nyDateKeyToSortUtcMs(viewing, 0);
+  if (lastMs >= viewingMs) {
+    return args.postedDates.has(viewing) ? [] : [viewing];
+  }
+
+  const keys: string[] = [];
+  let cur = nextNyDateKey(lastKey);
+  for (let guard = 0; guard < 90; guard++) {
+    const curMs = nyDateKeyToSortUtcMs(cur, 0);
+    if (curMs > viewingMs) break;
+    keys.push(cur);
+    if (cur === viewing) break;
+    cur = nextNyDateKey(cur);
+  }
+  return keys;
 }
 
 export function tier1MaxScrollIndex(teaserLimit: number): number {
