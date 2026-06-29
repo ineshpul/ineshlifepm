@@ -2,6 +2,7 @@ import * as React from 'react';
 import {
   Modal,
   Pressable,
+  StyleSheet,
   Text,
   TouchableOpacity,
   View,
@@ -22,10 +23,13 @@ export function AppReviewModal({ visible, onReview, onDismiss }: Props) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useThemedStyles((colors) => ({
-    backdrop: {
+    root: {
       flex: 1,
-      backgroundColor: colors.overlay,
       justifyContent: 'flex-end',
+    },
+    backdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: colors.overlay,
     },
     sheet: {
       backgroundColor: colors.card,
@@ -46,15 +50,6 @@ export function AppReviewModal({ visible, onReview, onDismiss }: Props) {
       backgroundColor: colors.border2,
       marginBottom: 4,
     },
-    iconWrap: {
-      alignSelf: 'center',
-      width: 52,
-      height: 52,
-      borderRadius: 16,
-      backgroundColor: colors.cardTint,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
     title: {
       fontSize: 22,
       fontWeight: '900',
@@ -68,6 +63,15 @@ export function AppReviewModal({ visible, onReview, onDismiss }: Props) {
       lineHeight: 20,
       textAlign: 'center',
       paddingHorizontal: 4,
+    },
+    starsRow: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      gap: 8,
+      marginTop: 4,
+    },
+    starBtn: {
+      padding: 4,
     },
     actions: {
       gap: 8,
@@ -86,28 +90,41 @@ export function AppReviewModal({ visible, onReview, onDismiss }: Props) {
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
-      <Pressable style={styles.backdrop} onPress={onDismiss}>
+      <View style={styles.root}>
         <Pressable
-          style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}
-          onPress={(e) => e.stopPropagation()}
-        >
+          style={styles.backdrop}
+          onPress={onDismiss}
+          accessibilityLabel="Dismiss review prompt"
+        />
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
           <View style={styles.handle} />
-          <View style={styles.iconWrap}>
-            <Ionicons name="star-outline" size={26} color={colors.moss} />
-          </View>
           <Text style={styles.title}>Enjoying Leap?</Text>
           <Text style={styles.sub}>
-            A quick App Store review helps more people discover the daily leap and keeps the community
-            growing.
+            Tap a star to leave a quick App Store review — it helps more people discover the daily
+            leap and keeps the community growing.
           </Text>
+          <View style={styles.starsRow}>
+            {[1, 2, 3, 4, 5].map((star) => (
+              <Pressable
+                key={star}
+                onPress={onReview}
+                style={styles.starBtn}
+                accessibilityRole="button"
+                accessibilityLabel={`Rate ${star} stars`}
+                hitSlop={6}
+              >
+                <Ionicons name="star" size={34} color={colors.moss} />
+              </Pressable>
+            ))}
+          </View>
           <View style={styles.actions}>
             <PrimaryButton title="Leave a review" variant="green" onPress={onReview} />
             <TouchableOpacity onPress={onDismiss} style={styles.laterBtn} activeOpacity={0.7}>
               <Text style={styles.laterText}>Maybe later</Text>
             </TouchableOpacity>
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }

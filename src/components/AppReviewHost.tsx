@@ -12,6 +12,7 @@ import {
   snoozeAppReviewPrompt,
 } from '../state/appReviewPrompt';
 import { subscribeStaffAppReviewPrompt } from '../state/appReviewBroadcast';
+import { hasCompletedOnboardingIntro } from '../state/onboardingIntro';
 import { shouldShowReferralIntro } from '../state/referralIntro';
 
 /**
@@ -63,12 +64,18 @@ export function AppReviewHost() {
         return;
       }
 
-      const referralIntroSeen = !(await shouldShowReferralIntro(user.uid));
-      const show = await shouldShowAppReviewPrompt({
-        uid: user.uid,
-        challengesCompleted,
-        referralIntroSeen,
-      });
+      const [showReferral, onboardingDone] = await Promise.all([
+        shouldShowReferralIntro(user.uid),
+        hasCompletedOnboardingIntro(user.uid),
+      ]);
+      const referralIntroSeen = !showReferral;
+      const show =
+        onboardingDone &&
+        (await shouldShowAppReviewPrompt({
+          uid: user.uid,
+          challengesCompleted,
+          referralIntroSeen,
+        }));
       if (!cancelled) setVisible(show);
       if (show && intervalId) clearInterval(intervalId);
     };
@@ -92,7 +99,10 @@ export function AppReviewHost() {
     setVisible(false);
     setStaffPromptVisible(false);
     if (user?.uid) void markAppReviewPromptCompleted(user.uid);
-    void requestAppStoreReview();
+    // Present App Store after the RN modal unmounts — avoids swallowed native review sheets.
+    setTimeout(() => {
+      void requestAppStoreReview({ explicit: true });
+    }, 350);
   }, [user?.uid]);
 
   const showModal = visible || staffPromptVisible;
