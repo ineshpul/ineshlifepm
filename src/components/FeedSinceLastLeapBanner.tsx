@@ -1,90 +1,85 @@
 import * as React from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Pressable, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
-import { PrimaryButton } from './PrimaryButton';
-import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import { useThemedStyles } from '../theme/ThemeProvider';
 import { navigateToRecord } from '../navigation/navigationHelpers';
+import { formatNyDateKeyShort } from '../utils/nyTime';
 
 type Props = {
+  lastPostedDateKey: string | null;
   count: number | null;
   loading?: boolean;
 };
 
-export function FeedSinceLastLeapBanner({ count, loading }: Props) {
+export function FeedSinceLastLeapBanner({ lastPostedDateKey, count, loading }: Props) {
   const nav = useNavigation<any>();
-  const { colors } = useTheme();
 
   const styles = useThemedStyles((c) => ({
     bar: {
       marginHorizontal: 12,
-      paddingVertical: 12,
-      paddingHorizontal: 14,
-      borderRadius: 12,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 10,
       backgroundColor: c.cardTint,
       borderWidth: 1,
       borderColor: c.profileAccentBorder,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 12,
+      gap: 10,
     },
-    lockBox: {
-      width: 44,
-      height: 44,
-      borderRadius: 12,
-      backgroundColor: c.card,
-      borderWidth: 1,
-      borderColor: c.profileAccentBorder,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    textCol: {
+    text: {
       flex: 1,
-      gap: 8,
+      fontSize: 13,
+      fontWeight: '600',
+      color: c.muted,
+      lineHeight: 18,
     },
-    title: {
-      fontSize: 14,
-      fontWeight: '900',
-      color: c.text,
-      lineHeight: 19,
+    leapPill: {
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      borderRadius: 8,
+      backgroundColor: c.green,
     },
-    cta: {
-      width: '100%',
-      maxWidth: 200,
-      borderRadius: 28,
-      height: 44,
+    leapPillText: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: c.white,
+      letterSpacing: 0.4,
     },
   }));
 
+  const lastLeapLabel = lastPostedDateKey
+    ? formatNyDateKeyShort(lastPostedDateKey)
+    : null;
+
   let body: string;
   if (loading) {
-    body = 'Since your last leap, people are leaping. Post yours to see them.';
+    body = lastLeapLabel
+      ? `Last leap ${lastLeapLabel} — post to catch up.`
+      : 'Post to catch up on new leaps.';
   } else if (count != null && count > 0) {
     const peopleLabel = count === 1 ? '1 person leaped' : `${count} people leaped`;
-    body = `Since your last leap, ${peopleLabel}. Post yours to see them.`;
+    body = lastLeapLabel
+      ? `Last leap ${lastLeapLabel} — ${peopleLabel} since. Post to see them.`
+      : `${peopleLabel} since your last leap — post to see them.`;
   } else {
-    body = 'Since your last leap, new leaps are waiting. Post yours to see them.';
+    body = lastLeapLabel
+      ? `Last leap ${lastLeapLabel} — post today to see what's new.`
+      : "Post today's leap to see what's new.";
   }
 
   return (
     <View style={styles.bar}>
-      <View style={styles.lockBox}>
-        {loading ? (
-          <ActivityIndicator size="small" color={colors.green} />
-        ) : (
-          <Ionicons name="lock-closed-outline" size={22} color={colors.green} />
-        )}
-      </View>
-      <View style={styles.textCol}>
-        <Text style={styles.title}>{body}</Text>
-        <PrimaryButton
-          title="Leap"
-          variant="green"
-          onPress={() => navigateToRecord(nav)}
-          style={styles.cta}
-        />
-      </View>
+      <Text style={styles.text}>{body}</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Leap"
+        onPress={() => navigateToRecord(nav)}
+        style={({ pressed }) => [styles.leapPill, pressed && { opacity: 0.9 }]}
+      >
+        <Text style={styles.leapPillText}>Leap</Text>
+      </Pressable>
     </View>
   );
 }

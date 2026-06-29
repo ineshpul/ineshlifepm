@@ -1650,7 +1650,6 @@ export function FeedScreen() {
               isTier2Established &&
               isTier2CardLocked({
                 challengeDate: item.challengeDate,
-                userPostedDates: postedDates,
                 lastPostedDateKey,
                 hasPostedToday: false,
                 bypassFeedGate,
@@ -1659,7 +1658,6 @@ export function FeedScreen() {
               isTier2Established &&
               isTier2CardLocked({
                 challengeDate: item.challengeDate,
-                userPostedDates: postedDates,
                 lastPostedDateKey,
                 hasPostedToday,
                 bypassFeedGate,
@@ -1868,6 +1866,7 @@ export function FeedScreen() {
             ) : null}
             {showSinceLastLeapBanner ? (
               <FeedSinceLastLeapBanner
+                lastPostedDateKey={lastPostedDateKey}
                 count={leapsSinceLastPost}
                 loading={!leapsSinceLastPostReady}
               />

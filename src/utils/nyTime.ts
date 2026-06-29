@@ -92,6 +92,16 @@ export function normalizeNyDateKey(raw: string, fallback: string): string {
   return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
+/** Human label for a NY `YYYY-MM-DD` key (e.g. "Jun 12"). */
+export function formatNyDateKeyShort(dateKey: string): string {
+  const n = normalizeNyDateKey(dateKey, '');
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(n);
+  if (!m) return dateKey || '—';
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (Number.isNaN(d.getTime())) return dateKey;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 /** NY noon on `dateKey` as UTC ms — larger = newer challenge day (stable sort key). */
 export function nyDateKeyToSortUtcMs(dateKey: string, fallbackMs = 0): number {
   const n = normalizeNyDateKey(dateKey, '');

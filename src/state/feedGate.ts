@@ -84,12 +84,11 @@ export function isAtTier1Wall(activeScrollIndex: number, teaserLimit: number): b
 }
 
 /**
- * Tier 2 per-card lock: open on the user's last posted leap day and everything before it.
- * Days after their last post stay locked until they post for the active cycle.
+ * Tier 2 per-card lock: leaps after the user's last posted day stay in the feed but locked.
+ * Last posted day and everything before it play freely until they post for the active cycle.
  */
 export function isTier2CardLocked(args: {
   challengeDate: string;
-  userPostedDates: ReadonlySet<string>;
   lastPostedDateKey: string | null;
   hasPostedToday: boolean;
   bypassFeedGate?: boolean;
@@ -100,8 +99,6 @@ export function isTier2CardLocked(args: {
   const cd = normalizeNyDateKey(args.challengeDate, '');
   if (!cd) return false;
 
-  if (userPostedOnChallengeDate(args.userPostedDates, cd)) return false;
-
   const lastKey = args.lastPostedDateKey
     ? normalizeNyDateKey(args.lastPostedDateKey, '')
     : '';
@@ -109,7 +106,5 @@ export function isTier2CardLocked(args: {
 
   const cdMs = nyDateKeyToSortUtcMs(cd, 0);
   const lastMs = nyDateKeyToSortUtcMs(lastKey, 0);
-  if (cdMs <= lastMs) return false;
-
-  return true;
+  return cdMs > lastMs;
 }
