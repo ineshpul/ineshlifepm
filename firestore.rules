@@ -75,6 +75,23 @@ service cloud.firestore {
         && k.matches('^[a-z0-9_-]+$');
     }
 
+    function validFeedTeaserCardLimit(v) {
+      return v is int && v >= 10 && v <= 30;
+    }
+
+    /** One-time write of `users/{uid}.feedTeaserCardLimit` by the account owner. */
+    function isOneTimeFeedTeaserLimitWrite() {
+      return !resource.data.keys().hasAny(['feedTeaserCardLimit'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['feedTeaserCardLimit'])
+        && validFeedTeaserCardLimit(request.resource.data.feedTeaserCardLimit);
+    }
+
+    /** One-time write of `users/{uid}.feedGraduationSeenAt` by the account owner. */
+    function isOneTimeFeedGraduationSeenWrite() {
+      return !resource.data.keys().hasAny(['feedGraduationSeenAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['feedGraduationSeenAt']);
+    }
+
     function ownsUsernameClaimForUser(userId, key) {
       return signedIn()
         && validUsernameClaimKey(key)
@@ -762,48 +779,58 @@ service cloud.firestore {
           'leaperLifetimePoints',
           'referredByUid',
           'referredAt',
+          'feedTeaserCardLimit',
+          'feedGraduationSeenAt',
         ])
         && (
           !request.resource.data.keys().hasAny(['usernameLower'])
           || ownsUsernameClaimForUser(userId, request.resource.data.usernameLower)
         );
       allow update: if isOwner(userId)
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'isAdmin',
-          'isModerator',
-          'bypassFeedGate',
-          'email',
-          'verticalScore',
-          'verticalScoreBreakdown',
-          'verticalScoreUpdatedAt',
-          'verticalScoreAdjustment',
-          'lifetimeVerticalXP',
-          'activeLeapStreakDays',
-          'longestLeapStreakDays',
-          'lastApprovedLeapDateKey',
-          'recentQualityAvg',
-          'recentApprovedLeapCount',
-          'inactivityDecay',
-          'safetyPenalty',
-          'hasReceivedFirstLeapBonus',
-          'bestVerticalGainPostId',
-          'bestVerticalGainPoints',
-          'highestJumpDisplayInches',
-          'leaperDayKey',
-          'leaperDayPoints',
-          'leaperWeekKey',
-          'leaperWeekPoints',
-          'leaperLifetimePoints',
-          'referredByUid',
-          'referredAt',
-        ])
         && (
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['username', 'usernameLower'])
-          || (
-            request.resource.data.username == resource.data.username
-            && request.resource.data.usernameLower == resource.data.usernameLower
+          (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'isAdmin',
+              'isModerator',
+              'bypassFeedGate',
+              'email',
+              'verticalScore',
+              'verticalScoreBreakdown',
+              'verticalScoreUpdatedAt',
+              'verticalScoreAdjustment',
+              'lifetimeVerticalXP',
+              'activeLeapStreakDays',
+              'longestLeapStreakDays',
+              'lastApprovedLeapDateKey',
+              'recentQualityAvg',
+              'recentApprovedLeapCount',
+              'inactivityDecay',
+              'safetyPenalty',
+              'hasReceivedFirstLeapBonus',
+              'bestVerticalGainPostId',
+              'bestVerticalGainPoints',
+              'highestJumpDisplayInches',
+              'leaperDayKey',
+              'leaperDayPoints',
+              'leaperWeekKey',
+              'leaperWeekPoints',
+              'leaperLifetimePoints',
+              'referredByUid',
+              'referredAt',
+              'feedTeaserCardLimit',
+              'feedGraduationSeenAt',
+            ])
+            && (
+              !request.resource.data.diff(resource.data).affectedKeys().hasAny(['username', 'usernameLower'])
+              || (
+                request.resource.data.username == resource.data.username
+                && request.resource.data.usernameLower == resource.data.usernameLower
+              )
+              || ownsUsernameClaimForUser(userId, request.resource.data.usernameLower)
+            )
           )
-          || ownsUsernameClaimForUser(userId, request.resource.data.usernameLower)
+          || isOneTimeFeedTeaserLimitWrite()
+          || isOneTimeFeedGraduationSeenWrite()
         );
       allow delete: if false;
 

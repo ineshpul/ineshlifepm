@@ -27,7 +27,10 @@ import {
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { FeedCameraRollSaveBanner } from '../components/FeedCameraRollSaveBanner';
+import { FeedGraduationMoment } from '../components/FeedGraduationMoment';
+import { FeedLockedCardOverlay } from '../components/FeedLockedCardOverlay';
 import { FeedPreviewChoice } from '../components/FeedPreviewChoice';
+import { FeedTeaserWallBar } from '../components/FeedTeaserWallBar';
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
 import { UsernameLink } from '../components/UsernameLink';
 import { Brandmark } from '../components/Brandmark';
@@ -46,7 +49,17 @@ import { takeCameraRollSaveOffer, type CameraRollSaveOffer } from '../state/pend
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
-import { todayVideoDocId } from '../state/posting';
+import { markFeedGraduationSeen, useFeedGraduationSeen } from '../state/feedGraduation';
+import {
+  FEED_GATE_V2,
+  isAtTier1Wall,
+  isTier2CardLocked,
+  resolveFeedGateTier,
+  tier1MaxScrollOffset,
+} from '../state/feedGate';
+import { useFeedTeaserCardLimit } from '../state/feedTeaserLimit';
+import { useHasPostedAnyVideo, todayVideoDocId } from '../state/posting';
+import { useUserPostedDates } from '../hooks/useUserPostedDates';
 import { showError } from '../utils/ui';
 import {
   markAllNotificationsRead,
@@ -602,8 +615,87 @@ export function FeedScreen() {
   const { user } = useAuth();
   const isStaffUser = Boolean(user?.isAdmin || user?.isModerator);
   /** Review demo accounts only — staff admin still posts to unlock the feed. */
-  const canViewEveryoneFeed = hasPostedToday || Boolean(user?.bypassFeedGate);
-  const feedPreviewMode = Boolean(user?.uid && !canViewEveryoneFeed);
+  const bypassFeedGate = Boolean(user?.bypassFeedGate);
+  const canViewEveryoneFeed = hasPostedToday || bypassFeedGate;
+  /** Legacy daily preview gate — dormant when {@link FEED_GATE_V2}. */
+  const feedPreviewMode = !FEED_GATE_V2 && Boolean(user?.uid && !canViewEveryoneFeed);
+
+  const hasEverPosted = useHasPostedAnyVideo(user?.uid);
+  const gateTier = resolveFeedGateTier(hasEverPosted);
+  const isTier1Teaser = FEED_GATE_V2 && gateTier === 'tier1_teaser' && !bypassFeedGate;
+  const isTier2Daily = FEED_GATE_V2 && gateTier === 'tier2_daily';
+
+  const { teaserLimit, teaserLimitReady } = useFeedTeaserCardLimit(
+    user?.uid,
+    isTier1Teaser
+  );
+  const { postedDates, postedDatesReady } = useUserPostedDates(
+    isTier2Daily ? user?.uid : undefined
+  );
+  const { graduationSeen, graduationSeenHydrated } = useFeedGraduationSeen(user?.uid);
+
+  const [activeScrollIndex, setActiveScrollIndex] = React.useState(0);
+  const [showGraduation, setShowGraduation] = React.useState(false);
+  const [graduationWallDissolving, setGraduationWallDissolving] = React.useState(false);
+  const [tier2UnlockAnimating, setTier2UnlockAnimating] = React.useState(false);
+
+  const activeScrollIndexRef = React.useRef(0);
+  const hasEverPostedHydratedRef = React.useRef(false);
+  const prevHasEverPostedRef = React.useRef(false);
+  const prevHasPostedTodayRef = React.useRef(hasPostedToday);
+
+  React.useEffect(() => {
+    hasEverPostedHydratedRef.current = false;
+    prevHasEverPostedRef.current = false;
+  }, [user?.uid]);
+
+  React.useEffect(() => {
+    if (!FEED_GATE_V2 || !user?.uid || !graduationSeenHydrated) return;
+
+    if (!hasEverPostedHydratedRef.current) {
+      hasEverPostedHydratedRef.current = true;
+      prevHasEverPostedRef.current = hasEverPosted;
+      return;
+    }
+
+    if (!prevHasEverPostedRef.current && hasEverPosted && !graduationSeen) {
+      setGraduationWallDissolving(isAtTier1Wall(activeScrollIndexRef.current, teaserLimit ?? 20));
+      setShowGraduation(true);
+    }
+    prevHasEverPostedRef.current = hasEverPosted;
+  }, [
+    hasEverPosted,
+    graduationSeen,
+    graduationSeenHydrated,
+    user?.uid,
+    teaserLimit,
+  ]);
+
+  React.useEffect(() => {
+    if (!FEED_GATE_V2 || !isTier2Daily) return;
+    if (!prevHasPostedTodayRef.current && hasPostedToday) {
+      setTier2UnlockAnimating(true);
+      const t = setTimeout(() => setTier2UnlockAnimating(false), 620);
+      prevHasPostedTodayRef.current = hasPostedToday;
+      return () => clearTimeout(t);
+    }
+    prevHasPostedTodayRef.current = hasPostedToday;
+  }, [hasPostedToday, isTier2Daily]);
+
+  const dismissGraduation = React.useCallback(() => {
+    setShowGraduation(false);
+    setGraduationWallDissolving(false);
+    if (user?.uid) void markFeedGraduationSeen(user.uid);
+  }, [user?.uid]);
+
+  const effectiveTeaserLimit = teaserLimit ?? 20;
+
+  const tier2HasActiveLocks =
+    isTier2Daily &&
+    !hasPostedToday &&
+    !bypassFeedGate &&
+    postedDatesReady;
+
   /** Preview skipped or finished for this challenge day — gate only, persisted across restarts. */
   const [feedPreviewConsumed, setFeedPreviewConsumed] = React.useState(false);
   /** User tapped Preview — can resume reels until they skip or finish swiping. */
@@ -764,7 +856,6 @@ export function FeedScreen() {
   /** Measured bottom-sheet height per video so the video slot clears the sheet without extra whitespace. */
   const [reelSheetHeights, setReelSheetHeights] = React.useState<Record<string, number>>({});
   const flatListRef = React.useRef<FlatList<FeedVideo>>(null);
-  const activeScrollIndexRef = React.useRef(0);
   const displayVideosRef = React.useRef<FeedVideo[]>([]);
   const feedSlotRef = React.useRef<View>(null);
   const loadMoreFeedRef = React.useRef<(() => void) | null>(null);
@@ -784,6 +875,17 @@ export function FeedScreen() {
     if (slotHeight > 0) return slotHeight;
     return Math.max(380, windowHeight - insets.top - 52);
   }, [slotHeight, windowHeight, insets.top]);
+
+  const maxTier1ScrollOffset = React.useMemo(
+    () => tier1MaxScrollOffset(effectiveTeaserLimit, pageHeight),
+    [effectiveTeaserLimit, pageHeight]
+  );
+
+  const showTeaserWallBar =
+    isTier1Teaser &&
+    teaserLimitReady &&
+    effectiveTeaserLimit > 0 &&
+    isAtTier1Wall(activeScrollIndex, effectiveTeaserLimit);
 
   const scrollTopThreshold = Math.max(800, pageHeight * 2.2);
   const maxFeedPreviewOffset = React.useMemo(
@@ -858,6 +960,21 @@ export function FeedScreen() {
       const on = y >= scrollTopThreshold;
       setShowScrollTop((prev) => (prev === on ? prev : on));
 
+      if (pageHeight > 40) {
+        const idx = Math.max(0, Math.round(y / pageHeight));
+        activeScrollIndexRef.current = idx;
+        setActiveScrollIndex((prev) => (prev === idx ? prev : idx));
+      }
+
+      if (
+        isTier1Teaser &&
+        teaserLimitReady &&
+        pageHeight > 40 &&
+        y > maxTier1ScrollOffset + pageHeight * 0.12
+      ) {
+        flatListRef.current?.scrollToOffset({ offset: maxTier1ScrollOffset, animated: true });
+      }
+
       if (
         feedPreviewMode &&
         feedPreviewSessionActive &&
@@ -870,9 +987,12 @@ export function FeedScreen() {
     },
     [
       scrollTopThreshold,
+      isTier1Teaser,
+      teaserLimitReady,
+      pageHeight,
+      maxTier1ScrollOffset,
       feedPreviewMode,
       feedPreviewSessionActive,
-      pageHeight,
       maxFeedPreviewOffset,
       endFeedPreviewSession,
     ]
@@ -905,8 +1025,32 @@ export function FeedScreen() {
   );
 
   const flatListExtraData = React.useMemo(
-    () => `${pageHeight}-${activeVideoId}-${feedHydrated ? 1 : 0}-${isFocused ? 1 : 0}`,
-    [pageHeight, activeVideoId, feedHydrated, isFocused]
+    () =>
+      [
+        pageHeight,
+        activeVideoId,
+        feedHydrated ? 1 : 0,
+        isFocused ? 1 : 0,
+        hasPostedToday ? 1 : 0,
+        gateTier,
+        tier2UnlockAnimating ? 1 : 0,
+        bypassFeedGate ? 1 : 0,
+        postedDatesReady ? [...postedDates].sort().join(',') : 'pending',
+        activeScrollIndex,
+      ].join('|'),
+    [
+      pageHeight,
+      activeVideoId,
+      feedHydrated,
+      isFocused,
+      hasPostedToday,
+      gateTier,
+      tier2UnlockAnimating,
+      bypassFeedGate,
+      postedDatesReady,
+      postedDates,
+      activeScrollIndex,
+    ]
   );
 
   React.useEffect(() => {
@@ -925,6 +1069,11 @@ export function FeedScreen() {
     ({ viewableItems }: { viewableItems: ViewToken[]; changed: ViewToken[] }) => {
       const next = pickPrimaryViewable(viewableItems);
       if (next?.id) setActiveVideoId(next.id);
+      const primary = viewableItems.find((v) => v.isViewable && typeof v.index === 'number');
+      if (primary && typeof primary.index === 'number') {
+        activeScrollIndexRef.current = primary.index;
+        setActiveScrollIndex((prev) => (prev === primary.index ? prev : primary.index!));
+      }
     },
     []
   );
@@ -947,7 +1096,7 @@ export function FeedScreen() {
   /** After posting (or first load), reel rows can mount before viewability runs; sync scroll + active id once. */
   const prevFeedNonEmptyCountRef = React.useRef(0);
   React.useEffect(() => {
-    if (!user?.uid || (!canViewEveryoneFeed && !feedPreviewMode)) {
+    if (!user?.uid || (!FEED_GATE_V2 && !canViewEveryoneFeed && !feedPreviewMode)) {
       prevFeedNonEmptyCountRef.current = 0;
       return;
     }
@@ -1089,7 +1238,9 @@ export function FeedScreen() {
 
     const merge = () => {
       if (cancelled) return;
-      if (canViewEveryoneFeedRef.current && (!approvedLoadDone || !mineListenerSeen)) {
+      const waitForApproved =
+        FEED_GATE_V2 || canViewEveryoneFeedRef.current;
+      if (waitForApproved && (!approvedLoadDone || !mineListenerSeen)) {
         return;
       }
       const map = new Map<string, FeedVideo>();
@@ -1237,16 +1388,7 @@ export function FeedScreen() {
     return <TakeTheLeapGate variant="feed" />;
   }
 
-  const showFeedPreviewChoice =
-    feedPreviewMode &&
-    feedPreviewLockHydrated &&
-    !feedPreviewConsumed &&
-    !feedPreviewStarted &&
-    !feedPreviewSessionActive;
-
-  const previewVideosReady = feedHydrated && displayVideos.length > 0;
-
-  if (feedPreviewMode && !feedPreviewLockHydrated) {
+  if (FEED_GATE_V2 && isTier1Teaser && !teaserLimitReady) {
     return (
       <Screen style={styles.feedScreen}>
         <View style={styles.previewLockLoading}>
@@ -1256,7 +1398,27 @@ export function FeedScreen() {
     );
   }
 
-  if (feedPreviewMode && feedPreviewConsumed && !feedPreviewSessionActive) {
+  const showFeedPreviewChoice =
+    !FEED_GATE_V2 &&
+    feedPreviewMode &&
+    feedPreviewLockHydrated &&
+    !feedPreviewConsumed &&
+    !feedPreviewStarted &&
+    !feedPreviewSessionActive;
+
+  const previewVideosReady = feedHydrated && displayVideos.length > 0;
+
+  if (!FEED_GATE_V2 && feedPreviewMode && !feedPreviewLockHydrated) {
+    return (
+      <Screen style={styles.feedScreen}>
+        <View style={styles.previewLockLoading}>
+          <ActivityIndicator size="large" color={colors.text} />
+        </View>
+      </Screen>
+    );
+  }
+
+  if (!FEED_GATE_V2 && feedPreviewMode && feedPreviewConsumed && !feedPreviewSessionActive) {
     return <TakeTheLeapGate variant="feed" />;
   }
 
@@ -1271,6 +1433,7 @@ export function FeedScreen() {
   }
 
   if (
+    !FEED_GATE_V2 &&
     feedPreviewMode &&
     feedPreviewStarted &&
     feedHydrated &&
@@ -1336,7 +1499,7 @@ export function FeedScreen() {
           keyExtractor={(x) => x.id}
           extraData={flatListExtraData}
           refreshControl={
-            canViewEveryoneFeed && !feedPreviewMode ? (
+            (FEED_GATE_V2 || (canViewEveryoneFeed && !feedPreviewMode)) ? (
               <RefreshControl
                 refreshing={feedRefreshing}
                 onRefresh={onPullRefreshFeed}
@@ -1349,7 +1512,7 @@ export function FeedScreen() {
           onViewableItemsChanged={onViewableItemsChanged}
           onScroll={onFeedScroll}
           scrollEventThrottle={16}
-          onEndReached={canViewEveryoneFeed && !feedPreviewMode ? onEndReachedFeed : undefined}
+          onEndReached={FEED_GATE_V2 || (canViewEveryoneFeed && !feedPreviewMode) ? onEndReachedFeed : undefined}
           onEndReachedThreshold={2}
           contentContainerStyle={displayVideos.length === 0 ? { flexGrow: 1 } : undefined}
           pagingEnabled
@@ -1359,7 +1522,7 @@ export function FeedScreen() {
           disableIntervalMomentum
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
-          removeClippedSubviews={Platform.OS === 'android'}
+          removeClippedSubviews={Platform.OS === 'android' ? !tier2HasActiveLocks : false}
           initialNumToRender={3}
           maxToRenderPerBatch={3}
           windowSize={3}
@@ -1398,8 +1561,36 @@ export function FeedScreen() {
               activeVideoId === item.id &&
               firstPreviousLeapsIndex >= 0 &&
               index === firstPreviousLeapsIndex;
+
+            const wouldBeTier2Locked =
+              isTier2Daily &&
+              isTier2CardLocked({
+                challengeDate: item.challengeDate,
+                viewingChallengeDateKey,
+                userPostedDates: postedDates,
+                hasPostedToday: false,
+                bypassFeedGate,
+              });
+            const isTier2Locked =
+              isTier2Daily &&
+              isTier2CardLocked({
+                challengeDate: item.challengeDate,
+                viewingChallengeDateKey,
+                userPostedDates: postedDates,
+                hasPostedToday,
+                bypassFeedGate,
+              });
+            const showLockedOverlay =
+              wouldBeTier2Locked && (isTier2Locked || tier2UnlockAnimating);
+            const overlayUnlocking = tier2UnlockAnimating && wouldBeTier2Locked && !isTier2Locked;
+            const videoShouldPlay =
+              isFocused && activeVideoId === item.id && !showLockedOverlay;
+
             return (
-            <View style={[styles.reelPage, { height: pageHeight }]}>
+            <View
+              style={[styles.reelPage, { height: pageHeight }]}
+              collapsable={false}
+            >
               <View style={[styles.reelVideoSlot, { bottom: sheetBottom }]}>
                 {isFocused ? (
                   <FeedPostVideo
@@ -1407,7 +1598,7 @@ export function FeedScreen() {
                     url={item.url}
                     secondaryUrl={item.secondaryUrl}
                     dualFrontIsPrimary={item.dualFrontIsPrimary}
-                    shouldPlay={activeVideoId === item.id}
+                    shouldPlay={videoShouldPlay}
                     isMuted={false}
                     useNativeControls
                     maxDurationSeconds={item.maxDurationSeconds}
@@ -1421,6 +1612,9 @@ export function FeedScreen() {
                 ) : (
                   <ReelVideoPlaceholder />
                 )}
+                {showLockedOverlay ? (
+                  <FeedLockedCardOverlay unlocking={overlayUnlocking} />
+                ) : null}
               </View>
 
               <View
@@ -1490,7 +1684,7 @@ export function FeedScreen() {
                     ) : null}
                   </View>
                 </View>
-                {user?.uid && item.id === activeVideoId ? (
+                {user?.uid && item.id === activeVideoId && !showLockedOverlay ? (
                   <View style={styles.reelEngagementScroll}>
                     <FeedPostEngagement
                       reelLayout
@@ -1555,8 +1749,10 @@ export function FeedScreen() {
           </TouchableOpacity>
         ) : null}
         {cameraRollSaveOffer ||
-        (feedPreviewMode && feedPreviewStarted && !feedPreviewConsumed) ||
-        showReferralNudge ? (
+        (!FEED_GATE_V2 && feedPreviewMode && feedPreviewStarted && !feedPreviewConsumed) ||
+        showTeaserWallBar ||
+        graduationWallDissolving ||
+        (showReferralNudge && !showTeaserWallBar && !graduationWallDissolving) ? (
           <View style={styles.feedBannerStack} pointerEvents="box-none">
             {cameraRollSaveOffer ? (
               <FeedCameraRollSaveBanner
@@ -1565,14 +1761,17 @@ export function FeedScreen() {
                 onDismiss={() => setCameraRollSaveOffer(null)}
               />
             ) : null}
-            {feedPreviewMode && feedPreviewStarted && !feedPreviewConsumed ? (
+            {!FEED_GATE_V2 && feedPreviewMode && feedPreviewStarted && !feedPreviewConsumed ? (
               <View style={styles.previewBanner} pointerEvents="none">
                 <Text style={styles.previewBannerText}>
                   Preview — swipe up to {FEED_PREVIEW_SCROLL_LIMIT} leaps, then take yours to unlock the feed
                 </Text>
               </View>
             ) : null}
-            {showReferralNudge ? (
+            {showTeaserWallBar || graduationWallDissolving ? (
+              <FeedTeaserWallBar dissolving={graduationWallDissolving} />
+            ) : null}
+            {showReferralNudge && !showTeaserWallBar && !graduationWallDissolving ? (
               <View style={styles.referralNudge}>
                 <Text style={styles.referralNudgeText}>
                   Know someone who&apos;d leap with you?{' '}
@@ -1595,6 +1794,7 @@ export function FeedScreen() {
           </View>
         ) : null}
       </View>
+      <FeedGraduationMoment visible={showGraduation} onDismiss={dismissGraduation} />
     </Screen>
   );
 }
