@@ -15,6 +15,7 @@ import { Audio, Video, ResizeMode } from 'expo-av';
 import { doc, getDoc } from 'firebase/firestore';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
+import { DualClipPlayback } from '../components/DualClipPlayback';
 import { FeedPostEngagement } from '../components/FeedPostEngagement';
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
 import { UsernameLink } from '../components/UsernameLink';
@@ -168,49 +169,37 @@ export function VideoPostScreen({ route }: Props) {
 
   const [keyboardPad, setKeyboardPad] = React.useState(0);
   const primaryVideoRef = React.useRef<Video>(null);
-  const secondaryVideoRef = React.useRef<Video>(null);
-  const secondarySyncPosRef = React.useRef(0);
-  const [primaryPlaying, setPrimaryPlaying] = React.useState(false);
   const dualFrontIsPrimary = row?.dualFrontIsPrimary === true;
-  const secondaryCarriesAudio = Boolean(row?.secondaryUrl && dualFrontIsPrimary);
-  const secondaryShouldPlay = isFocused && primaryPlaying;
+  const isDualPost = Boolean(row?.secondaryUrl);
+  const secondaryCarriesAudio = isDualPost && dualFrontIsPrimary;
+
   React.useEffect(() => {
-    if (isFocused) return;
-    setPrimaryPlaying(false);
+    if (isFocused || isDualPost) return;
     void (async () => {
       try {
         await primaryVideoRef.current?.pauseAsync();
         await primaryVideoRef.current?.unloadAsync();
-        await secondaryVideoRef.current?.pauseAsync();
-        await secondaryVideoRef.current?.unloadAsync();
       } catch {
         // ignore
       }
     })();
-  }, [isFocused]);
+  }, [isFocused, isDualPost]);
 
   useFocusEffect(
     React.useCallback(() => {
       return () => {
-        setPrimaryPlaying(false);
+        if (isDualPost) return;
         void (async () => {
           try {
             await primaryVideoRef.current?.pauseAsync();
             await primaryVideoRef.current?.unloadAsync();
-            await secondaryVideoRef.current?.pauseAsync();
-            await secondaryVideoRef.current?.unloadAsync();
           } catch {
             // ignore
           }
         })();
       };
-    }, [])
+    }, [isDualPost])
   );
-
-  React.useEffect(() => {
-    setPrimaryPlaying(false);
-    secondarySyncPosRef.current = 0;
-  }, [row?.url, row?.secondaryUrl]);
 
   React.useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -264,65 +253,33 @@ export function VideoPostScreen({ route }: Props) {
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.videoWrap}>
-              <Video
-                ref={primaryVideoRef}
-                source={{ uri: row.url }}
-                style={styles.video}
-                resizeMode={ResizeMode.CONTAIN}
-                useNativeControls
-                shouldPlay={isFocused}
-                isLooping={false}
-                isMuted={secondaryCarriesAudio}
-                volume={secondaryCarriesAudio ? 0 : 1}
-                progressUpdateIntervalMillis={preferences.dataSaver ? 1000 : 250}
-                onPlaybackStatusUpdate={(status) => {
-                  if (!status.isLoaded) return;
-                  const playing = Boolean(status.isPlaying);
-                  setPrimaryPlaying(playing);
-                  if (row.secondaryUrl) {
-                    const pos = status.positionMillis ?? 0;
-                    if (Math.abs(pos - secondarySyncPosRef.current) >= 150) {
-                      secondarySyncPosRef.current = pos;
-                      void (async () => {
-                        try {
-                          await secondaryVideoRef.current?.setPositionAsync(pos);
-                          if (playing) await secondaryVideoRef.current?.playAsync();
-                        } catch {
-                          // ignore
-                        }
-                      })();
-                    } else if (playing) {
-                      void secondaryVideoRef.current?.playAsync().catch(() => {});
-                    }
-                  }
-                  if (status.didJustFinish) {
-                    void (async () => {
-                      try {
-                        await secondaryVideoRef.current?.pauseAsync();
-                        await secondaryVideoRef.current?.setPositionAsync(0);
-                        secondarySyncPosRef.current = 0;
-                      } catch {
-                        // ignore
-                      }
-                    })();
-                  }
-                }}
-              />
-              {row.secondaryUrl ? (
-                <View style={styles.pip} pointerEvents="none">
-                  <Video
-                    ref={secondaryVideoRef}
-                    source={{ uri: row.secondaryUrl }}
-                    style={styles.pipVideo}
-                    resizeMode={ResizeMode.COVER}
-                    shouldPlay={secondaryShouldPlay}
-                    isMuted={!dualFrontIsPrimary}
-                    isLooping={false}
-                    volume={dualFrontIsPrimary ? 1 : 0}
-                    progressUpdateIntervalMillis={preferences.dataSaver ? 2000 : 1000}
-                  />
-                </View>
-              ) : null}
+              {isDualPost && row.secondaryUrl ? (
+                <DualClipPlayback
+                  primaryUrl={row.url}
+                  secondaryUrl={row.secondaryUrl}
+                  dualFrontIsPrimary={dualFrontIsPrimary}
+                  shouldPlay={isFocused}
+                  isMuted={false}
+                  nativeControls
+                  primaryContentFit="contain"
+                  primaryStyle={styles.video}
+                  pipStyle={styles.pip}
+                  syncIntervalMs={preferences.dataSaver ? 200 : 100}
+                />
+              ) : (
+                <Video
+                  ref={primaryVideoRef}
+                  source={{ uri: row.url }}
+                  style={styles.video}
+                  resizeMode={ResizeMode.CONTAIN}
+                  useNativeControls
+                  shouldPlay={isFocused}
+                  isLooping={false}
+                  isMuted={secondaryCarriesAudio}
+                  volume={secondaryCarriesAudio ? 0 : 1}
+                  progressUpdateIntervalMillis={preferences.dataSaver ? 1000 : 250}
+                />
+              )}
             </View>
 
             <UsernameLink uid={row.ownerUid} username={row.username} style={styles.userLine} />

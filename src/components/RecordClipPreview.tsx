@@ -2,6 +2,8 @@ import * as React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 
+import { DualClipPlayback } from './DualClipPlayback';
+
 type Props = {
   uri: string;
   /** Optional companion clip rendered as a muted PIP tile (BeReal-style dual recording). */
@@ -12,110 +14,48 @@ type Props = {
 
 /** Preview a recorded or picked clip. Uses `expo-video` because `expo-av` Video is deprecated on SDK 54. */
 export function RecordClipPreview({ uri, secondaryUri, dualFrontIsPrimary = false }: Props) {
-  const audioOnSecondary = Boolean(secondaryUri) && dualFrontIsPrimary;
+  if (secondaryUri) {
+    return (
+      <View style={StyleSheet.absoluteFill}>
+        <DualClipPlayback
+          primaryUrl={uri}
+          secondaryUrl={secondaryUri}
+          dualFrontIsPrimary={dualFrontIsPrimary}
+          shouldPlay
+          isMuted={false}
+          nativeControls
+          primaryContentFit="contain"
+        />
+      </View>
+    );
+  }
+
+  return <SingleClipPreview uri={uri} />;
+}
+
+function SingleClipPreview({ uri }: { uri: string }) {
   const player = useVideoPlayer({ uri }, (p) => {
     p.loop = false;
-    p.muted = audioOnSecondary;
   });
-  const secondaryPlayer = useVideoPlayer(
-    secondaryUri ? { uri: secondaryUri } : null,
-    (p) => {
-      p.loop = false;
-      p.muted = !audioOnSecondary;
-    }
-  );
-
-  // Keep the PIP frame-locked to the primary clip through native-control replay.
-  React.useEffect(() => {
-    if (!secondaryUri || !secondaryPlayer) return;
-
-    const syncPip = () => {
-      try {
-        const primaryTime = player.currentTime;
-        const primaryPlaying = player.playing;
-        if (primaryPlaying) {
-          if (Math.abs(secondaryPlayer.currentTime - primaryTime) > 0.2) {
-            secondaryPlayer.currentTime = primaryTime;
-          }
-          if (!secondaryPlayer.playing) {
-            secondaryPlayer.play();
-          }
-        } else if (secondaryPlayer.playing) {
-          secondaryPlayer.pause();
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    const playSub = player.addListener('playingChange', syncPip);
-    const endSub = player.addListener('playToEnd', () => {
-      try {
-        secondaryPlayer.pause();
-        secondaryPlayer.currentTime = 0;
-      } catch {
-        // ignore
-      }
-    });
-    const interval = setInterval(syncPip, 250);
-
-    return () => {
-      playSub.remove();
-      endSub.remove();
-      clearInterval(interval);
-    };
-  }, [player, secondaryPlayer, secondaryUri]);
 
   React.useEffect(() => {
-    // Autoplay once after recording so users don't have to tap play.
     const t = setTimeout(() => {
       try {
-        (player as any)?.play?.();
-      } catch {
-        // ignore
-      }
-      try {
-        (secondaryPlayer as any)?.play?.();
+        (player as { play?: () => void })?.play?.();
       } catch {
         // ignore
       }
     }, 150);
     return () => clearTimeout(t);
-  }, [player, secondaryPlayer]);
+  }, [player]);
+
   return (
-    <View style={StyleSheet.absoluteFill}>
-      <VideoView
-        style={StyleSheet.absoluteFill}
-        player={player}
-        nativeControls
-        contentFit="contain"
-        allowsFullscreen
-      />
-      {secondaryUri ? (
-        <View style={styles.pip} pointerEvents="none">
-          <VideoView
-            style={StyleSheet.absoluteFill}
-            player={secondaryPlayer}
-            nativeControls={false}
-            contentFit="cover"
-          />
-        </View>
-      ) : null}
-    </View>
+    <VideoView
+      style={StyleSheet.absoluteFill}
+      player={player}
+      nativeControls
+      contentFit="contain"
+      allowsFullscreen
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  pip: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    width: 110,
-    height: 150,
-    borderRadius: 14,
-    overflow: 'hidden',
-    backgroundColor: '#0F172A',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.7)',
-  },
-});

@@ -44,7 +44,11 @@ import {
 import { useBackgroundPostUpload } from '../state/backgroundPostUpload';
 import { showError, showInfo } from '../utils/ui';
 import { useSettingsPreferences } from '../state/settingsPreferences';
-import { BONUS_ATTEMPT_BASE_REDUCTION_INCHES } from '../lib/verticalScore';
+import {
+  BONUS_ATTEMPT_BASE_REDUCTION_INCHES,
+  LEAP_BASE_INCHES,
+  LEAP_FIRST_BONUS_BASE_INCHES,
+} from '../lib/verticalScore';
 import { purchaseRecordingAttemptWithScore } from '../services/recordingAttemptsPurchase';
 import { computeFeedViewingFromNow } from '../utils/nyTime';
 import { navigateToFeedTab } from '../navigation/navigationHelpers';
@@ -353,6 +357,9 @@ export function RecordScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
   const attemptsLeft = attemptsRemaining;
+  const unlockBaseAfterReduction = LEAP_BASE_INCHES - ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES;
+  const unlockFirstPostBaseAfterReduction =
+    LEAP_FIRST_BONUS_BASE_INCHES - ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES;
   const [bonusBasePending, setBonusBasePending] = React.useState(false);
   const [purchaseBusy, setPurchaseBusy] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
@@ -851,6 +858,10 @@ export function RecordScreen() {
     setRecordingSecondsLeft(null);
   }, []);
 
+  const handleRecordingTick = React.useCallback((left: number) => {
+    setRecordingSecondsLeft(left);
+  }, []);
+
   const toggleCameraMode = React.useCallback(() => {
     if (isRecordingRef.current || preRecordCountdown != null || clipUri || postedToday) {
       return;
@@ -870,7 +881,7 @@ export function RecordScreen() {
     if (!user?.uid || !isFirebaseConfigured()) return;
     Alert.alert(
       'Get another attempt?',
-      `Costs ${ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES} in from your leap base when you post (5→0 in base, or 10→5 in for a first post). Engagement still adds on top.`,
+      `Costs ${ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES}in from your leap base when you post (${unlockBaseAfterReduction}in base, or ${unlockFirstPostBaseAfterReduction}in for a first post). Engagement still adds on top.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -892,7 +903,7 @@ export function RecordScreen() {
         },
       ]
     );
-  }, [user?.uid, viewingChallengeDateKey]);
+  }, [user?.uid, viewingChallengeDateKey, unlockBaseAfterReduction, unlockFirstPostBaseAfterReduction]);
 
   return (
     <Screen withSafeArea={false} style={styles.screen}>
@@ -953,7 +964,7 @@ export function RecordScreen() {
                 active={dualActive}
                 maxDurationSec={maxSec}
                 controllerRef={dualControllerRef}
-                onRecordingTick={(left) => setRecordingSecondsLeft(left)}
+                onRecordingTick={handleRecordingTick}
                 onCapture={handleDualCapture}
                 onError={handleDualError}
               />
@@ -963,7 +974,7 @@ export function RecordScreen() {
                 initialFacing={cameraFacing}
                 maxDurationSec={maxSec}
                 controllerRef={singleControllerRef}
-                onRecordingTick={(left) => setRecordingSecondsLeft(left)}
+                onRecordingTick={handleRecordingTick}
                 onCapture={handleSingleCapture}
                 onError={handleSingleError}
               />
@@ -1035,12 +1046,12 @@ export function RecordScreen() {
         <View style={styles.outOfAttemptsCard}>
           <Text style={styles.outOfAttemptsTitle}>Out of attempts</Text>
           <Text style={styles.outOfAttemptsBody}>
-            You have used all attempts for this leap. Spend 5in to leap again
+            Spend {ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES}in from your leap base to leap again
           </Text>
           <Text style={styles.outOfAttemptsHint}>
             {bonusBasePending
-              ? `Base reduction active (−${ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES} in from base on post).`
-              : `Normal base 5→0 in · first-post base 10→5 in · engagement unchanged.`}
+              ? `Base reduction active (−${ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES}in from base on post).`
+              : `Normal base ${LEAP_BASE_INCHES}→${unlockBaseAfterReduction}in · first-post base ${LEAP_FIRST_BONUS_BASE_INCHES}→${unlockFirstPostBaseAfterReduction}in · engagement unchanged.`}
           </Text>
           <PrimaryButton
             title={
@@ -1048,7 +1059,7 @@ export function RecordScreen() {
                 ? '…'
                 : bonusBasePending
                   ? '+1 attempt unlocked'
-                  : '+1 attempt (−5 in base)'
+                  : `+1 attempt (−${ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES}in base)`
             }
             variant="outline"
             disabled={purchaseBusy || bonusBasePending}

@@ -10,12 +10,12 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   CommonResolutions,
   NativePreviewView,
-  useCameraDevice,
   usePreviewOutput,
   useVideoOutput,
   VisionCamera,
 } from 'react-native-vision-camera';
 import type {
+  CameraDevice,
   CameraSession,
   Recorder,
 } from 'react-native-vision-camera';
@@ -64,6 +64,11 @@ export type DualCameraController = {
 const PIP_WIDTH = 110;
 const PIP_HEIGHT = 150;
 const PIP_INSET = 12;
+
+type MultiCamPair = {
+  front: CameraDevice;
+  back: CameraDevice;
+};
 
 /**
  * BeReal-style dual camera capture using vision-camera v5 multi-cam sessions.
@@ -146,17 +151,13 @@ export function DualCameraRecorder({
   },
 }));
   const boundedMaxSec = Math.max(MIN_TASK_DURATION_SECONDS, Math.round(maxDurationSec));
-  const backDevice = useCameraDevice('back');
-  const frontDevice = useCameraDevice('front');
 
   const backPreview = usePreviewOutput();
   const frontPreview = usePreviewOutput();
 
   const backVideo = useVideoOutput({
-    targetResolution: CommonResolutions.FHD_16_9,
-    // Push above default to keep 1080p crisp even when multi-cam is sharing
-    // bandwidth with the front recorder.
-    targetBitRate: 10_000_000,
+    targetResolution: CommonResolutions.HD_16_9,
+    targetBitRate: 8_000_000,
     // iOS multi-cam exposes one mic input — attaching it to two recorders races
     // and yields intermittent silent clips. Back camera always owns audio; when
     // the user swaps front to big, playback reads audio from the PIP clip instead.
@@ -164,11 +165,32 @@ export function DualCameraRecorder({
     fileType: 'mp4',
   });
   const frontVideo = useVideoOutput({
-    targetResolution: CommonResolutions.HD_16_9,
-    targetBitRate: 6_000_000,
+    // PIP only needs a light stream — lower resolution keeps the selfie preview smooth.
+    targetResolution: CommonResolutions.VGA_16_9,
+    targetBitRate: 2_500_000,
     enableAudio: false,
     fileType: 'mp4',
   });
+
+  const outputsRef = React.useRef({
+    backPreview,
+    frontPreview,
+    backVideo,
+    frontVideo,
+  });
+  outputsRef.current = {
+    backPreview,
+    frontPreview,
+    backVideo,
+    frontVideo,
+  };
+
+  const onErrorRef = React.useRef(onError);
+  onErrorRef.current = onError;
+  const onCaptureRef = React.useRef(onCapture);
+  onCaptureRef.current = onCapture;
+  const onRecordingTickRef = React.useRef(onRecordingTick);
+  onRecordingTickRef.current = onRecordingTick;
 
   const [supported] = React.useState<boolean>(() => {
     try {
@@ -177,6 +199,8 @@ export function DualCameraRecorder({
       return false;
     }
   });
+  const [multiCamPair, setMultiCamPair] = React.useState<MultiCamPair | null>(null);
+  const [devicesLoading, setDevicesLoading] = React.useState(supported);
   const [isReady, setIsReady] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
   /** Which camera is the big one. PIP shows the other. */
@@ -198,9 +222,56 @@ export function DualCameraRecorder({
     isRecordingRef.current = isRecording;
   }, [isRecording]);
 
+  // Pick a front+back pair the hardware actually supports running together.
   React.useEffect(() => {
-    if (!supported) return;
-    if (!backDevice || !frontDevice) return;
+    if (!supported) {
+      setDevicesLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setDevicesLoading(true);
+
+    void (async () => {
+      try {
+        const factory = await VisionCamera.createDeviceFactory();
+        const combo = factory.supportedMultiCamDeviceCombinations.find((devices) => {
+          return (
+            devices.some((d) => d.position === 'front') &&
+            devices.some((d) => d.position === 'back')
+          );
+        });
+        if (cancelled) return;
+        if (!combo) {
+          setMultiCamPair(null);
+          return;
+        }
+        const front = combo.find((d) => d.position === 'front');
+        const back = combo.find((d) => d.position === 'back');
+        if (front && back) {
+          setMultiCamPair({ front, back });
+        } else {
+          setMultiCamPair(null);
+        }
+      } catch (e) {
+        if (!cancelled) onErrorRef.current?.(e);
+        setMultiCamPair(null);
+      } finally {
+        if (!cancelled) setDevicesLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [supported]);
+
+  React.useEffect(() => {
+    if (!supported || !multiCamPair) return;
+
+    const { front: frontDevice, back: backDevice } = multiCamPair;
+    const { backPreview: bp, frontPreview: fp, backVideo: bv, frontVideo: fv } =
+      outputsRef.current;
 
     let cancelled = false;
     let session: CameraSession | null = null;
@@ -227,18 +298,28 @@ export function DualCameraRecorder({
           {
             input: backDevice,
             outputs: [
-              { output: backPreview, mirrorMode: 'off' },
-              { output: backVideo, mirrorMode: 'off' },
+              { output: bp, mirrorMode: 'off' },
+              { output: bv, mirrorMode: 'off' },
             ],
-            constraints: [],
+            constraints: [
+              { fps: 30 },
+              { resolutionBias: bv },
+              { resolutionBias: bp },
+              { binned: true },
+            ],
           },
           {
             input: frontDevice,
             outputs: [
-              { output: frontPreview, mirrorMode: 'on' },
-              { output: frontVideo, mirrorMode: 'on' },
+              { output: fp, mirrorMode: 'on' },
+              { output: fv, mirrorMode: 'on' },
             ],
-            constraints: [],
+            constraints: [
+              { fps: 24 },
+              { resolutionBias: fv },
+              { resolutionBias: fp },
+              { binned: true },
+            ],
           },
         ]);
         if (cancelled) {
@@ -253,7 +334,7 @@ export function DualCameraRecorder({
         sessionRef.current = session;
         setIsReady(true);
       } catch (e) {
-        if (!cancelled) onError?.(e);
+        if (!cancelled) onErrorRef.current?.(e);
       }
     })();
 
@@ -291,16 +372,7 @@ export function DualCameraRecorder({
         }
       })();
     };
-  }, [
-    supported,
-    backDevice,
-    frontDevice,
-    backPreview,
-    frontPreview,
-    backVideo,
-    frontVideo,
-    onError,
-  ]);
+  }, [supported, multiCamPair]);
 
   // Pause the session when the parent says we're no longer active (e.g. another
   // tab focused) to release the camera and save battery.
@@ -316,7 +388,8 @@ export function DualCameraRecorder({
 
   const start = React.useCallback(async () => {
     if (!isReady || isRecordingRef.current) return;
-    if (!backVideo || !frontVideo) return;
+    const { backVideo: bv, frontVideo: fv } = outputsRef.current;
+    if (!bv || !fv) return;
 
     recordingStopGuardRef.current = false;
     // Each `Recorder` records exactly once — always make a new pair per take.
@@ -335,7 +408,7 @@ export function DualCameraRecorder({
       captureFired = true;
       // Read the latest swap choice so the user's last tap before stopping wins.
       const fIsPrimary = frontIsPrimaryRef.current;
-      onCapture({
+      onCaptureRef.current({
         primaryUri: fIsPrimary ? frontUri : backUri,
         secondaryUri: fIsPrimary ? backUri : frontUri,
         frontIsPrimary: fIsPrimary,
@@ -348,16 +421,18 @@ export function DualCameraRecorder({
       if (VisionCamera.microphonePermissionStatus !== 'authorized') {
         const granted = await VisionCamera.requestMicrophonePermission().catch(() => false);
         if (!granted) {
-          onError?.(new Error('Microphone permission is required to record with sound.'));
+          onErrorRef.current?.(new Error('Microphone permission is required to record with sound.'));
           return;
         }
       }
 
-      backRec = await backVideo.createRecorder({ maxDuration: boundedMaxSec });
+      backRec = await bv.createRecorder({ maxDuration: boundedMaxSec });
+      frontRec = await fv.createRecorder({ maxDuration: boundedMaxSec });
       backRecorderRef.current = backRec;
+      frontRecorderRef.current = frontRec;
 
       // Start the audio-bearing recorder first so iOS attaches the shared mic input
-      // before the second movie writer spins up.
+      // before the second movie writer spins up, then start the selfie stream immediately.
       await backRec.startRecording(
         (filePath) => {
           backUri = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
@@ -365,12 +440,9 @@ export function DualCameraRecorder({
           maybeFireCapture();
         },
         (err) => {
-          onError?.(err);
+          onErrorRef.current?.(err);
         }
       );
-
-      frontRec = await frontVideo.createRecorder({ maxDuration: boundedMaxSec });
-      frontRecorderRef.current = frontRec;
 
       await frontRec.startRecording(
         (filePath) => {
@@ -379,7 +451,7 @@ export function DualCameraRecorder({
           maybeFireCapture();
         },
         (err) => {
-          onError?.(err);
+          onErrorRef.current?.(err);
         }
       );
 
@@ -387,18 +459,18 @@ export function DualCameraRecorder({
       isRecordingRef.current = true;
 
       let elapsed = 0;
-      onRecordingTick?.(boundedMaxSec);
+      onRecordingTickRef.current?.(boundedMaxSec);
       tickIntervalRef.current = setInterval(() => {
         elapsed += 1;
         const left = Math.max(0, boundedMaxSec - elapsed);
-        onRecordingTick?.(left);
+        onRecordingTickRef.current?.(left);
         if (left <= 0 && tickIntervalRef.current) {
           clearInterval(tickIntervalRef.current);
           tickIntervalRef.current = null;
         }
       }, 1000);
     } catch (e) {
-      onError?.(e);
+      onErrorRef.current?.(e);
       setIsRecording(false);
       isRecordingRef.current = false;
       backRecorderRef.current = null;
@@ -408,15 +480,7 @@ export function DualCameraRecorder({
         tickIntervalRef.current = null;
       }
     }
-  }, [
-    isReady,
-    backVideo,
-    frontVideo,
-    boundedMaxSec,
-    onCapture,
-    onError,
-    onRecordingTick,
-  ]);
+  }, [isReady, boundedMaxSec]);
 
   const stop = React.useCallback(async () => {
     if (recordingStopGuardRef.current) return;
@@ -431,16 +495,10 @@ export function DualCameraRecorder({
       clearInterval(tickIntervalRef.current);
       tickIntervalRef.current = null;
     }
-    try {
-      if (backRec?.isRecording) await backRec.stopRecording();
-    } catch {
-      /* ignore — onRecordingFinished may have already fired */
-    }
-    try {
-      if (frontRec?.isRecording) await frontRec.stopRecording();
-    } catch {
-      /* ignore */
-    }
+    await Promise.all([
+      backRec?.isRecording ? backRec.stopRecording().catch(() => undefined) : undefined,
+      frontRec?.isRecording ? frontRec.stopRecording().catch(() => undefined) : undefined,
+    ]);
   }, []);
 
   // Expose start/stop to the parent so the same red record button works for
@@ -455,7 +513,7 @@ export function DualCameraRecorder({
         return isRecording;
       },
       get supported() {
-        return supported;
+        return supported && multiCamPair != null;
       },
       start,
       stop,
@@ -465,7 +523,7 @@ export function DualCameraRecorder({
         controllerRef.current = null;
       }
     };
-  }, [controllerRef, isReady, isRecording, supported, start, stop]);
+  }, [controllerRef, isReady, isRecording, supported, multiCamPair, start, stop]);
 
   if (!supported) {
     return (
@@ -480,11 +538,13 @@ export function DualCameraRecorder({
     );
   }
 
-  if (!backDevice || !frontDevice) {
+  if (devicesLoading || !multiCamPair) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator size="large" color={colors.white} />
-        <Text style={styles.loadingText}>Finding cameras…</Text>
+        <Text style={styles.loadingText}>
+          {devicesLoading ? 'Finding cameras…' : 'Dual camera not available on this device'}
+        </Text>
       </View>
     );
   }
