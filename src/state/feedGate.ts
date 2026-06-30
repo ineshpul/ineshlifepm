@@ -144,3 +144,29 @@ export function tier2LastLeapJumpIndex(args: {
   }
   return -1;
 }
+
+/** Whether the tier-2 "Last leap" jump chip should show (above the allowed leap-day boundary). */
+export function shouldShowLastLeapJumpChip(args: {
+  tier2NeedsPostToUnlock: boolean;
+  lastPostedDateKey: string | null;
+  lastLeapJumpIndex: number;
+  activeScrollIndex: number;
+  activeChallengeDate: string | undefined;
+  hasPostedToday: boolean;
+  bypassFeedGate?: boolean;
+}): boolean {
+  if (!args.tier2NeedsPostToUnlock || !args.lastPostedDateKey) return false;
+
+  if (args.lastLeapJumpIndex >= 0) {
+    return args.activeScrollIndex < args.lastLeapJumpIndex;
+  }
+
+  if (!args.activeChallengeDate) return true;
+
+  return isTier2CardLocked({
+    challengeDate: args.activeChallengeDate,
+    lastPostedDateKey: args.lastPostedDateKey,
+    hasPostedToday: args.hasPostedToday,
+    bypassFeedGate: args.bypassFeedGate,
+  });
+}

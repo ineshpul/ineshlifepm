@@ -56,6 +56,7 @@ import {
   FEED_GATE_V2,
   isAtTier1Wall,
   isTier2CardLocked,
+  shouldShowLastLeapJumpChip,
   tier2LastLeapJumpIndex,
   resolveFeedGateTier,
   tier1MaxScrollOffset,
@@ -1093,20 +1094,45 @@ export function FeedScreen() {
   );
 
   /** Show while still above the last allowed leap day (locked newer content). */
-  const showLastLeapJump =
-    tier2NeedsPostToUnlock &&
-    lastLeapJumpIndex >= 0 &&
-    activeScrollIndex < lastLeapJumpIndex;
+  const activeFeedChallengeDate = displayVideos[activeScrollIndex]?.challengeDate;
+  const showLastLeapJump = shouldShowLastLeapJumpChip({
+    tier2NeedsPostToUnlock,
+    lastPostedDateKey,
+    lastLeapJumpIndex,
+    activeScrollIndex,
+    activeChallengeDate: activeFeedChallengeDate,
+    hasPostedToday,
+    bypassFeedGate,
+  });
 
   const scrollToLastLeap = React.useCallback(() => {
-    const idx = lastLeapJumpIndex;
-    if (idx < 0 || pageHeight <= 0) return;
-    flatListRef.current?.scrollToOffset({ offset: idx * pageHeight, animated: true });
-    const id = displayVideos[idx]?.id;
-    if (id) setActiveVideoId(id);
-    activeScrollIndexRef.current = idx;
-    setActiveScrollIndex(idx);
-  }, [lastLeapJumpIndex, pageHeight, displayVideos]);
+    const jumpIfReady = (): boolean => {
+      const list = displayVideosRef.current;
+      const idx = tier2LastLeapJumpIndex({
+        videos: list,
+        lastPostedDateKey,
+      });
+      if (idx < 0 || pageHeight <= 0) return false;
+      flatListRef.current?.scrollToOffset({ offset: idx * pageHeight, animated: true });
+      const id = list[idx]?.id;
+      if (id) setActiveVideoId(id);
+      activeScrollIndexRef.current = idx;
+      setActiveScrollIndex(idx);
+      return true;
+    };
+
+    if (jumpIfReady()) return;
+
+    let attempts = 0;
+    const poll = () => {
+      if (jumpIfReady() || attempts >= 12) return;
+      attempts += 1;
+      loadMoreFeedRef.current?.();
+      setTimeout(poll, 500);
+    };
+    loadMoreFeedRef.current?.();
+    setTimeout(poll, 500);
+  }, [lastPostedDateKey, pageHeight]);
 
   const lastLeapChipBottom = tabBarClearance + 8;
   const scrollTopFabBottom = showLastLeapJump
@@ -1146,6 +1172,8 @@ export function FeedScreen() {
         bypassFeedGate ? 1 : 0,
         postedDatesReady ? [...postedDates].sort().join(',') : 'pending',
         activeScrollIndex,
+        lastLeapJumpIndex,
+        lastPostedDateKey ?? '',
       ].join('|'),
     [
       pageHeight,
@@ -1159,6 +1187,8 @@ export function FeedScreen() {
       postedDatesReady,
       postedDates,
       activeScrollIndex,
+      lastLeapJumpIndex,
+      lastPostedDateKey,
     ]
   );
 

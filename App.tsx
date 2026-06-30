@@ -1,3 +1,4 @@
+import * as Updates from 'expo-updates';
 import * as React from 'react';
 import { Audio } from 'expo-av';
 import * as Notifications from 'expo-notifications';
@@ -106,6 +107,26 @@ function PushTokenRegistrar() {
   return null;
 }
 
+/** Fetch and apply EAS updates on cold start so production users pick up OTAs promptly. */
+function OtaUpdateOnLaunch() {
+  React.useEffect(() => {
+    if (__DEV__ || !Updates.isEnabled) return;
+    void (async () => {
+      try {
+        const result = await Updates.checkForUpdateAsync();
+        if (result.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          await Updates.reloadAsync();
+        }
+      } catch {
+        // Offline, dev client, or update server unreachable — keep running embedded bundle.
+      }
+    })();
+  }, []);
+
+  return null;
+}
+
 export default function App() {
   React.useEffect(() => {
     void initAppCheck();
@@ -125,6 +146,7 @@ export default function App() {
       <SafeAreaProvider>
         <AuthProvider>
           <SettingsPreferencesProvider>
+            <OtaUpdateOnLaunch />
             <NativeAnalyticsSync />
             <UserNotificationPrefSync />
             <PushTokenRegistrar />
