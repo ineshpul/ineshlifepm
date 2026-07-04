@@ -56,6 +56,8 @@ Set in **Project → Settings → Environment Variables** (never commit values):
 | `RESEND_API_KEY` | Yes | Sends website challenge suggestions |
 | `RESEND_FROM_EMAIL` | No | Verified sender (defaults to Resend onboarding address) |
 | `SUGGESTION_TO_EMAIL` | No | Inbox for suggestions (defaults to team Gmail) |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` or `FIREBASE_SERVICE_ACCOUNT_JSON_B64` | No | Direct Firestore read for Leap of the Day (optional if Cloud Function fallback is deployed) |
+| `WEBSITE_MARKETING_URL` | No | Override URL for `getWebsiteMarketing` Cloud Function fallback |
 
 See [../docs/SECURITY.md](../docs/SECURITY.md) for App Check, AWS secrets, and API key restrictions.
 
