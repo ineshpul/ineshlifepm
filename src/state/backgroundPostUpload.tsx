@@ -85,30 +85,33 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
       setProgress(0);
       setErrorMessage(null);
 
-      let uploadParams = params;
       try {
-        const stagedPrimary = await stageFeedPlaybackClip(params.clipUri, 'primary');
-        let stagedSecondary: string | null = null;
-        if (params.secondaryClipUri) {
-          stagedSecondary = await stageFeedPlaybackClip(params.secondaryClipUri, 'pip');
+        let uploadParams = params;
+        try {
+          const stagedPrimary = await stageFeedPlaybackClip(params.clipUri, 'primary');
+          let stagedSecondary: string | null = null;
+          if (params.secondaryClipUri) {
+            stagedSecondary = await stageFeedPlaybackClip(params.secondaryClipUri, 'pip');
+          }
+          setPendingFeedPlayback({
+            ...buildPending(params),
+            clipUri: stagedPrimary,
+            secondaryClipUri: stagedSecondary,
+          });
+          uploadParams = {
+            ...params,
+            clipUri: stagedPrimary,
+            secondaryClipUri: stagedSecondary,
+          };
+        } catch (e) {
+          const msg = String((e as Error)?.message ?? e);
+          if (msg.includes('no longer on this device') || msg.includes('No video to stage')) {
+            throw e;
+          }
+          // Fall back to camera temp paths when staging fails for transient reasons.
+          setPendingFeedPlayback(buildPending(params));
         }
-        setPendingFeedPlayback({
-          ...buildPending(params),
-          clipUri: stagedPrimary,
-          secondaryClipUri: stagedSecondary,
-        });
-        uploadParams = {
-          ...params,
-          clipUri: stagedPrimary,
-          secondaryClipUri: stagedSecondary,
-        };
-        jobRef.current = uploadParams;
-      } catch {
-        // Fall back to camera temp paths — still better than waiting on Storage.
-        setPendingFeedPlayback(buildPending(params));
-      }
 
-      try {
         await runPostVideoUpload(uploadParams, {
           onProgress: setProgress,
           onSaving: () => setPhase('saving'),
@@ -126,7 +129,7 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
           }
         }
         clearPostedOverride();
-        clearPendingFeedPlayback();
+        // Keep staged clips so Retry can read the file again.
         const msg = e instanceof Error ? e.message : 'Upload failed. Try again.';
         setErrorMessage(msg);
         setPhase('failed');
@@ -156,8 +159,9 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
 
   const dismissFailure = React.useCallback(() => {
     if (phase !== 'failed') return;
+    clearPendingFeedPlayback();
     resetIdle();
-  }, [phase, resetIdle]);
+  }, [phase, resetIdle, clearPendingFeedPlayback]);
 
   const isActive = phase === 'uploading' || phase === 'saving';
 

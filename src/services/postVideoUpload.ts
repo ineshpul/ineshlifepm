@@ -1,5 +1,7 @@
 import { doc, getDoc, increment, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
+// Expo SDK 54+ requires importing the legacy filesystem API explicitly.
+import * as FileSystem from 'expo-file-system/legacy';
 
 import { CHALLENGE_INSTRUCTIONS } from '../content/challengeCopy';
 import { getExpoExtra } from '../config/expoExtra';
@@ -33,18 +35,41 @@ export type PostUploadCallbacks = {
   onSaving: () => void;
 };
 
-async function clipUriToBlob(uri: string): Promise<Blob> {
-  const res = await fetch(uri);
-  if (!res.ok) {
-    throw new Error(
-      `Could not read your clip (HTTP ${res.status}). Try recording again or pick another video.`
-    );
+function base64ToBytes(b64: string): Uint8Array {
+  const a = typeof globalThis.atob === 'function' ? globalThis.atob : undefined;
+  if (!a) throw new Error('Base64 decoder is unavailable.');
+  const bin = a(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function clipUriToBytes(uri: string): Promise<Uint8Array> {
+  if (!uri || uri.startsWith('demo://')) {
+    throw new Error('No video to upload. Record again before posting.');
   }
-  const blob = await res.blob();
-  if (!blob || blob.size < 64) {
-    throw new Error('This video looks empty or unreadable. Try recording again or choose another clip.');
+  const info = await FileSystem.getInfoAsync(uri);
+  if (!info.exists) {
+    throw new Error('Recording file is no longer on this device. Record again before posting.');
   }
-  return blob;
+  try {
+    // `fetch(file://...)` often fails on iOS/Android — read local clips via FileSystem instead.
+    // Firebase Storage accepts a Uint8Array directly, which is more reliable in RN than Blob.
+    const b64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: 'base64' as FileSystem.EncodingType,
+    });
+    const bytes = base64ToBytes(b64);
+    if (bytes.byteLength < 64) {
+      throw new Error('This video looks empty or unreadable. Try recording again or choose another clip.');
+    }
+    return bytes;
+  } catch (e) {
+    const msg = String((e as Error)?.message ?? e).toLowerCase();
+    if (msg.includes('network request failed') || msg.includes('network')) {
+      throw new Error('Could not read your clip. Record again before posting.');
+    }
+    throw e;
+  }
 }
 
 export async function runPostVideoUpload(
@@ -97,8 +122,8 @@ export async function runPostVideoUpload(
     scaleStart: number,
     scaleSpan: number
   ): Promise<string> => {
-    const blob = await clipUriToBlob(sourceUri);
-    const task = uploadBytesResumable(storageRef, blob, { contentType });
+    const bytes = await clipUriToBytes(sourceUri);
+    const task = uploadBytesResumable(storageRef, bytes, { contentType });
     await new Promise<void>((resolve, reject) => {
       const uploadTimeout = setTimeout(() => {
         try {

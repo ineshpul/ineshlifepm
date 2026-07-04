@@ -2,6 +2,7 @@ import * as React from 'react';
 
 import { ReferralIntroModal } from './ReferralIntroModal';
 import { useAuth } from '../state/auth';
+import { hasCompletedOnboardingIntro } from '../state/onboardingIntro';
 import { markReferralIntroSeen, shouldShowReferralIntro } from '../state/referralIntro';
 import { shareReferralInvite } from '../utils/shareReferralInvite';
 
@@ -21,11 +22,13 @@ export function ReferralIntroHost() {
     }
 
     let cancelled = false;
-    void shouldShowReferralIntro(user.uid).then((show) => {
-      if (cancelled) return;
-      setVisible(show);
-      setReady(true);
-    });
+    void Promise.all([shouldShowReferralIntro(user.uid), hasCompletedOnboardingIntro(user.uid)]).then(
+      ([show, onboardingDone]) => {
+        if (cancelled) return;
+        setVisible(show && onboardingDone);
+        setReady(true);
+      }
+    );
 
     return () => {
       cancelled = true;

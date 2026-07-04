@@ -38,9 +38,10 @@ import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import {
   ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES,
   consumeRecordingAttempt,
-  resetAdminRecordingAttemptsForToday,
   useAttemptsRemaining,
 } from '../state/postAttempts';
+import { resetStaffLeapDayForTesting } from '../services/deleteVideo';
+import { useHasPostedToday } from '../state/posting';
 import { useBackgroundPostUpload } from '../state/backgroundPostUpload';
 import { showError, showInfo } from '../utils/ui';
 import { useSettingsPreferences } from '../state/settingsPreferences';
@@ -339,18 +340,20 @@ export function RecordScreen() {
   const nav = useNavigation<any>();
   const isFocused = useIsFocused();
   const { preferences } = useSettingsPreferences();
-  const { hasPostedToday, markPostedToday } = useAppState();
+  const { markPostedToday, clearPostedOverride } = useAppState();
   const { startBackgroundPost, isActive: backgroundUploadActive } = useBackgroundPostUpload();
   const { user } = useAuth();
   useChallengeWindow();
   const { challenge, window } = useTodayChallenge();
   const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
-  const playerFacing = getPlayerFacingChallenge(challenge, window);
+  const recordingChallengeDateKey = viewingChallengeDateKey;
+  const postedForRecordingDay = useHasPostedToday(user?.uid, recordingChallengeDateKey);
+  const recordingBlocked = postedForRecordingDay;
   const maxSec = normalizeTaskDurationSeconds(challenge.maxDurationSeconds);
-  const postedToday = hasPostedToday;
+  const playerFacing = getPlayerFacingChallenge(challenge, window);
   const attemptsRemaining = useAttemptsRemaining(
     user?.uid,
-    viewingChallengeDateKey,
+    recordingChallengeDateKey,
     challenge.maxRecordingAttempts
   );
 
@@ -379,7 +382,7 @@ export function RecordScreen() {
   const [cameraMode, setCameraMode] = React.useState<'single' | 'dual'>('single');
   const dualControllerRef = React.useRef<DualCameraController | null>(null);
   const singleControllerRef = React.useRef<SingleCameraController | null>(null);
-  const adminAttemptsResetRef = React.useRef(false);
+  const staffLeapResetRef = React.useRef(false);
   const recordingAbortRef = React.useRef(false);
   const isRecordingRef = React.useRef(false);
   const recordTapBusyRef = React.useRef(false);
@@ -404,19 +407,27 @@ export function RecordScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
-      if (!user?.isAdmin || !user?.uid || !isFirebaseConfigured() || adminAttemptsResetRef.current) {
+      const isStaff = Boolean(user?.isAdmin || user?.isModerator);
+      if (!isStaff || !user?.uid || !isFirebaseConfigured() || staffLeapResetRef.current) {
         return;
       }
-      adminAttemptsResetRef.current = true;
-      void resetAdminRecordingAttemptsForToday({
+      staffLeapResetRef.current = true;
+      void resetStaffLeapDayForTesting({
         uid: user.uid,
         challengeDate: viewingChallengeDateKey,
-        dailyMaxAttempts: challenge.maxRecordingAttempts,
-      }).catch((e) => {
-        if (__DEV__) console.log('[Record] admin attempt reset failed:', e);
-        adminAttemptsResetRef.current = false;
-      });
-    }, [user?.isAdmin, user?.uid, viewingChallengeDateKey, challenge.maxRecordingAttempts])
+      })
+        .then(() => clearPostedOverride())
+        .catch((e) => {
+          if (__DEV__) console.log('[Record] staff leap reset failed:', e);
+          staffLeapResetRef.current = false;
+        });
+    }, [
+      user?.isAdmin,
+      user?.isModerator,
+      user?.uid,
+      viewingChallengeDateKey,
+      clearPostedOverride,
+    ])
   );
 
   React.useEffect(() => {
@@ -424,12 +435,12 @@ export function RecordScreen() {
       setBonusBasePending(false);
       return;
     }
-    const ref = doc(firestore(), 'postAttempts', `${user.uid}_${viewingChallengeDateKey}`);
+    const ref = doc(firestore(), 'postAttempts', `${user.uid}_${recordingChallengeDateKey}`);
     return onSnapshot(ref, (snap) => {
       const reduction = Number(snap.data()?.leapBaseReductionInches ?? 0);
       setBonusBasePending(reduction >= BONUS_ATTEMPT_BASE_REDUCTION_INCHES);
     });
-  }, [user?.uid, viewingChallengeDateKey]);
+  }, [user?.uid, recordingChallengeDateKey]);
 
   const cameraPermissionPending = permission == null;
   const canUseCamera = permission?.granted === true;
@@ -462,7 +473,7 @@ export function RecordScreen() {
   }, [challenge.dateKey, challenge.maxDurationSeconds]);
 
   React.useEffect(() => {
-    if (!postedToday) return;
+    if (!recordingBlocked) return;
     setClipUri(null);
     setClipSource(null);
     setSecondaryClipUri(null);
@@ -470,7 +481,7 @@ export function RecordScreen() {
     setPreRecordCountdown(null);
     setRecordingSecondsLeft(null);
     setIsRecording(false);
-  }, [postedToday]);
+  }, [recordingBlocked]);
 
   React.useEffect(() => {
     if (permission?.status === 'undetermined') {
@@ -515,7 +526,7 @@ export function RecordScreen() {
       // so foreground transitions don't need a manual resume here.
     });
     return () => sub.remove();
-  }, [isFocused, postedToday, clipUri, canUseCamera]);
+  }, [isFocused, recordingBlocked, clipUri, canUseCamera]);
 
   const startDualRecordingSession = async () => {
     recordingAbortRef.current = false;
@@ -656,14 +667,14 @@ export function RecordScreen() {
       if (user?.uid && isFirebaseConfigured()) {
         void consumeRecordingAttempt({
           uid: user.uid,
-          challengeDate: viewingChallengeDateKey,
+          challengeDate: recordingChallengeDateKey,
         }).catch((e) => {
           if (__DEV__) console.log('[Record] single attempt consume failed:', e);
         });
       }
       void setAudioSessionForPlayback().catch(() => {});
     },
-    [user?.uid, viewingChallengeDateKey]
+    [user?.uid, recordingChallengeDateKey]
   );
 
   const handleSingleError = React.useCallback((e: unknown) => {
@@ -677,12 +688,12 @@ export function RecordScreen() {
   // Flip works during recording — the SingleCameraRecorder's persistent recorder
   // continues writing across the input-device swap, so we just toggle facing.
   const onFlipCamera = React.useCallback(() => {
-    if (postedToday || !playerFacing.canRecord || preRecordCountdown != null || !canUseCamera) {
+    if (recordingBlocked || !playerFacing.canRecord || preRecordCountdown != null || !canUseCamera) {
       return;
     }
     setCameraFacing((prev) => (prev === 'front' ? 'back' : 'front'));
     singleControllerRef.current?.flip();
-  }, [postedToday, playerFacing.canRecord, preRecordCountdown, canUseCamera]);
+  }, [recordingBlocked, playerFacing.canRecord, preRecordCountdown, canUseCamera]);
 
   const onTapRecord = async () => {
     // Stop must run even when `recordTapBusyRef` is true — it stays true for the
@@ -692,7 +703,7 @@ export function RecordScreen() {
       return;
     }
     if (recordTapBusyRef.current) return;
-    if (postedToday) return;
+    if (recordingBlocked) return;
     if (!playerFacing.canRecord) {
       showInfo(
         'Not yet',
@@ -756,7 +767,7 @@ export function RecordScreen() {
   };
 
   const onPost = async () => {
-    if (postedToday || backgroundUploadActive) return;
+    if (recordingBlocked || backgroundUploadActive) return;
     if (!clipUri) return;
     if (!playerFacing.canRecord) {
       showInfo('Not yet', 'Today’s leap is not live yet.');
@@ -793,7 +804,7 @@ export function RecordScreen() {
       startBackgroundPost({
         uid: user.uid,
         username: String(user.username ?? 'user'),
-        viewingChallengeDateKey,
+        viewingChallengeDateKey: recordingChallengeDateKey,
         challengeTitle: challenge.title,
         maxDurationSeconds: maxSec,
         clipUri: uploadClipUri,
@@ -822,9 +833,9 @@ export function RecordScreen() {
     submitPost();
   };
 
-  const cameraActive = isFocused && canUseCamera && !clipUri && !postedToday;
+  const cameraActive = isFocused && canUseCamera && !clipUri && !recordingBlocked;
   const dualActive =
-    cameraMode === 'dual' && isFocused && canUseCamera && !clipUri && !postedToday;
+    cameraMode === 'dual' && isFocused && canUseCamera && !clipUri && !recordingBlocked;
 
   const handleDualCapture = React.useCallback(
     (clip: { primaryUri: string; secondaryUri: string; frontIsPrimary: boolean }) => {
@@ -840,14 +851,14 @@ export function RecordScreen() {
       if (user?.uid && isFirebaseConfigured()) {
         void consumeRecordingAttempt({
           uid: user.uid,
-          challengeDate: viewingChallengeDateKey,
+          challengeDate: recordingChallengeDateKey,
         }).catch((e) => {
           if (__DEV__) console.log('[Record] dual attempt consume failed:', e);
         });
       }
       void setAudioSessionForPlayback().catch(() => {});
     },
-    [user?.uid, viewingChallengeDateKey]
+    [user?.uid, recordingChallengeDateKey]
   );
 
   const handleDualError = React.useCallback((e: unknown) => {
@@ -863,7 +874,7 @@ export function RecordScreen() {
   }, []);
 
   const toggleCameraMode = React.useCallback(() => {
-    if (isRecordingRef.current || preRecordCountdown != null || clipUri || postedToday) {
+    if (isRecordingRef.current || preRecordCountdown != null || clipUri || recordingBlocked) {
       return;
     }
     setCameraMode((m) => {
@@ -875,7 +886,7 @@ export function RecordScreen() {
       }
       return next;
     });
-  }, [preRecordCountdown, clipUri, postedToday, isFocused]);
+  }, [preRecordCountdown, clipUri, recordingBlocked, isFocused]);
 
   const onPurchaseAttemptPress = React.useCallback(() => {
     if (!user?.uid || !isFirebaseConfigured()) return;
@@ -890,7 +901,7 @@ export function RecordScreen() {
             setPurchaseBusy(true);
             void (async () => {
               try {
-                await purchaseRecordingAttemptWithScore(viewingChallengeDateKey);
+                await purchaseRecordingAttemptWithScore(recordingChallengeDateKey);
                 setBonusBasePending(true);
                 showInfo('Attempt added', 'Your next posted leap will use the reduced base.');
               } catch (e) {
@@ -903,7 +914,7 @@ export function RecordScreen() {
         },
       ]
     );
-  }, [user?.uid, viewingChallengeDateKey, unlockBaseAfterReduction, unlockFirstPostBaseAfterReduction]);
+  }, [user?.uid, recordingChallengeDateKey, unlockBaseAfterReduction, unlockFirstPostBaseAfterReduction]);
 
   return (
     <Screen withSafeArea={false} style={styles.screen}>
@@ -931,7 +942,7 @@ export function RecordScreen() {
           <LeapLoadingFrog active dark />
         </View>
       ) : null}
-      {postedToday ? (
+      {recordingBlocked ? (
         <View style={styles.postedPill}>
           <Text style={styles.postedText}>POSTED TODAY</Text>
         </View>
@@ -979,7 +990,7 @@ export function RecordScreen() {
                 onError={handleSingleError}
               />
             )}
-            {!postedToday &&
+            {!recordingBlocked &&
             !clipUri &&
             preRecordCountdown == null &&
             cameraMode === 'single' &&
@@ -1000,7 +1011,7 @@ export function RecordScreen() {
                 <Ionicons name="camera-reverse-outline" size={26} color={colors.white} />
               </TouchableOpacity>
             ) : null}
-            {!postedToday && !clipUri && preRecordCountdown == null ? (
+            {!recordingBlocked && !clipUri && preRecordCountdown == null ? (
               <TouchableOpacity
                 accessibilityRole="button"
                 accessibilityLabel={
@@ -1042,7 +1053,7 @@ export function RecordScreen() {
         ) : null}
       </View>
 
-      {playerFacing.canRecord && !postedToday && attemptsLeft <= 0 && !clipUri ? (
+      {playerFacing.canRecord && !recordingBlocked && attemptsLeft <= 0 && !clipUri ? (
         <View style={styles.outOfAttemptsCard}>
           <Text style={styles.outOfAttemptsTitle}>Out of attempts</Text>
           <Text style={styles.outOfAttemptsBody}>
@@ -1106,7 +1117,7 @@ export function RecordScreen() {
               title="RECORD AGAIN"
               variant="outline"
               onPress={clearPreview}
-              disabled={postedToday || backgroundUploadActive}
+              disabled={recordingBlocked || backgroundUploadActive}
               style={styles.attachBtn}
             />
           </>

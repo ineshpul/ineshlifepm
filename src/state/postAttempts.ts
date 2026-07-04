@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 
 import { firestore } from '../firebase/firebase';
+import { BONUS_ATTEMPT_BASE_REDUCTION_INCHES } from '../lib/verticalScore';
 import {
   DEFAULT_MAX_RECORDING_ATTEMPTS,
   normalizeMaxRecordingAttempts,
@@ -87,7 +88,7 @@ export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
 }
 
 /** Inches deducted from leap base (not day totals) when a bonus recording attempt is purchased. */
-export const ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES = 5;
+export const ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES = BONUS_ATTEMPT_BASE_REDUCTION_INCHES;
 
 export async function consumeRecordingAttempt(args: { uid: string; challengeDate: string }) {
   const { uid, challengeDate } = args;
@@ -236,6 +237,40 @@ export function useAttemptsRemaining(
   }, [uid, challengeDate, fallbackMax]);
 
   return remaining;
+}
+
+/** Fresh recording attempts after the user deletes their post for the day. */
+export async function resetRecordingAttemptsAfterVideoDelete(args: {
+  uid: string;
+  challengeDate: string;
+}) {
+  const { uid, challengeDate } = args;
+  const videoRef = doc(firestore(), 'videos', `${uid}_${challengeDate}`);
+  const attemptRef = doc(firestore(), 'postAttempts', `${uid}_${challengeDate}`);
+
+  await runTransaction(firestore(), async (tx) => {
+    const videoSnap = await tx.get(videoRef);
+    if (videoSnap.exists()) {
+      const existing = videoSnap.data() as { deleted?: boolean } | undefined;
+      if (existing?.deleted !== true) {
+        return;
+      }
+      tx.delete(videoRef);
+    }
+
+    const max = await maxAttemptsForChallengeDate(tx, challengeDate);
+    const attemptSnap = await tx.get(attemptRef);
+    if (attemptSnap.exists()) {
+      tx.delete(attemptRef);
+    }
+    tx.set(attemptRef, {
+      uid,
+      challengeDate,
+      used: 0,
+      max,
+      updatedAt: serverTimestamp(),
+    });
+  });
 }
 
 /** Clears today's attempt ledger for an admin tester (used once per app session). */

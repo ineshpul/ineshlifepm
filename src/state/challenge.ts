@@ -165,3 +165,66 @@ export function useTodayChallenge() {
 
   return { challenge, window: win };
 }
+
+/** Challenge doc for an arbitrary leap `YYYY-MM-DD` key (e.g. catch-up grace posting). */
+export function useChallengeForDate(dateKey: string) {
+  const emptyChallenge = React.useCallback(
+    (key: string): Challenge => ({
+      dateKey: key,
+      title: '',
+      subtitle: '',
+      maxDurationSeconds: 60,
+      maxRecordingAttempts: DEFAULT_MAX_RECORDING_ATTEMPTS,
+    }),
+    []
+  );
+
+  const [challenge, setChallenge] = React.useState<Challenge>(() => {
+    const cached = peekChallengeCache(dateKey);
+    return cached ?? emptyChallenge(dateKey);
+  });
+
+  React.useEffect(() => {
+    let alive = true;
+    void readChallengeCache(dateKey).then((cached) => {
+      if (!alive || !cached) return;
+      setChallenge(cached);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [dateKey]);
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      setChallenge((c) => ({ ...c, dateKey }));
+      return;
+    }
+    const ref = doc(firestore(), 'challenges', dateKey);
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        if (snap.exists()) {
+          const data: any = snap.data();
+          const next: Challenge = {
+            dateKey,
+            title: String(data?.title ?? 'Daily challenge'),
+            subtitle: String(data?.subtitle ?? ''),
+            maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
+            maxRecordingAttempts: normalizeMaxRecordingAttempts(data?.maxRecordingAttempts),
+          };
+          setChallenge(next);
+          void writeChallengeCache(next);
+        } else {
+          setChallenge(emptyChallenge(dateKey));
+        }
+      },
+      () => {
+        setChallenge((cur) => (cur.title.trim() ? cur : emptyChallenge(dateKey)));
+      }
+    );
+    return () => unsub();
+  }, [dateKey, emptyChallenge]);
+
+  return { challenge };
+}

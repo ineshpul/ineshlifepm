@@ -69,8 +69,15 @@ export function HighestLeapSheet({ visible, onClose, postId, fallbackInches }: P
     center: { alignItems: 'center', justifyContent: 'center' },
     muted: { fontSize: 14, fontWeight: '600', color: colors.muted },
     metaDate: { marginTop: 14, fontSize: 14, fontWeight: '700', color: colors.muted },
+    metaPrompt: {
+      marginTop: 8,
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.text,
+      lineHeight: 22,
+    },
     metaInches: {
-      marginTop: 6,
+      marginTop: 10,
       fontSize: 20,
       fontWeight: '900',
       color: colors.text,
@@ -81,6 +88,7 @@ export function HighestLeapSheet({ visible, onClose, postId, fallbackInches }: P
   const [loading, setLoading] = React.useState(false);
   const [url, setUrl] = React.useState('');
   const [dateLabel, setDateLabel] = React.useState('');
+  const [promptLabel, setPromptLabel] = React.useState('');
 
   React.useEffect(() => {
     if (!visible) return;
@@ -91,6 +99,7 @@ export function HighestLeapSheet({ visible, onClose, postId, fallbackInches }: P
     if (!visible || !postId) {
       setUrl('');
       setDateLabel('');
+      setPromptLabel('');
       return;
     }
     if (!isFirebaseConfigured()) return;
@@ -102,16 +111,19 @@ export function HighestLeapSheet({ visible, onClose, postId, fallbackInches }: P
         if (!snap.exists()) {
           setUrl('');
           setDateLabel('');
+          setPromptLabel('');
           return;
         }
         const data = snap.data() as Record<string, unknown>;
         setUrl(String(data.url ?? '').trim());
         setDateLabel(formatLeapDate(String(data.challengeDate ?? '')));
+        setPromptLabel(String(data.prompt ?? data.challengeTitle ?? '').trim());
       })
       .catch(() => {
         if (!alive) return;
         setUrl('');
         setDateLabel('');
+        setPromptLabel('');
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -162,6 +174,11 @@ export function HighestLeapSheet({ visible, onClose, postId, fallbackInches }: P
             )}
 
             {dateLabel ? <Text style={styles.metaDate}>{dateLabel}</Text> : null}
+            {promptLabel ? (
+              <Text style={styles.metaPrompt} numberOfLines={4}>
+                {promptLabel}
+              </Text>
+            ) : null}
             <Text style={styles.metaInches}>{formatJumpedThatDay(fallbackInches)}</Text>
           </ScrollView>
         </View>

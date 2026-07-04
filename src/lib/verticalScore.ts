@@ -6,7 +6,7 @@ import { normalizeWeekKey } from './getCurrentWeekKey';
 
 export const LEAP_BASE_INCHES = 5;
 export const LEAP_FIRST_BONUS_BASE_INCHES = 10;
-export const BONUS_ATTEMPT_BASE_REDUCTION_INCHES = 5;
+export const BONUS_ATTEMPT_BASE_REDUCTION_INCHES = 2;
 
 export function clamp(n: number, lo: number, hi: number): number {
   if (!Number.isFinite(n)) return lo;

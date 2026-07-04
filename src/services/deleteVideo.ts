@@ -1,13 +1,41 @@
-import { collection, deleteDoc, doc, getDoc, getDocs, limit, query } from 'firebase/firestore';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  query,
+} from 'firebase/firestore';
 import { deleteObject, ref } from 'firebase/storage';
 
 import { firestore, storage } from '../firebase/firebase';
+import { resetRecordingAttemptsAfterVideoDelete } from '../state/postAttempts';
 import { syncApprovedPostCountForLeapDay } from './dailyChallengeStats';
 import { scheduleVerticalScoreRecompute } from './verticalScore';
 
 /**
+ * Staff testing: remove today's leap post (if any) and restore a full attempt ledger.
+ * Runs once per Record tab visit so admins/mods can re-test the post flow.
+ */
+export async function resetStaffLeapDayForTesting(args: { uid: string; challengeDate: string }) {
+  const { uid, challengeDate } = args;
+  const videoId = `${uid}_${challengeDate}`;
+  const vref = doc(firestore(), 'videos', videoId);
+  const snap = await getDoc(vref);
+  if (snap.exists()) {
+    const data = snap.data() as Record<string, unknown>;
+    if (String(data.uid ?? '') === uid && data.deleted !== true) {
+      await deleteOwnedVideo({ videoId, viewerUid: uid });
+      return;
+    }
+  }
+  await resetRecordingAttemptsAfterVideoDelete({ uid, challengeDate });
+}
+
+/**
  * Deletes a video the user owns: engagement subcollections, Firestore doc, Storage file,
- * and today's postAttempts doc when the id matches `${uid}_${challengeDate}`.
+ * and resets today's recording attempts so they can post again.
  */
 export async function deleteOwnedVideo(args: { videoId: string; viewerUid: string }) {
   const { videoId, viewerUid } = args;
@@ -65,19 +93,23 @@ async function deleteVideoByRef(
 
   await deleteDoc(vref);
 
+  if (challengeDate) {
+    try {
+      await resetRecordingAttemptsAfterVideoDelete({
+        uid: ownerUidForLedger,
+        challengeDate,
+      });
+    } catch (e) {
+      // Cloud delete trigger also resets attempts if this client write fails.
+      if (__DEV__) console.warn('[deleteVideo] attempt ledger reset failed:', e);
+    }
+  }
+
   if (storagePath) {
     try {
       await deleteObject(ref(storage(), storagePath));
     } catch {
       // file may already be removed
-    }
-  }
-
-  if (challengeDate && videoId === `${ownerUidForLedger}_${challengeDate}`) {
-    try {
-      await deleteDoc(doc(firestore(), 'postAttempts', `${ownerUidForLedger}_${challengeDate}`));
-    } catch {
-      // optional ledger
     }
   }
 

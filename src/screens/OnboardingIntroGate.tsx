@@ -2,7 +2,6 @@ import * as React from 'react';
 import { useNavigation } from '@react-navigation/native';
 
 import { OnboardingIntroScreen } from './OnboardingIntroScreen';
-import { markOnboardingIntroCompleted } from '../state/onboardingIntro';
 import { navigateToTodayAndRecord } from '../navigation/navigationHelpers';
 
 /** Onboarding replay from Settings (logged-in stack). */
@@ -20,22 +19,6 @@ export function OnboardingIntroReplayScreen() {
       }
     },
     [navigation]
-  );
-
-  return <OnboardingIntroScreen onFinish={onFinish} />;
-}
-
-/** First-run gate before auth / main app. */
-export function OnboardingIntroGateScreen({
-  onComplete,
-}: {
-  onComplete: (action: { type: 'done' } | { type: 'record' }) => void;
-}) {
-  const onFinish = React.useCallback(
-    (action: { type: 'done' } | { type: 'record' }) => {
-      void markOnboardingIntroCompleted().then(() => onComplete(action));
-    },
-    [onComplete]
   );
 
   return <OnboardingIntroScreen onFinish={onFinish} />;

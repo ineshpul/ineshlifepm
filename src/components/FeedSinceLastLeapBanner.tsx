@@ -49,10 +49,10 @@ export function FeedSinceLastLeapBanner({ count, loading }: Props) {
 
   let body: string;
   if (loading) {
-    body = 'People posted since your last leap. Post to see them!';
+    body = 'Posts since your leap. Post to see them!';
   } else if (count != null && count > 0) {
-    const peopleLabel = count === 1 ? '1 person posted' : `${count} people posted`;
-    body = `${peopleLabel} since your last leap. Post to see them!`;
+    const postsLabel = count === 1 ? '1 post' : `${count} posts`;
+    body = `${postsLabel} since your leap. Post to see them!`;
   } else {
     body = "Post today's leap to see what's new!";
   }
