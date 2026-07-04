@@ -4,6 +4,7 @@ import {
   Alert,
   AppState,
   type AppStateStatus,
+  Linking,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -252,6 +253,10 @@ export function RecordScreen() {
     lineHeight: 18,
     fontWeight: '600',
   },
+  permissionBtn: {
+    width: 220,
+    marginTop: 4,
+  },
   bottomBar: {
     paddingHorizontal: 16,
     paddingBottom: 20,
@@ -444,6 +449,9 @@ export function RecordScreen() {
 
   const cameraPermissionPending = permission == null;
   const canUseCamera = permission?.granted === true;
+  const cameraDenied = permission?.status === 'denied';
+  /** App Store review accounts may post without a real camera clip. */
+  const allowReviewDemo = Boolean(user?.bypassFeedGate);
 
   const clearPreview = React.useCallback(() => {
     setClipUri(null);
@@ -722,8 +730,19 @@ export function RecordScreen() {
     if (!permission.granted) {
       const next = await requestPermission();
       if (!next.granted) {
-        setClipUri('demo://clip');
-        setClipSource('demo');
+        if (allowReviewDemo) {
+          setClipUri('demo://clip');
+          setClipSource('demo');
+        } else {
+          showError(
+            'Camera needed',
+            new Error(
+              next.status === 'denied'
+                ? 'Enable camera access in Settings to record your leap.'
+                : 'Allow camera access to record your leap.'
+            )
+          );
+        }
         return;
       }
     }
@@ -957,7 +976,7 @@ export function RecordScreen() {
           />
         ) : clipUri?.startsWith('demo://') ? (
           <View style={styles.demo}>
-            <Text style={styles.demoTitle}>Demo take ready</Text>
+            <Text style={styles.demoTitle}>Review take ready</Text>
             <Text style={styles.demoBody}>
               No camera file — post to try the rest of the app, or tap ↺ to reset.
             </Text>
@@ -1039,10 +1058,36 @@ export function RecordScreen() {
           </>
         ) : (
           <View style={styles.demo}>
-            <Text style={styles.demoTitle}>Demo Mode</Text>
+            <Ionicons name="camera-outline" size={40} color="rgba(255,255,255,0.85)" />
+            <Text style={styles.demoTitle}>Camera access needed</Text>
             <Text style={styles.demoBody}>
-              Camera access denied. Using demo mode. You can still test the recording flow!
+              {cameraDenied
+                ? 'Leap needs camera access to record your daily leap. Turn it on in Settings.'
+                : 'Allow camera access to record your daily leap.'}
             </Text>
+            <PrimaryButton
+              title={cameraDenied ? 'Open Settings' : 'Allow camera'}
+              variant="green"
+              onPress={() => {
+                if (cameraDenied) {
+                  void Linking.openSettings();
+                  return;
+                }
+                void requestPermission();
+              }}
+              style={styles.permissionBtn}
+            />
+            {allowReviewDemo ? (
+              <PrimaryButton
+                title="Continue without camera"
+                variant="outline"
+                onPress={() => {
+                  setClipUri('demo://clip');
+                  setClipSource('demo');
+                }}
+                style={styles.permissionBtn}
+              />
+            ) : null}
           </View>
         )}
         {preRecordCountdown != null && !clipUri ? (
@@ -1102,7 +1147,7 @@ export function RecordScreen() {
               <Text style={styles.doneTitle}>Recording complete</Text>
               <Text style={styles.doneBody}>
                 {clipUri.startsWith('demo://')
-                  ? 'Demo mode — post to continue, or record again.'
+                  ? 'Review mode — post to continue, or record again.'
                   : 'Replay your take with the video controls, then post or record again.'}
               </Text>
             </View>
@@ -1157,7 +1202,9 @@ export function RecordScreen() {
                 {!playerFacing.canRecord
                   ? 'DROPS NOON ET'
                   : !permission?.granted
-                    ? 'TAP TO ENABLE CAMERA'
+                    ? cameraDenied
+                      ? 'OPEN SETTINGS FOR CAMERA'
+                      : 'TAP TO ENABLE CAMERA'
                     : preRecordCountdown != null
                       ? 'GET READY…'
                       : isRecording
