@@ -43,6 +43,7 @@ import {
 import { staffAnnounceAppReviewCallable } from './announceAppReview';
 import { bootstrapUserOnAuthCreate } from './bootstrapUserOnAuthCreate';
 import { toggleVideoLikeCallable } from './toggleVideoLikeCallable';
+import { getWebsiteMarketing } from './getWebsiteMarketing';
 
 admin.initializeApp();
 
@@ -82,6 +83,7 @@ export {
   claimReferralCallable,
   adminAnnounceReferralProgramCallable,
   staffAnnounceAppReviewCallable,
+  getWebsiteMarketing,
 };
 
 type ChatMessagePayload = {

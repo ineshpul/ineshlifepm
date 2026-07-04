@@ -3,33 +3,44 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as admin from 'firebase-admin';
 
 import { uploadChallengePostStatsExport } from './exportChallengePostStatsCore';
-import { getDayKey } from './leapDayKey';
+import { nyDateKeyFromMs } from './timeKeys';
 
 const REGION = 'us-central1';
 
-/** Leap day ends at noon ET — export finalized stats ~5 min after rollover. */
+/** Finalize yesterday's stats at 12:05 AM ET (calendar day boundary). */
 const SCHEDULE_OPTS = {
   region: REGION,
   timeZone: 'America/New_York',
   memory: '512MiB' as const,
   timeoutSeconds: 540,
-  schedule: '5 12 * * *',
+  schedule: '5 0 * * *',
 };
+
+function previousCalendarDayKey(dateKey: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!m) return dateKey;
+  const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) - 24 * 3600000;
+  return nyDateKeyFromMs(t);
+}
 
 export async function runChallengePostStatsExport(nowMs: number = Date.now()): Promise<void> {
   const db = admin.firestore();
   const auth = admin.auth();
 
-  const closedLeapDayKey = getDayKey('America/New_York', nowMs - 60 * 60 * 1000);
+  const openCalendarDayKey = nyDateKeyFromMs(nowMs);
+  const closedCalendarDayKey = previousCalendarDayKey(openCalendarDayKey);
 
   const result = await uploadChallengePostStatsExport(db, auth, {
-    reconcileDayKey: closedLeapDayKey,
-    closedLeapDayKey,
+    reconcileDayKey: closedCalendarDayKey,
+    closedCalendarDayKey,
+    nowMs,
   });
 
   logger.info('scheduledChallengePostStatsExport finished', {
-    closedLeapDayKey,
-    ...result,
+    closedCalendarDayKey,
+    dayCount: result.dayCount,
+    totalPosts: result.totalPosts,
+    openCalendarDayKey: result.openCalendarDayKey,
   });
 }
 

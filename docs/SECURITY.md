@@ -46,6 +46,8 @@ In the Vercel project (**Root Directory** = `website`), set:
 | `RESEND_API_KEY` | Yes | Resend sending key |
 | `RESEND_FROM_EMAIL` | No | Verified domain sender |
 | `SUGGESTION_TO_EMAIL` | No | Inbox for website suggestions |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` or `FIREBASE_SERVICE_ACCOUNT_JSON_B64` | No | Optional list for Leap of the Day (optional with `getWebsiteMarketing` function) |
+| `WEBSITE_MARKETING_URL` | No | Override for marketing Cloud Function URL |
 
 Never commit `.env` files; they are gitignored.
 

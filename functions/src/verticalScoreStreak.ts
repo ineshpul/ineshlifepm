@@ -47,6 +47,34 @@ export function updateStreakState(args: {
   };
 }
 
+/** Staff / extension accounts: one missed leap day still continues the streak. */
+export const LEAP_EXTENSION_STREAK_ALLOWLIST = new Set([
+  'is10Doy7zQYUeCi36P8gE1M3lZe2',
+  '1VwC2MVrEpcLxWYytr4z0BsIe7U2',
+]);
+
+export function updateStreakStateWithLeapExtensionAllowance(args: {
+  uid: string;
+  lastApprovedLeapDateKey: string;
+  newApprovedLeapDayKey: string;
+  priorActiveStreak: number;
+  priorLongest: number;
+}): { activeLeapStreakDays: number; longestLeapStreakDays: number } {
+  const gap = leapDateKeyGapDays(args.lastApprovedLeapDateKey, args.newApprovedLeapDayKey);
+  if (
+    LEAP_EXTENSION_STREAK_ALLOWLIST.has(args.uid) &&
+    gap === 2 &&
+    args.priorActiveStreak > 0
+  ) {
+    const active = args.priorActiveStreak + 1;
+    return {
+      activeLeapStreakDays: active,
+      longestLeapStreakDays: Math.max(args.priorLongest, active),
+    };
+  }
+  return updateStreakState(args);
+}
+
 /**
  * Active streak is alive only when the last approved leap day is today or yesterday
  * (leap `challengeDate` keys). Older last-post days mean the chain is broken → display 0.

@@ -3,7 +3,7 @@ import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
 import { challengePostStatsBucket, uploadChallengePostStatsExport } from './exportChallengePostStatsCore';
-import { getDayKey } from './leapDayKey';
+import { nyDateKeyFromMs } from './timeKeys';
 
 /**
  * Admin-only: rebuild challenge post stats export and upload CSV + Excel to Cloud Storage.
@@ -19,10 +19,12 @@ export const exportChallengePostStatsCallable = onCall(CALLABLE_OPTIONS, async (
     throw new HttpsError('permission-denied', 'Admin only.');
   }
 
-  const reconcileDayKey = String(request.data?.dayKey ?? '').trim() || getDayKey('America/New_York');
+  const reconcileDayKey =
+    String(request.data?.dayKey ?? '').trim() ||
+    nyDateKeyFromMs(Date.now() - 24 * 60 * 60 * 1000);
   const result = await uploadChallengePostStatsExport(db, admin.auth(), {
     reconcileDayKey,
-    closedLeapDayKey: reconcileDayKey,
+    closedCalendarDayKey: reconcileDayKey,
   });
 
   const bucket = challengePostStatsBucket();

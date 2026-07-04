@@ -26,8 +26,14 @@
     "test:inches": "npm run build && node lib/runInchCountingTestScript.js",
     "grant:app-review": "npm run build && node lib/scripts/grantAppReviewAccess.js",
     "allow:repost": "npm run build && node lib/scripts/allowRepostToday.js",
+    "grant:late-post": "npm run build && node lib/scripts/grantLatePostGrace.js",
+    "grant:leap-extension": "npm run build && node lib/scripts/grantLeapDayExtension.js",
+    "clear:leap-extension": "npm run build && node lib/scripts/clearLeapDayExtensions.js",
+    "heal:streak-continuation": "npm run build && node lib/scripts/healStreakContinuation.js",
     "export:challenge-posts": "npm run build && node lib/scripts/exportChallengePostStats.js",
-    "export:challenge-posts:upload": "npm run build && node lib/scripts/exportChallengePostStats.js --upload"
+    "export:challenge-posts:upload": "npm run build && node lib/scripts/exportChallengePostStats.js --upload",
+    "download:challenge-posts": "npm run build && node lib/scripts/downloadChallengePostStats.js",
+    "open:challenge-posts": "npm run build && node lib/scripts/openChallengePostStats.js"
   },
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.758.0",

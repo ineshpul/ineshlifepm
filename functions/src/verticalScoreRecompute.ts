@@ -12,6 +12,7 @@ import {
   leapInchesFromVideo,
   expireActiveStreakIfBroken,
   updateStreakState,
+  updateStreakStateWithLeapExtensionAllowance,
 } from './verticalScoreEngine';
 import {
   decrementApprovedPostCountForLeap,
@@ -401,7 +402,8 @@ async function awardLeapInchesOnFullApproval(
       views: eng.views,
     });
 
-    const streakNext = updateStreakState({
+    const streakNext = updateStreakStateWithLeapExtensionAllowance({
+      uid: owner,
       lastApprovedLeapDateKey: lastKey,
       newApprovedLeapDayKey: challengeDate,
       priorActiveStreak: priorStreak,
@@ -566,7 +568,8 @@ async function finalizeLeapInchesOnApproval(
       challengeDate,
     });
 
-    const streakNext = updateStreakState({
+    const streakNext = updateStreakStateWithLeapExtensionAllowance({
+      uid: owner,
       lastApprovedLeapDateKey: lastKey,
       newApprovedLeapDayKey: challengeDate,
       priorActiveStreak: priorStreak,
@@ -989,7 +992,8 @@ async function rebuildStreakFromVideos(
   let longest = 0;
   let lastKey = '';
   for (const k of days) {
-    const next = updateStreakState({
+    const next = updateStreakStateWithLeapExtensionAllowance({
+      uid: ownerId,
       lastApprovedLeapDateKey: lastKey,
       newApprovedLeapDayKey: k,
       priorActiveStreak: active,
@@ -1288,7 +1292,7 @@ export const onVerticalScoreVideoDeleted = onDocumentDeleted(
     const challengeDate = String(data.challengeDate ?? '').trim();
     const wasApproved = String(data.moderationStatus ?? '') === 'approved';
 
-    // Restore today's recording attempts when the daily video doc is removed (client delete or staff).
+    // Deleted posts (voluntary or rejected) get a fresh set of recording attempts for that day.
     if (videoId === `${uid}_${challengeDate}` || videoId.startsWith(`${uid}_`)) {
       const ledgerDate = challengeDate || videoId.slice(uid.length + 1);
       try {

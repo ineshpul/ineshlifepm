@@ -6,14 +6,15 @@ import {
   isActiveLeapStreakAlive,
   leapDateKeyGapDays,
   updateStreakState,
+  updateStreakStateWithLeapExtensionAllowance,
 } from './verticalScoreStreak';
 
-export { expireActiveStreakIfBroken, isActiveLeapStreakAlive, leapDateKeyGapDays, updateStreakState };
+export { expireActiveStreakIfBroken, isActiveLeapStreakAlive, leapDateKeyGapDays, updateStreakState, updateStreakStateWithLeapExtensionAllowance };
 
 export const LEAP_BASE_INCHES = 5;
 export const LEAP_FIRST_BONUS_BASE_INCHES = 10;
 /** Inches subtracted from nominal leap base when user bought a bonus recording attempt. */
-export const BONUS_ATTEMPT_BASE_REDUCTION_INCHES = 5;
+export const BONUS_ATTEMPT_BASE_REDUCTION_INCHES = 2;
 
 export function clamp(n: number, lo: number, hi: number): number {
   if (!Number.isFinite(n)) return lo;
@@ -36,7 +37,7 @@ export type PostLeapInchesInput = {
   isFirstEverLeap: boolean;
   /** Global first approved leap on this challenge day (not per-user first post). */
   isFirstPostOfDay: boolean;
-  /** From bonus recording purchase — reduces nominal base before streak (5→0, 10→5). */
+  /** From bonus recording purchase — reduces nominal base before streak (5→3, 10→8). */
   baseInchesReduction?: number;
   /** Non-owner engagement only. */
   likes: number;
