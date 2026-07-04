@@ -1,5 +1,6 @@
 import * as Updates from 'expo-updates';
 import * as React from 'react';
+import { AppState } from 'react-native';
 import { Audio } from 'expo-av';
 import * as Notifications from 'expo-notifications';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -107,22 +108,31 @@ function PushTokenRegistrar() {
   return null;
 }
 
-/** Fetch and apply EAS updates on cold start so production users pick up OTAs promptly. */
+/** Fetch and apply EAS updates on launch and when returning to foreground. */
 function OtaUpdateOnLaunch() {
-  React.useEffect(() => {
+  const applyPendingUpdate = React.useCallback(async () => {
     if (__DEV__ || !Updates.isEnabled) return;
-    void (async () => {
-      try {
-        const result = await Updates.checkForUpdateAsync();
-        if (result.isAvailable) {
-          await Updates.fetchUpdateAsync();
-          await Updates.reloadAsync();
-        }
-      } catch {
-        // Offline, dev client, or update server unreachable — keep running embedded bundle.
+    try {
+      const result = await Updates.checkForUpdateAsync();
+      if (result.isAvailable) {
+        await Updates.fetchUpdateAsync();
+        await Updates.reloadAsync();
       }
-    })();
+    } catch {
+      // Offline, dev client, or update server unreachable — keep running embedded bundle.
+    }
   }, []);
+
+  React.useEffect(() => {
+    void applyPendingUpdate();
+  }, [applyPendingUpdate]);
+
+  React.useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void applyPendingUpdate();
+    });
+    return () => sub.remove();
+  }, [applyPendingUpdate]);
 
   return null;
 }

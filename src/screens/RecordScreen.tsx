@@ -55,6 +55,17 @@ import { purchaseRecordingAttemptWithScore } from '../services/recordingAttempts
 import { computeFeedViewingFromNow } from '../utils/nyTime';
 import { navigateToFeedTab } from '../navigation/navigationHelpers';
 
+function openCameraSettingsAlert() {
+  Alert.alert(
+    'Camera access needed',
+    'Leap needs your camera to record daily leaps. Turn on Camera access in Settings.',
+    [
+      { text: 'Not now', style: 'cancel' },
+      { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+    ]
+  );
+}
+
 async function setAudioSessionForRecording() {
   await Audio.setAudioModeAsync({
     allowsRecordingIOS: true,
@@ -362,8 +373,8 @@ export function RecordScreen() {
     challenge.maxRecordingAttempts
   );
 
-  const [permission, requestPermission] = useCameraPermissions();
-  const [micPermission, requestMicPermission] = useMicrophonePermissions();
+  const [permission, requestPermission, getCameraPermission] = useCameraPermissions();
+  const [micPermission, requestMicPermission, getMicPermission] = useMicrophonePermissions();
   const attemptsLeft = attemptsRemaining;
   const unlockBaseAfterReduction = LEAP_BASE_INCHES - ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES;
   const unlockFirstPostBaseAfterReduction =
@@ -453,6 +464,40 @@ export function RecordScreen() {
   /** App Store review accounts may post without a real camera clip. */
   const allowReviewDemo = Boolean(user?.bypassFeedGate);
 
+  const ensureCameraPermission = React.useCallback(async (): Promise<boolean> => {
+    const current = permission?.granted ? permission : await getCameraPermission();
+    if (current.granted) return true;
+    if (current.status === 'denied') {
+      openCameraSettingsAlert();
+      return false;
+    }
+    const next = await requestPermission();
+    if (next.granted) return true;
+    if (next.status === 'denied') openCameraSettingsAlert();
+    return false;
+  }, [permission, getCameraPermission, requestPermission]);
+
+  const promptRecordingPermissionsOnFocus = React.useCallback(async () => {
+    const cam = permission?.granted ? permission : await getCameraPermission();
+    if (!cam.granted) {
+      if (cam.status === 'undetermined') {
+        await requestPermission();
+      }
+      return;
+    }
+    const mic = micPermission?.granted ? micPermission : await getMicPermission();
+    if (!mic.granted && mic.status === 'undetermined') {
+      await requestMicPermission();
+    }
+  }, [
+    permission,
+    micPermission,
+    getCameraPermission,
+    getMicPermission,
+    requestPermission,
+    requestMicPermission,
+  ]);
+
   const clearPreview = React.useCallback(() => {
     setClipUri(null);
     setClipSource(null);
@@ -491,16 +536,11 @@ export function RecordScreen() {
     setIsRecording(false);
   }, [recordingBlocked]);
 
-  React.useEffect(() => {
-    if (permission?.status === 'undetermined') {
-      void requestPermission();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- requestPermission identity churn
-  }, [permission?.status]);
-
-  /** Screen focus only — do not tie to permission changes (that paused camera right after grant). */
   useFocusEffect(
     React.useCallback(() => {
+      if (!recordingBlocked && !clipUri && playerFacing.canRecord) {
+        void promptRecordingPermissionsOnFocus();
+      }
       return () => {
         recordingAbortRef.current = true;
         recordingSessionRef.current += 1;
@@ -513,7 +553,13 @@ export function RecordScreen() {
           void setAudioSessionForPlayback().catch(() => {});
         })();
       };
-    }, [stopActiveRecording])
+    }, [
+      recordingBlocked,
+      clipUri,
+      playerFacing.canRecord,
+      promptRecordingPermissionsOnFocus,
+      stopActiveRecording,
+    ])
   );
 
   React.useEffect(() => {
@@ -526,13 +572,14 @@ export function RecordScreen() {
   }, [isFocused, cameraMode, clipUri]);
 
   React.useEffect(() => {
-    const sub = AppState.addEventListener('change', (_next: AppStateStatus) => {
-      // vision-camera's session is driven by the `active` prop on the recorder
-      // components, which we already wire through `cameraActive` / `dualActive`,
-      // so foreground transitions don't need a manual resume here.
+    if (!isFocused) return;
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next !== 'active') return;
+      void getCameraPermission();
+      void getMicPermission();
     });
     return () => sub.remove();
-  }, [isFocused, recordingBlocked, clipUri, canUseCamera]);
+  }, [isFocused, getCameraPermission, getMicPermission]);
 
   const startDualRecordingSession = async () => {
     recordingAbortRef.current = false;
@@ -728,23 +775,16 @@ export function RecordScreen() {
     }
     if (!permission) return;
     if (!permission.granted) {
-      const next = await requestPermission();
-      if (!next.granted) {
-        if (allowReviewDemo) {
+      if (allowReviewDemo) {
+        const next = await requestPermission();
+        if (!next.granted) {
           setClipUri('demo://clip');
           setClipSource('demo');
-        } else {
-          showError(
-            'Camera needed',
-            new Error(
-              next.status === 'denied'
-                ? 'Enable camera access in Settings to record your leap.'
-                : 'Allow camera access to record your leap.'
-            )
-          );
         }
         return;
       }
+      const granted = await ensureCameraPermission();
+      if (!granted) return;
     }
     if (!micPermission?.granted) {
       const mic = await requestMicPermission();
@@ -1073,7 +1113,7 @@ export function RecordScreen() {
                   void Linking.openSettings();
                   return;
                 }
-                void requestPermission();
+                void ensureCameraPermission();
               }}
               style={styles.permissionBtn}
             />
