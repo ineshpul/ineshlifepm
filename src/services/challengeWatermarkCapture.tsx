@@ -42,11 +42,17 @@ export async function captureChallengeWatermarkPng(
   return enqueueCapture(info);
 }
 
+/** Fallback so a slow/failed logo load can never block a camera-roll save. */
+const LOGO_READY_TIMEOUT_MS = 2500;
+
 /** Off-screen host — mount once near the app root. */
 export function ChallengeWatermarkCaptureHost() {
   const shotRef = React.useRef<ViewShotRef>(null);
   const [pending, setPending] = React.useState<PendingCapture | null>(null);
   const [fontsReady, setFontsReady] = React.useState(false);
+  const [logoReady, setLogoReady] = React.useState(false);
+
+  const handleLogoSettled = React.useCallback(() => setLogoReady(true), []);
 
   React.useEffect(() => {
     enqueueCapture = (info) =>
@@ -61,6 +67,7 @@ export function ChallengeWatermarkCaptureHost() {
   React.useEffect(() => {
     if (!pending) {
       setFontsReady(false);
+      setLogoReady(false);
       return;
     }
 
@@ -79,8 +86,15 @@ export function ChallengeWatermarkCaptureHost() {
     };
   }, [pending]);
 
+  // Don't wait forever on the logo — proceed after a short grace period.
   React.useEffect(() => {
-    if (!pending || !fontsReady) return;
+    if (!pending || !fontsReady || logoReady) return;
+    const timer = setTimeout(() => setLogoReady(true), LOGO_READY_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [pending, fontsReady, logoReady]);
+
+  React.useEffect(() => {
+    if (!pending || !fontsReady || !logoReady) return;
 
     let cancelled = false;
     const run = async () => {
@@ -106,7 +120,7 @@ export function ChallengeWatermarkCaptureHost() {
     return () => {
       cancelled = true;
     };
-  }, [pending, fontsReady]);
+  }, [pending, fontsReady, logoReady]);
 
   if (!pending) return null;
 
@@ -126,7 +140,13 @@ export function ChallengeWatermarkCaptureHost() {
         ref={shotRef}
         options={{ format: 'png', quality: 1, result: 'tmpfile', width, height }}
       >
-        <VideoWatermarkOverlay title={title} username={username} width={width} height={height} />
+        <VideoWatermarkOverlay
+          title={title}
+          username={username}
+          width={width}
+          height={height}
+          onLogoSettled={handleLogoSettled}
+        />
       </ViewShot>
     </View>
   );

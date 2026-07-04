@@ -17,6 +17,8 @@ export type VideoWatermarkOverlayProps = {
   username: string;
   width: number;
   height: number;
+  /** Fired once the Leap logo has loaded (or failed) so callers can time the capture. */
+  onLogoSettled?: () => void;
 };
 
 /** Full-frame transparent PNG layer burned onto exported videos (not shown in-app). */
@@ -25,6 +27,7 @@ export function VideoWatermarkOverlay({
   username,
   width,
   height,
+  onLogoSettled,
 }: VideoWatermarkOverlayProps) {
   const { colors } = useTheme();
   const styles = useThemedStyles((colors) => ({
@@ -68,7 +71,7 @@ export function VideoWatermarkOverlay({
 
   return (
     <View style={[styles.frame, { width, height }]}>
-      <CornerPill layout={layout} colors={colors} />
+      <CornerPill layout={layout} colors={colors} onLogoSettled={onLogoSettled} />
       <View style={[styles.strip, { height: layout.strip.height }]}>
         <Svg width={width} height={layout.strip.height} style={StyleSheet.absoluteFill}>
           <Defs>
@@ -124,9 +127,11 @@ export function VideoWatermarkOverlay({
 function CornerPill({
   layout,
   colors,
+  onLogoSettled,
 }: {
   layout: VideoWatermarkLayout;
   colors: ReturnType<typeof useTheme>['colors'];
+  onLogoSettled?: () => void;
 }) {
   const { pill } = layout;
   return (
@@ -160,6 +165,9 @@ function CornerPill({
         }}
         contentFit="contain"
         transition={0}
+        cachePolicy="memory-disk"
+        onLoad={onLogoSettled}
+        onError={onLogoSettled}
       />
       <Text
         style={{
