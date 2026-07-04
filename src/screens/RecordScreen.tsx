@@ -510,12 +510,10 @@ export function RecordScreen() {
 
   React.useEffect(() => {
     if (!isFocused || clipUri) return;
-    if (cameraMode === 'dual') {
-      // vision-camera owns the AVAudioSession during multi-cam capture; expo-av's
-      // recording mode races the mic and causes intermittent silent clips.
-      void setAudioSessionForPlayback().catch(() => {});
-      return;
-    }
+    // Single (expo-camera) and dual (vision-camera) capture both write audio through
+    // an iOS `AVCaptureMovieFileOutput`, which needs a record-capable AVAudioSession
+    // (`.playAndRecord`). Forcing a playback category here disabled the microphone
+    // input and left dual clips silent, so keep the mic live for both modes.
     void setAudioSessionForRecording().catch(() => {});
   }, [isFocused, cameraMode, clipUri]);
 
@@ -756,9 +754,10 @@ export function RecordScreen() {
         await setAudioSessionForRecording().catch(() => {});
         await startRecordingSession();
       } else {
-        // Dual mode uses vision-camera's AVAudioSession. expo-av's recording probe
-        // races the shared mic and causes intermittent silent clips on iOS.
-        await setAudioSessionForPlayback().catch(() => {});
+        // Dual mode records audio via vision-camera's `AVCaptureMovieFileOutput`, which
+        // needs a record-capable AVAudioSession just like single capture. A playback
+        // category disables the mic and produces silent dual clips.
+        await setAudioSessionForRecording().catch(() => {});
         await startDualRecordingSession();
       }
     } finally {
@@ -879,9 +878,9 @@ export function RecordScreen() {
     }
     setCameraMode((m) => {
       const next = m === 'single' ? 'dual' : 'single';
-      if (next === 'dual') {
-        void setAudioSessionForPlayback().catch(() => {});
-      } else if (isFocused && !clipUri) {
+      // Both single and dual capture need a record-capable AVAudioSession while
+      // previewing so the microphone stays live for the next take.
+      if (isFocused && !clipUri) {
         void setAudioSessionForRecording().catch(() => {});
       }
       return next;
