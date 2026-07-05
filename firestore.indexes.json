@@ -100,6 +100,13 @@
         { "fieldPath": "leaperWeekKey", "order": "ASCENDING" },
         { "fieldPath": "leaperWeekPoints", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "usernameLower", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

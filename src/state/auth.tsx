@@ -17,7 +17,7 @@ import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { isAdminUid, parseProfileIsAdmin, parseProfileIsModerator, parseProfileBypassFeedGate } from '../config/admin';
 import { unregisterPushDevice } from '../services/pushNotifications';
-import { bootstrapUserDocWithUsername, syncAuthDisplayNameIfNeeded } from '../services/usernameClaim';
+import { ensureUserSearchableProfile } from '../services/usernameClaim';
 import { claimReferral } from '../services/referral';
 import { scheduleLeapStatsHealOnSession } from '../services/verticalScore';
 
@@ -220,17 +220,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const username = u.displayName ?? (u.email?.split('@')[0] ?? 'user');
 
       try {
-        void (async () => {
-          try {
-            const resolved = await bootstrapUserDocWithUsername({
-              uid: u.uid,
-              candidateUsername: username,
-            });
-            await syncAuthDisplayNameIfNeeded(resolved.username);
-          } catch {
-            // Offline / stale rules — session still works; profile sync can retry on next session tick.
-          }
-        })();
+        void ensureUserSearchableProfile({
+          uid: u.uid,
+          candidateUsername: username,
+        }).catch(() => {
+          // Offline / stale rules — session still works; retried on next foreground tick.
+        });
 
         void setDoc(
           doc(firestore(), 'users', u.uid, 'private', 'profile'),
@@ -366,18 +361,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const u = cred.user;
 
       // Username search queries `users.usernameLower` — must exist before others can find this account.
+      let resolvedUsername = username.trim() || u.displayName || (u.email?.split('@')[0] ?? 'user');
       try {
-        const resolved = await bootstrapUserDocWithUsername({ uid: u.uid, candidateUsername: username });
-        await syncAuthDisplayNameIfNeeded(resolved.username);
+        const resolved = await ensureUserSearchableProfile({ uid: u.uid, candidateUsername: username });
+        resolvedUsername = resolved.username;
       } catch {
-        // Offline / transient rules — applyFirebaseSession retries bootstrap on next session tick.
+        // applyFirebaseSession + foreground retry will heal; signup still succeeds.
       }
 
       setUser((prev) =>
         mergeAuthUser(prev, {
           uid: u.uid,
           email: u.email ?? '',
-          username: u.displayName ?? (u.email?.split('@')[0] ?? 'user'),
+          username: resolvedUsername,
           needsEmailVerification: hasPasswordProvider(u) && !u.emailVerified,
         })
       );

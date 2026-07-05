@@ -20,7 +20,8 @@ export async function bootstrapUserProfileIfNeeded(
     existing.exists && typeof existing.data()?.usernameLower === 'string'
       ? String(existing.data()?.usernameLower).trim()
       : '';
-  if (existingLower) {
+  const candidateKey = usernameClaimDocId(args.candidateUsername.trim() || 'user');
+  if (existingLower && existingLower === candidateKey) {
     const username =
       typeof existing.data()?.username === 'string' && String(existing.data()?.username).trim()
         ? String(existing.data()?.username).trim()
@@ -60,12 +61,20 @@ export async function bootstrapUserProfileIfNeeded(
       userSnap.exists && typeof userSnap.data()?.usernameLower === 'string'
         ? String(userSnap.data()?.usernameLower).trim()
         : '';
-    if (prevLower) return;
+    if (prevLower === key) return;
 
     const cSnap = await tx.get(claimRef);
     const owner = cSnap.exists ? String(cSnap.data()?.uid ?? '').trim() : '';
     if (cSnap.exists && owner && owner !== uid) {
       throw new Error(`username claim ${key} already owned by ${owner}`);
+    }
+
+    if (prevLower && prevLower !== key) {
+      const prevRef = db.doc(`usernameClaims/${prevLower}`);
+      const prevSnap = await tx.get(prevRef);
+      if (prevSnap.exists && String(prevSnap.data()?.uid ?? '') === uid) {
+        tx.delete(prevRef);
+      }
     }
 
     tx.set(claimRef, { uid });

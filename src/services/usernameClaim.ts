@@ -2,6 +2,7 @@ import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 
 import { firebaseAuth, firestore } from '../firebase/firebase';
 import { usernameClaimDocId } from '../utils/usernameSearch';
+import { withRetries } from '../utils/retry';
 
 export class UsernameTakenError extends Error {
   readonly code = 'USERNAME_TAKEN';
@@ -139,4 +140,26 @@ export async function syncAuthDisplayNameIfNeeded(finalUsername: string): Promis
     const { updateProfile } = await import('firebase/auth');
     await updateProfile(cur, { displayName: finalUsername });
   }
+}
+
+/**
+ * Reserve `usernameClaims` + `users.usernameLower` so prefix search can find this account.
+ * Retries transient failures — critical on signup before the auth-create trigger finishes.
+ */
+export async function ensureUserSearchableProfile(args: {
+  uid: string;
+  candidateUsername: string;
+}): Promise<{ username: string; usernameLower: string }> {
+  const resolved = await withRetries(
+    () => bootstrapUserDocWithUsername(args),
+    {
+      maxAttempts: 5,
+      shouldRetry: (err) => {
+        const code = String((err as { code?: string })?.code ?? '').toLowerCase();
+        return code !== 'permission-denied' && code !== 'invalid-argument';
+      },
+    }
+  );
+  await syncAuthDisplayNameIfNeeded(resolved.username);
+  return resolved;
 }
