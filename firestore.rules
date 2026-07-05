@@ -715,7 +715,7 @@ service cloud.firestore {
           )
           || (
             (
-              isAdmin()
+              isStaff()
               || !exists(/databases/$(database)/documents/videos/$(attemptId))
             )
             && request.resource.data.uid == request.auth.uid

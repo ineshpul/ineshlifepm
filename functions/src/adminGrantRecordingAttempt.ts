@@ -2,6 +2,7 @@ import { CALLABLE_OPTIONS } from './callableOptions';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 
+import { isActiveLeapVideoDoc, videoBlocksLeapRepost } from './postAttemptLeapVideo';
 import { leapChallengeDateKeyFromMs } from './timeKeys';
 
 const REGION = 'us-central1';
@@ -54,8 +55,11 @@ export const adminGrantRecordingAttemptCallable = onCall(CALLABLE_OPTIONS, async
 
   await db.runTransaction(async (tx) => {
     const videoSnap = await tx.get(videoRef);
-    if (videoSnap.exists) {
+    if (videoBlocksLeapRepost(videoSnap, uid)) {
       throw new HttpsError('failed-precondition', 'You already posted for this leap.');
+    }
+    if (videoSnap.exists && !isActiveLeapVideoDoc(videoSnap.data(), uid)) {
+      tx.delete(videoRef);
     }
 
     const chSnap = await tx.get(challengeRef);

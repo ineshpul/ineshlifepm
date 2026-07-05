@@ -52,6 +52,17 @@ export type PostedVideoPayload = {
   moderationStatus: 'pending' | 'approved' | 'rejected';
 };
 
+function isActiveLeapVideoDoc(
+  data: { deleted?: boolean; moderationStatus?: string; uid?: string } | undefined,
+  ownerUid: string
+): boolean {
+  if (!data) return false;
+  if (data.deleted === true) return false;
+  const status = String(data.moderationStatus ?? '').trim().toLowerCase();
+  if (status === 'rejected' || status === 'nulled') return false;
+  return String(data.uid ?? ownerUid) === ownerUid;
+}
+
 export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
   const { payload } = args;
 
@@ -60,10 +71,12 @@ export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
 
     const videoSnap = await tx.get(videoRef);
     if (videoSnap.exists()) {
-      const existing = videoSnap.data() as { deleted?: boolean; uid?: string } | undefined;
-      const blocksRepost =
-        existing?.deleted !== true && String(existing?.uid ?? payload.uid) === payload.uid;
-      if (blocksRepost) {
+      const existing = videoSnap.data() as {
+        deleted?: boolean;
+        uid?: string;
+        moderationStatus?: string;
+      } | undefined;
+      if (isActiveLeapVideoDoc(existing, payload.uid)) {
         throw new Error('You already posted today.');
       }
       // Soft-deleted or stale row — remove so create rules apply to the new post.
@@ -187,7 +200,12 @@ export async function refundRecordingAttemptIfNoPostedVideo(args: { uid: string;
 
   await runTransaction(firestore(), async (tx) => {
     const videoSnap = await tx.get(videoRef);
-    if (videoSnap.exists()) return;
+    if (videoSnap.exists() && isActiveLeapVideoDoc(videoSnap.data(), uid)) {
+      return;
+    }
+    if (videoSnap.exists()) {
+      tx.delete(videoRef);
+    }
 
     const max = await maxAttemptsForChallengeDate(tx, challengeDate);
     const attemptSnap = await tx.get(attemptRef);
@@ -216,12 +234,17 @@ export async function refundRecordingAttemptIfNoPostedVideo(args: { uid: string;
 export function useAttemptsRemaining(
   uid: string | undefined,
   challengeDate: string,
-  dailyMaxAttempts: number = DEFAULT_MAX_RECORDING_ATTEMPTS
+  dailyMaxAttempts: number = DEFAULT_MAX_RECORDING_ATTEMPTS,
+  staffUnlimited?: boolean
 ) {
   const fallbackMax = normalizeMaxRecordingAttempts(dailyMaxAttempts);
   const [remaining, setRemaining] = React.useState(fallbackMax);
 
   React.useEffect(() => {
+    if (staffUnlimited) {
+      setRemaining(fallbackMax);
+      return;
+    }
     if (!uid) {
       setRemaining(fallbackMax);
       return;
@@ -234,9 +257,9 @@ export function useAttemptsRemaining(
       const max = fallbackMax;
       setRemaining(Math.max(0, max - used + bonus));
     });
-  }, [uid, challengeDate, fallbackMax]);
+  }, [uid, challengeDate, fallbackMax, staffUnlimited]);
 
-  return remaining;
+  return staffUnlimited ? fallbackMax : remaining;
 }
 
 /** Fresh recording attempts after the user deletes their post for the day. */
@@ -251,8 +274,12 @@ export async function resetRecordingAttemptsAfterVideoDelete(args: {
   await runTransaction(firestore(), async (tx) => {
     const videoSnap = await tx.get(videoRef);
     if (videoSnap.exists()) {
-      const existing = videoSnap.data() as { deleted?: boolean } | undefined;
-      if (existing?.deleted !== true) {
+      const existing = videoSnap.data() as {
+        deleted?: boolean;
+        moderationStatus?: string;
+        uid?: string;
+      } | undefined;
+      if (isActiveLeapVideoDoc(existing, uid)) {
         return;
       }
       tx.delete(videoRef);

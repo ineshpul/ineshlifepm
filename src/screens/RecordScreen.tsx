@@ -363,14 +363,16 @@ export function RecordScreen() {
   const { challenge, window } = useTodayChallenge();
   const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
   const recordingChallengeDateKey = viewingChallengeDateKey;
+  const isStaffUser = Boolean(user?.isAdmin || user?.isModerator);
   const postedForRecordingDay = useHasPostedToday(user?.uid, recordingChallengeDateKey);
-  const recordingBlocked = postedForRecordingDay;
+  const recordingBlocked = postedForRecordingDay && !isStaffUser;
   const maxSec = normalizeTaskDurationSeconds(challenge.maxDurationSeconds);
   const playerFacing = getPlayerFacingChallenge(challenge, window);
   const attemptsRemaining = useAttemptsRemaining(
     user?.uid,
     recordingChallengeDateKey,
-    challenge.maxRecordingAttempts
+    challenge.maxRecordingAttempts,
+    isStaffUser
   );
 
   const [permission, requestPermission, getCameraPermission] = useCameraPermissions();
@@ -717,7 +719,7 @@ export function RecordScreen() {
       setRecordingSecondsLeft(null);
       setClipUri(uri);
       setClipSource('recorded');
-      if (user?.uid && isFirebaseConfigured()) {
+      if (user?.uid && isFirebaseConfigured() && !isStaffUser) {
         void consumeRecordingAttempt({
           uid: user.uid,
           challengeDate: recordingChallengeDateKey,
@@ -727,7 +729,7 @@ export function RecordScreen() {
       }
       void setAudioSessionForPlayback().catch(() => {});
     },
-    [user?.uid, recordingChallengeDateKey]
+    [user?.uid, recordingChallengeDateKey, isStaffUser]
   );
 
   const handleSingleError = React.useCallback((e: unknown) => {
@@ -906,7 +908,7 @@ export function RecordScreen() {
       setSecondaryClipUri(clip.secondaryUri);
       setDualFrontIsPrimary(clip.frontIsPrimary);
       setClipSource('recorded');
-      if (user?.uid && isFirebaseConfigured()) {
+      if (user?.uid && isFirebaseConfigured() && !isStaffUser) {
         void consumeRecordingAttempt({
           uid: user.uid,
           challengeDate: recordingChallengeDateKey,
@@ -916,7 +918,7 @@ export function RecordScreen() {
       }
       void setAudioSessionForPlayback().catch(() => {});
     },
-    [user?.uid, recordingChallengeDateKey]
+    [user?.uid, recordingChallengeDateKey, isStaffUser]
   );
 
   const handleDualError = React.useCallback((e: unknown) => {
