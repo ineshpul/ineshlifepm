@@ -23,6 +23,7 @@ import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { Brandmark } from '../components/Brandmark';
 import { Screen } from '../components/Screen';
+import { UsernameSearchBlock } from '../components/UsernameSearchBlock';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
@@ -57,6 +58,7 @@ import {
 } from '../lib/verticalScore';
 import { leaderboardStreakDaysFromUser } from '../lib/profileLeapStats';
 import { podiumTierStyles } from '../lib/leaderboardPodiumTheme';
+import { showUsernameSearchOnLeaderboard } from '../lib/usernameSearchRollout';
 
 const LIST_LIMIT = 100;
 
@@ -250,6 +252,8 @@ export function TopScreen() {
   const insets = useSafeAreaInsets();
   const tabBarClearance = floatingTabContentClearance(insets.bottom);
   const { user } = useAuth();
+  const isStaffUser = Boolean(user?.isAdmin || user?.isModerator);
+  const showUsernameSearch = showUsernameSearchOnLeaderboard(isStaffUser);
   const [timeframe, setTimeframe] = React.useState<LeaderboardTimeframe>('daily');
   const [rows, setRows] = React.useState<LeaderboardWireRow[]>([]);
   const [mostImproved, setMostImproved] = React.useState<{
@@ -544,7 +548,7 @@ export function TopScreen() {
     timeframe === 'daily' ? 'daily' : timeframe === 'weekly' ? 'weekly' : 'all-time';
 
   return (
-    <Screen style={styles.screen}>
+    <Screen style={styles.screen} dismissKeyboardOnTap>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Brandmark size={36} />
@@ -573,6 +577,8 @@ export function TopScreen() {
           </Pressable>
         ))}
       </View>
+
+      {showUsernameSearch ? <UsernameSearchBlock /> : null}
 
       {timeframe === 'weekly' && mostImproved ? (
         <Pressable
