@@ -10,7 +10,9 @@ import {
 import { deleteObject, ref } from 'firebase/storage';
 
 import { firestore, storage } from '../firebase/firebase';
+import { isActiveLeapVideoDoc } from '../lib/leapVideoDoc';
 import { cancelActiveBackgroundPost } from '../state/backgroundPostUploadControl';
+import { normalizeMaxRecordingAttempts } from '../state/challenge';
 import { resetRecordingAttemptsAfterVideoDelete } from '../state/postAttempts';
 import { syncApprovedPostCountForLeapDay } from './dailyChallengeStats';
 import { scheduleVerticalScoreRecompute } from './verticalScore';
@@ -72,10 +74,40 @@ export async function deleteStaffVideo(args: { videoId: string }) {
   await deleteVideoByRef(vref, data, ownerUid);
 }
 
+/**
+ * Video doc still present but the attempt ledger was never spent (used < max) — blocks
+ * recording with "POSTED TODAY" while attempts remain. Removes the stale video only.
+ */
+export async function removeGhostLeapVideoIfOpenLedger(args: {
+  uid: string;
+  challengeDate: string;
+}): Promise<boolean> {
+  const { uid, challengeDate } = args;
+  const videoId = `${uid}_${challengeDate}`;
+  const vref = doc(firestore(), 'videos', videoId);
+  const snap = await getDoc(vref);
+  if (!snap.exists()) return false;
+
+  const data = snap.data() as Record<string, unknown>;
+  if (!isActiveLeapVideoDoc(data, uid)) return false;
+
+  const [attemptSnap, challengeSnap] = await Promise.all([
+    getDoc(doc(firestore(), 'postAttempts', videoId)),
+    getDoc(doc(firestore(), 'challenges', challengeDate)),
+  ]);
+  const used = Number(attemptSnap.data()?.used ?? 0);
+  const max = normalizeMaxRecordingAttempts(challengeSnap.data()?.maxRecordingAttempts);
+  if (used >= max) return false;
+
+  await deleteVideoByRef(vref, data, uid, { skipAttemptLedgerReset: true });
+  return true;
+}
+
 async function deleteVideoByRef(
   vref: ReturnType<typeof doc>,
   data: Record<string, unknown>,
-  ownerUidForLedger: string
+  ownerUidForLedger: string,
+  opts?: { skipAttemptLedgerReset?: boolean }
 ) {
   const videoId = vref.id;
   const challengeDate =
@@ -98,7 +130,7 @@ async function deleteVideoByRef(
 
   cancelActiveBackgroundPost();
 
-  if (challengeDate) {
+  if (challengeDate && !opts?.skipAttemptLedgerReset) {
     try {
       await resetRecordingAttemptsAfterVideoDelete({
         uid: ownerUidForLedger,

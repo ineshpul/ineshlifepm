@@ -42,7 +42,7 @@ import {
   resetRecordingAttemptsAfterVideoDelete,
   useAttemptsRemaining,
 } from '../state/postAttempts';
-import { resetStaffLeapDayForTesting } from '../services/deleteVideo';
+import { removeGhostLeapVideoIfOpenLedger, resetStaffLeapDayForTesting } from '../services/deleteVideo';
 import { useHasPostedToday } from '../state/posting';
 import { useBackgroundPostUpload } from '../state/backgroundPostUpload';
 import { showError, showInfo } from '../utils/ui';
@@ -366,7 +366,6 @@ export function RecordScreen() {
   const recordingChallengeDateKey = viewingChallengeDateKey;
   const isStaffUser = Boolean(user?.isAdmin || user?.isModerator);
   const postedForRecordingDay = useHasPostedToday(user?.uid, recordingChallengeDateKey);
-  const recordingBlocked = postedForRecordingDay && !isStaffUser;
   const maxSec = normalizeTaskDurationSeconds(challenge.maxDurationSeconds);
   const playerFacing = getPlayerFacingChallenge(challenge, window);
   const attemptsRemaining = useAttemptsRemaining(
@@ -375,6 +374,9 @@ export function RecordScreen() {
     challenge.maxRecordingAttempts,
     isStaffUser
   );
+  /** Block only when an active post exists AND the day ledger is spent (no tries left). */
+  const recordingBlocked =
+    postedForRecordingDay && attemptsRemaining <= 0 && !isStaffUser;
 
   const [permission, requestPermission, getCameraPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission, getMicPermission] = useMicrophonePermissions();
@@ -478,6 +480,36 @@ export function RecordScreen() {
       recordingChallengeDateKey,
     ])
   );
+
+  const healGhostLeapRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!user?.uid || !isFirebaseConfigured() || isStaffUser) {
+      healGhostLeapRef.current = false;
+      return;
+    }
+    if (!postedForRecordingDay || attemptsRemaining <= 0) {
+      healGhostLeapRef.current = false;
+      return;
+    }
+    if (healGhostLeapRef.current) return;
+    healGhostLeapRef.current = true;
+    void removeGhostLeapVideoIfOpenLedger({
+      uid: user.uid,
+      challengeDate: recordingChallengeDateKey,
+    })
+      .catch((e) => {
+        if (__DEV__) console.log('[Record] ghost leap heal failed:', e);
+      })
+      .finally(() => {
+        healGhostLeapRef.current = false;
+      });
+  }, [
+    user?.uid,
+    isStaffUser,
+    postedForRecordingDay,
+    attemptsRemaining,
+    recordingChallengeDateKey,
+  ]);
 
   React.useEffect(() => {
     if (!user?.uid || !isFirebaseConfigured()) {
