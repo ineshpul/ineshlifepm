@@ -45,6 +45,12 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     setLocalPostedOverride(false);
   }, [viewingChallengeDateKey]);
 
+  React.useEffect(() => {
+    if (!postedFromFirestore) {
+      setLocalPostedOverride(false);
+    }
+  }, [postedFromFirestore]);
+
   const markPostedToday = React.useCallback(() => {
     // Optimistic unlock for the current session; Firestore listener becomes source of truth.
     setLocalPostedOverride(true);

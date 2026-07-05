@@ -11,7 +11,9 @@ import {
 } from 'firebase/firestore';
 
 import { firestore } from '../firebase/firebase';
+import { isActiveLeapVideoDoc } from '../lib/leapVideoDoc';
 import { BONUS_ATTEMPT_BASE_REDUCTION_INCHES } from '../lib/verticalScore';
+import { withRetries } from '../utils/retry';
 import {
   DEFAULT_MAX_RECORDING_ATTEMPTS,
   normalizeMaxRecordingAttempts,
@@ -51,17 +53,6 @@ export type PostedVideoPayload = {
   dualFrontIsPrimary?: boolean;
   moderationStatus: 'pending' | 'approved' | 'rejected';
 };
-
-function isActiveLeapVideoDoc(
-  data: { deleted?: boolean; moderationStatus?: string; uid?: string } | undefined,
-  ownerUid: string
-): boolean {
-  if (!data) return false;
-  if (data.deleted === true) return false;
-  const status = String(data.moderationStatus ?? '').trim().toLowerCase();
-  if (status === 'rejected' || status === 'nulled') return false;
-  return String(data.uid ?? ownerUid) === ownerUid;
-}
 
 export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
   const { payload } = args;
@@ -262,7 +253,10 @@ export function useAttemptsRemaining(
   return staffUnlimited ? fallbackMax : remaining;
 }
 
-/** Fresh recording attempts after the user deletes their post for the day. */
+/**
+ * Fresh recording attempts after the user deletes their post for the day.
+ * Idempotent: also heals users stuck with no active video but a spent ledger.
+ */
 export async function resetRecordingAttemptsAfterVideoDelete(args: {
   uid: string;
   challengeDate: string;
@@ -271,33 +265,47 @@ export async function resetRecordingAttemptsAfterVideoDelete(args: {
   const videoRef = doc(firestore(), 'videos', `${uid}_${challengeDate}`);
   const attemptRef = doc(firestore(), 'postAttempts', `${uid}_${challengeDate}`);
 
-  await runTransaction(firestore(), async (tx) => {
-    const videoSnap = await tx.get(videoRef);
-    if (videoSnap.exists()) {
-      const existing = videoSnap.data() as {
-        deleted?: boolean;
-        moderationStatus?: string;
-        uid?: string;
-      } | undefined;
-      if (isActiveLeapVideoDoc(existing, uid)) {
-        return;
-      }
-      tx.delete(videoRef);
-    }
+  await withRetries(
+    () =>
+      runTransaction(firestore(), async (tx) => {
+        const videoSnap = await tx.get(videoRef);
+        if (videoSnap.exists()) {
+          const existing = videoSnap.data() as {
+            deleted?: boolean;
+            moderationStatus?: string;
+            uid?: string;
+          } | undefined;
+          if (isActiveLeapVideoDoc(existing, uid)) {
+            return;
+          }
+          tx.delete(videoRef);
+        }
 
-    const max = await maxAttemptsForChallengeDate(tx, challengeDate);
-    const attemptSnap = await tx.get(attemptRef);
-    if (attemptSnap.exists()) {
-      tx.delete(attemptRef);
-    }
-    tx.set(attemptRef, {
-      uid,
-      challengeDate,
-      used: 0,
-      max,
-      updatedAt: serverTimestamp(),
-    });
-  });
+        const max = await maxAttemptsForChallengeDate(tx, challengeDate);
+        const attemptSnap = await tx.get(attemptRef);
+        const used = Number(attemptSnap.data()?.used ?? 0);
+        const bonus = Number(attemptSnap.data()?.bonusRecordingAttempts ?? 0);
+        const hadStaleVideo = videoSnap.exists();
+        if (!hadStaleVideo && used <= 0 && bonus <= 0) {
+          return;
+        }
+
+        tx.set(
+          attemptRef,
+          {
+            uid,
+            challengeDate,
+            used: 0,
+            max,
+            updatedAt: serverTimestamp(),
+            bonusRecordingAttempts: deleteField(),
+            leapBaseReductionInches: deleteField(),
+          },
+          { merge: true }
+        );
+      }),
+    { maxAttempts: 3 }
+  );
 }
 
 /** Clears today's attempt ledger for an admin tester (used once per app session). */

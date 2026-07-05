@@ -2,6 +2,7 @@ import * as React from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { isActiveLeapVideoDoc } from '../lib/leapVideoDoc';
 import { userVideosQuery } from '../lib/userVideosQuery';
 import { computeFeedViewingFromNow } from '../utils/nyTime';
 
@@ -25,16 +26,12 @@ export function useHasPostedToday(uid: string | undefined, dateKey: string) {
         setPosted(false);
         return;
       }
-      const data = snap.data() as { uid?: string; deleted?: boolean } | undefined;
-      if (String(data?.uid ?? '') !== uid) {
-        setPosted(false);
-        return;
-      }
-      if (data?.deleted === true) {
-        setPosted(false);
-        return;
-      }
-      setPosted(true);
+      const data = snap.data() as {
+        uid?: string;
+        deleted?: boolean;
+        moderationStatus?: string;
+      } | undefined;
+      setPosted(isActiveLeapVideoDoc(data, uid));
     });
   }, [uid, dateKey]);
 

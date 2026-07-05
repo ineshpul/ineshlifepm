@@ -39,6 +39,7 @@ import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import {
   ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES,
   consumeRecordingAttempt,
+  resetRecordingAttemptsAfterVideoDelete,
   useAttemptsRemaining,
 } from '../state/postAttempts';
 import { resetStaffLeapDayForTesting } from '../services/deleteVideo';
@@ -445,6 +446,27 @@ export function RecordScreen() {
       user?.uid,
       viewingChallengeDateKey,
       clearPostedOverride,
+    ])
+  );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!user?.uid || !isFirebaseConfigured() || isStaffUser || postedForRecordingDay) {
+        return;
+      }
+      if (attemptsRemaining > 0) return;
+      void resetRecordingAttemptsAfterVideoDelete({
+        uid: user.uid,
+        challengeDate: recordingChallengeDateKey,
+      }).catch((e) => {
+        if (__DEV__) console.log('[Record] heal attempts after delete failed:', e);
+      });
+    }, [
+      user?.uid,
+      isStaffUser,
+      postedForRecordingDay,
+      attemptsRemaining,
+      recordingChallengeDateKey,
     ])
   );
 

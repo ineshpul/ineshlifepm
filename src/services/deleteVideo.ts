@@ -77,7 +77,9 @@ async function deleteVideoByRef(
   ownerUidForLedger: string
 ) {
   const videoId = vref.id;
-  const challengeDate = String(data.challengeDate ?? '');
+  const challengeDate =
+    String(data.challengeDate ?? '').trim() ||
+    (videoId.startsWith(`${ownerUidForLedger}_`) ? videoId.slice(ownerUidForLedger.length + 1) : '');
   const storagePath = String(data.storagePath ?? '');
   const wasApproved = String(data.moderationStatus ?? '') === 'approved';
 
@@ -100,7 +102,7 @@ async function deleteVideoByRef(
         challengeDate,
       });
     } catch (e) {
-      // Cloud delete trigger also resets attempts if this client write fails.
+      // Record tab auto-heals if this fails; cloud delete trigger also resets attempts.
       if (__DEV__) console.warn('[deleteVideo] attempt ledger reset failed:', e);
     }
   }
