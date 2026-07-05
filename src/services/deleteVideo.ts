@@ -10,6 +10,7 @@ import {
 import { deleteObject, ref } from 'firebase/storage';
 
 import { firestore, storage } from '../firebase/firebase';
+import { cancelActiveBackgroundPost } from '../state/backgroundPostUploadControl';
 import { resetRecordingAttemptsAfterVideoDelete } from '../state/postAttempts';
 import { syncApprovedPostCountForLeapDay } from './dailyChallengeStats';
 import { scheduleVerticalScoreRecompute } from './verticalScore';
@@ -94,6 +95,8 @@ async function deleteVideoByRef(
   await Promise.all(commentsSnap.docs.map((d) => deleteDoc(d.ref)));
 
   await deleteDoc(vref);
+
+  cancelActiveBackgroundPost();
 
   if (challengeDate) {
     try {

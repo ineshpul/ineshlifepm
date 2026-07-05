@@ -14,6 +14,7 @@ import {
   syncAttemptLedgerAfterSuccessfulPost,
 } from '../state/postAttempts';
 import { offerCameraRollSaveAfterPost } from '../state/pendingCameraRollSave';
+import { BackgroundPostAbortedError } from '../state/backgroundPostUploadControl';
 import { withRetries } from '../utils/retry';
 
 export type PostVideoUploadParams = {
@@ -33,7 +34,16 @@ export type PostVideoUploadParams = {
 export type PostUploadCallbacks = {
   onProgress: (pct: number) => void;
   onSaving: () => void;
+  /** When true, cancel upload and skip Firestore commit (e.g. user deleted while uploading). */
+  shouldAbort?: () => boolean;
+  onUploadTask?: (task: ReturnType<typeof uploadBytesResumable>) => void;
 };
+
+function assertNotAborted(callbacks: PostUploadCallbacks) {
+  if (callbacks.shouldAbort?.()) {
+    throw new BackgroundPostAbortedError();
+  }
+}
 
 function base64ToBytes(b64: string): Uint8Array {
   const a = typeof globalThis.atob === 'function' ? globalThis.atob : undefined;
@@ -122,8 +132,11 @@ export async function runPostVideoUpload(
     scaleStart: number,
     scaleSpan: number
   ): Promise<string> => {
+    assertNotAborted(callbacks);
     const bytes = await clipUriToBytes(sourceUri);
+    assertNotAborted(callbacks);
     const task = uploadBytesResumable(storageRef, bytes, { contentType });
+    callbacks.onUploadTask?.(task);
     await new Promise<void>((resolve, reject) => {
       const uploadTimeout = setTimeout(() => {
         try {
@@ -140,6 +153,16 @@ export async function runPostVideoUpload(
       task.on(
         'state_changed',
         (snapshot) => {
+          if (callbacks.shouldAbort?.()) {
+            clearTimeout(uploadTimeout);
+            try {
+              task.cancel();
+            } catch {
+              /* ignore */
+            }
+            reject(new BackgroundPostAbortedError());
+            return;
+          }
           const total = snapshot.totalBytes;
           if (total > 0) {
             const localPct = (100 * snapshot.bytesTransferred) / total;
@@ -148,6 +171,11 @@ export async function runPostVideoUpload(
         },
         (err) => {
           clearTimeout(uploadTimeout);
+          const code = String((err as { code?: string })?.code ?? '').toLowerCase();
+          if (code === 'storage/canceled') {
+            reject(new BackgroundPostAbortedError());
+            return;
+          }
           reject(err);
         },
         () => {
@@ -156,14 +184,19 @@ export async function runPostVideoUpload(
         }
       );
     });
+    assertNotAborted(callbacks);
     return await getDownloadURL(task.snapshot.ref);
   };
 
   callbacks.onProgress(0);
+  assertNotAborted(callbacks);
 
   const downloadUrl = await withRetries(
     () => runResumableUpload(primaryRef, clipUri, 0, primaryShare),
-    { maxAttempts: 3 }
+    {
+      maxAttempts: 3,
+      shouldRetry: (err) => !(err instanceof BackgroundPostAbortedError),
+    }
   );
 
   let secondaryDownloadUrl: string | null = null;
@@ -175,9 +208,13 @@ export async function runPostVideoUpload(
     try {
       secondaryDownloadUrl = await withRetries(
         () => runResumableUpload(secondaryRef!, secondaryClipUri, primaryShare, secondaryShare),
-        { maxAttempts: 3 }
+        {
+          maxAttempts: 3,
+          shouldRetry: (err) => !(err instanceof BackgroundPostAbortedError),
+        }
       );
     } catch (e) {
+      if (e instanceof BackgroundPostAbortedError) throw e;
       try {
         await deleteObject(primaryRef);
       } catch {
@@ -187,8 +224,10 @@ export async function runPostVideoUpload(
     }
   }
 
+  assertNotAborted(callbacks);
   callbacks.onProgress(100);
   callbacks.onSaving();
+  assertNotAborted(callbacks);
 
   try {
     const requireMod = Boolean(getExpoExtra().requirePostModeration);
@@ -227,6 +266,7 @@ export async function runPostVideoUpload(
       { maxAttempts: 3 }
     );
   } catch (e) {
+    if (e instanceof BackgroundPostAbortedError) throw e;
     try {
       await deleteObject(primaryRef);
     } catch {

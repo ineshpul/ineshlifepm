@@ -193,6 +193,14 @@ export function SingleCameraRecorder({
   // Map our 'front'/'back' to expo-camera's CameraType.
   const cameraType: CameraType = facing === 'front' ? 'front' : 'back';
 
+  React.useEffect(() => {
+    if (!active) return;
+    if (!cameraReadyRef.current || !cameraRef.current) return;
+    requestAnimationFrame(() => {
+      void cameraRef.current?.resumePreview?.().catch(() => undefined);
+    });
+  }, [active]);
+
   return (
     <View style={StyleSheet.absoluteFill}>
       <CameraView

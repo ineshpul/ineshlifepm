@@ -407,10 +407,19 @@ export function RecordScreen() {
   const recordTapBusyRef = React.useRef(false);
   /** Bumped on blur/unmount so the active take is invalidated. */
   const recordingSessionRef = React.useRef(0);
+  const [cameraSessionKey, setCameraSessionKey] = React.useState(0);
+  const prevRecordingBlockedRef = React.useRef(recordingBlocked);
 
   React.useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
+
+  React.useEffect(() => {
+    if (prevRecordingBlockedRef.current && !recordingBlocked) {
+      setCameraSessionKey((k) => k + 1);
+    }
+    prevRecordingBlockedRef.current = recordingBlocked;
+  }, [recordingBlocked]);
 
   const stopActiveRecording = React.useCallback(async () => {
     try {
@@ -562,6 +571,7 @@ export function RecordScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
+      recordingAbortRef.current = false;
       if (!recordingBlocked && !clipUri && playerFacing.canRecord) {
         void promptRecordingPermissionsOnFocus();
       }
@@ -1045,6 +1055,13 @@ export function RecordScreen() {
               No camera file — post to try the rest of the app, or tap ↺ to reset.
             </Text>
           </View>
+        ) : recordingBlocked ? (
+          <View style={styles.demo}>
+            <Text style={styles.demoTitle}>Already posted today</Text>
+            <Text style={styles.demoBody}>
+              Delete today&apos;s leap from your feed to record again.
+            </Text>
+          </View>
         ) : cameraPermissionPending ? (
           <View style={styles.cameraLoading}>
             <ActivityIndicator size="large" color={colors.white} />
@@ -1054,6 +1071,7 @@ export function RecordScreen() {
           <>
             {cameraMode === 'dual' ? (
               <DualCameraRecorder
+                key={`dual-${cameraSessionKey}`}
                 active={dualActive}
                 maxDurationSec={maxSec}
                 controllerRef={dualControllerRef}
@@ -1063,6 +1081,7 @@ export function RecordScreen() {
               />
             ) : (
               <SingleCameraRecorder
+                key={`single-${cameraSessionKey}`}
                 active={cameraActive}
                 initialFacing={cameraFacing}
                 maxDurationSec={maxSec}

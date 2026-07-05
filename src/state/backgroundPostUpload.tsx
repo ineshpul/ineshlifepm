@@ -1,4 +1,5 @@
 import * as React from 'react';
+import type { UploadTask } from 'firebase/storage';
 
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { cleanupStagedFeedPlaybackClips, stageFeedPlaybackClip } from '../lib/stageFeedPlaybackClip';
@@ -9,6 +10,10 @@ import {
 } from '../services/postVideoUpload';
 import { showError } from '../utils/ui';
 import { useAppState } from './appState';
+import {
+  BackgroundPostAbortedError,
+  registerBackgroundPostCancel,
+} from './backgroundPostUploadControl';
 import { todayVideoDocId } from './posting';
 
 export type BackgroundUploadPhase = 'idle' | 'uploading' | 'saving' | 'failed';
@@ -36,6 +41,7 @@ type BackgroundPostUploadValue = {
   retryBackgroundPost: () => void;
   dismissFailure: () => void;
   clearPendingFeedPlayback: () => void;
+  cancelBackgroundPost: () => void;
 };
 
 const BackgroundPostUploadContext = React.createContext<BackgroundPostUploadValue | null>(null);
@@ -62,6 +68,8 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
   const [pendingFeedPlayback, setPendingFeedPlayback] = React.useState<PendingFeedPlayback | null>(null);
   const jobRef = React.useRef<PostVideoUploadParams | null>(null);
   const runningRef = React.useRef(false);
+  const uploadSessionIdRef = React.useRef(0);
+  const uploadTaskRef = React.useRef<UploadTask | null>(null);
 
   const resetIdle = React.useCallback(() => {
     setPhase('idle');
@@ -69,6 +77,7 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
     setErrorMessage(null);
     jobRef.current = null;
     runningRef.current = false;
+    uploadTaskRef.current = null;
   }, []);
 
   const clearPendingFeedPlayback = React.useCallback(() => {
@@ -76,9 +85,36 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
     void cleanupStagedFeedPlaybackClips();
   }, []);
 
+  const cancelBackgroundPost = React.useCallback(() => {
+    uploadSessionIdRef.current += 1;
+    try {
+      uploadTaskRef.current?.cancel();
+    } catch {
+      /* ignore */
+    }
+    uploadTaskRef.current = null;
+    runningRef.current = false;
+    clearPostedOverride();
+    clearPendingFeedPlayback();
+    resetIdle();
+  }, [clearPostedOverride, resetIdle, clearPendingFeedPlayback]);
+
+  React.useEffect(() => {
+    registerBackgroundPostCancel(cancelBackgroundPost);
+    return () => registerBackgroundPostCancel(null);
+  }, [cancelBackgroundPost]);
+
   const runJob = React.useCallback(
     async (params: PostVideoUploadParams) => {
-      if (runningRef.current) return;
+      if (runningRef.current) {
+        uploadSessionIdRef.current += 1;
+        try {
+          uploadTaskRef.current?.cancel();
+        } catch {
+          /* ignore */
+        }
+      }
+      const sessionId = uploadSessionIdRef.current;
       runningRef.current = true;
       jobRef.current = params;
       setPhase('uploading');
@@ -89,9 +125,15 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
         let uploadParams = params;
         try {
           const stagedPrimary = await stageFeedPlaybackClip(params.clipUri, 'primary');
+          if (sessionId !== uploadSessionIdRef.current) {
+            throw new BackgroundPostAbortedError();
+          }
           let stagedSecondary: string | null = null;
           if (params.secondaryClipUri) {
             stagedSecondary = await stageFeedPlaybackClip(params.secondaryClipUri, 'pip');
+          }
+          if (sessionId !== uploadSessionIdRef.current) {
+            throw new BackgroundPostAbortedError();
           }
           setPendingFeedPlayback({
             ...buildPending(params),
@@ -104,6 +146,7 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
             secondaryClipUri: stagedSecondary,
           };
         } catch (e) {
+          if (e instanceof BackgroundPostAbortedError) throw e;
           const msg = String((e as Error)?.message ?? e);
           if (msg.includes('no longer on this device') || msg.includes('No video to stage')) {
             throw e;
@@ -115,9 +158,17 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
         await runPostVideoUpload(uploadParams, {
           onProgress: setProgress,
           onSaving: () => setPhase('saving'),
+          shouldAbort: () => sessionId !== uploadSessionIdRef.current,
+          onUploadTask: (task) => {
+            uploadTaskRef.current = task;
+          },
         });
+        if (sessionId !== uploadSessionIdRef.current) return;
         resetIdle();
       } catch (e) {
+        if (e instanceof BackgroundPostAbortedError) {
+          return;
+        }
         if (isFirebaseConfigured()) {
           try {
             await refundPostAttemptIfFailed({
@@ -138,11 +189,17 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
         showError('Post failed', e);
       }
     },
-    [markPostedToday, clearPostedOverride, resetIdle, clearPendingFeedPlayback]
+    [clearPostedOverride, resetIdle]
   );
 
   const startBackgroundPost = React.useCallback(
     (params: PostVideoUploadParams) => {
+      uploadSessionIdRef.current += 1;
+      try {
+        uploadTaskRef.current?.cancel();
+      } catch {
+        /* ignore */
+      }
       setPendingFeedPlayback(buildPending(params));
       markPostedToday();
       void runJob(params);
@@ -176,6 +233,7 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
       retryBackgroundPost,
       dismissFailure,
       clearPendingFeedPlayback,
+      cancelBackgroundPost,
     }),
     [
       phase,
@@ -187,6 +245,7 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
       retryBackgroundPost,
       dismissFailure,
       clearPendingFeedPlayback,
+      cancelBackgroundPost,
     ]
   );
 
