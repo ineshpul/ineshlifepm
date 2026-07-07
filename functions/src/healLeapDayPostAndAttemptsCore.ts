@@ -26,8 +26,8 @@ export async function leapViewingChallengeDateKey(db: admin.firestore.Firestore)
 }
 
 /**
- * Video doc still present but ledger never marked "posted" (used < max) — typical after a
- * failed delete / "You already posted today" while attempts remain.
+ * Orphan video doc with no recording attempts consumed — stale row from a partial failure.
+ * Normal posts always consume at least one attempt before upload (`used > 0`).
  */
 export async function removeGhostVideosWithOpenLedger(
   db: admin.firestore.Firestore,
@@ -52,10 +52,8 @@ export async function removeGhostVideosWithOpenLedger(
     if (snap.empty) break;
 
     for (const attempt of snap.docs) {
-      const data = attempt.data();
-      const used = Number(data.used ?? 0);
-      const max = Number(data.max ?? 3);
-      if (used >= max) continue;
+      const used = Number(attempt.data().used ?? 0);
+      if (used > 0) continue;
 
       const videoSnap = await db.doc(`videos/${attempt.id}`).get();
       if (!videoSnap.exists) continue;

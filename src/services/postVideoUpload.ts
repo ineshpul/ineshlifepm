@@ -239,8 +239,9 @@ export async function runPostVideoUpload(
       // optional denormalized avatar on the leap doc
     }
     await withRetries(
-      () =>
-        commitPostedVideo({
+      () => {
+        assertNotAborted(callbacks);
+        return commitPostedVideo({
           payload: {
             uid,
             username: username.trim() || 'user',
@@ -262,8 +263,9 @@ export async function runPostVideoUpload(
               : {}),
             moderationStatus: requireMod ? 'pending' : 'approved',
           },
-        }),
-      { maxAttempts: 3 }
+        });
+      },
+      { maxAttempts: 3, shouldRetry: (err) => !(err instanceof BackgroundPostAbortedError) }
     );
   } catch (e) {
     if (e instanceof BackgroundPostAbortedError) throw e;
@@ -286,6 +288,8 @@ export async function runPostVideoUpload(
   const clipUriForOffer = recordedForSave ? clipUri : null;
 
   void logEngagementMetric('posting', { challenge_date: viewingChallengeDateKey });
+
+  assertNotAborted(callbacks);
 
   try {
     await syncAttemptLedgerAfterSuccessfulPost({

@@ -12,10 +12,15 @@ import { deleteObject, ref } from 'firebase/storage';
 import { firestore, storage } from '../firebase/firebase';
 import { isActiveLeapVideoDoc } from '../lib/leapVideoDoc';
 import { cancelActiveBackgroundPost } from '../state/backgroundPostUploadControl';
-import { normalizeMaxRecordingAttempts } from '../state/challenge';
 import { resetRecordingAttemptsAfterVideoDelete } from '../state/postAttempts';
+import { withRetries } from '../utils/retry';
 import { syncApprovedPostCountForLeapDay } from './dailyChallengeStats';
 import { scheduleVerticalScoreRecompute } from './verticalScore';
+
+function challengeDateFromVideoId(videoId: string, ownerUid: string): string {
+  const prefix = `${ownerUid}_`;
+  return videoId.startsWith(prefix) ? videoId.slice(prefix.length) : '';
+}
 
 /**
  * Staff testing: remove today's leap post (if any) and restore a full attempt ledger.
@@ -42,10 +47,21 @@ export async function resetStaffLeapDayForTesting(args: { uid: string; challenge
  */
 export async function deleteOwnedVideo(args: { videoId: string; viewerUid: string }) {
   const { videoId, viewerUid } = args;
+  // Stop in-flight uploads first so commitPostedVideo cannot recreate the doc after delete.
+  cancelActiveBackgroundPost();
+
   const vref = doc(firestore(), 'videos', videoId);
   const snap = await getDoc(vref);
   if (!snap.exists()) {
-    throw new Error('Video not found.');
+    const challengeDate = challengeDateFromVideoId(videoId, viewerUid);
+    if (challengeDate) {
+      await resetRecordingAttemptsAfterVideoDelete({
+        uid: viewerUid,
+        challengeDate,
+        forceClearActiveVideo: true,
+      });
+    }
+    return;
   }
   const data: Record<string, unknown> = snap.data() as Record<string, unknown>;
   if (String(data.uid ?? '') !== viewerUid) {
@@ -61,6 +77,8 @@ export async function deleteOwnedVideo(args: { videoId: string; viewerUid: strin
  */
 export async function deleteStaffVideo(args: { videoId: string }) {
   const { videoId } = args;
+  cancelActiveBackgroundPost();
+
   const vref = doc(firestore(), 'videos', videoId);
   const snap = await getDoc(vref);
   if (!snap.exists()) {
@@ -75,8 +93,8 @@ export async function deleteStaffVideo(args: { videoId: string }) {
 }
 
 /**
- * Video doc still present but the attempt ledger was never spent (used < max) — blocks
- * recording with "POSTED TODAY" while attempts remain. Removes the stale video only.
+ * Orphan video doc with no recording attempts consumed — stale row from a partial failure.
+ * Normal posts always consume at least one attempt before upload, so `used === 0` is the ghost signal.
  */
 export async function removeGhostLeapVideoIfOpenLedger(args: {
   uid: string;
@@ -91,13 +109,9 @@ export async function removeGhostLeapVideoIfOpenLedger(args: {
   const data = snap.data() as Record<string, unknown>;
   if (!isActiveLeapVideoDoc(data, uid)) return false;
 
-  const [attemptSnap, challengeSnap] = await Promise.all([
-    getDoc(doc(firestore(), 'postAttempts', videoId)),
-    getDoc(doc(firestore(), 'challenges', challengeDate)),
-  ]);
+  const attemptSnap = await getDoc(doc(firestore(), 'postAttempts', videoId));
   const used = Number(attemptSnap.data()?.used ?? 0);
-  const max = normalizeMaxRecordingAttempts(challengeSnap.data()?.maxRecordingAttempts);
-  if (used >= max) return false;
+  if (used > 0) return false;
 
   await deleteVideoByRef(vref, data, uid, { skipAttemptLedgerReset: true });
   return true;
@@ -114,32 +128,32 @@ async function deleteVideoByRef(
     String(data.challengeDate ?? '').trim() ||
     (videoId.startsWith(`${ownerUidForLedger}_`) ? videoId.slice(ownerUidForLedger.length + 1) : '');
   const storagePath = String(data.storagePath ?? '');
+  const secondaryStoragePath = String(data.secondaryStoragePath ?? '');
   const wasApproved = String(data.moderationStatus ?? '') === 'approved';
 
   const likesSnap = await getDocs(
     query(collection(firestore(), 'videos', videoId, 'likes'), limit(500))
   );
-  await Promise.all(likesSnap.docs.map((d) => deleteDoc(d.ref)));
+  await Promise.allSettled(likesSnap.docs.map((d) => deleteDoc(d.ref)));
 
   const commentsSnap = await getDocs(
     query(collection(firestore(), 'videos', videoId, 'comments'), limit(500))
   );
-  await Promise.all(commentsSnap.docs.map((d) => deleteDoc(d.ref)));
+  await Promise.allSettled(commentsSnap.docs.map((d) => deleteDoc(d.ref)));
 
-  await deleteDoc(vref);
-
-  cancelActiveBackgroundPost();
+  try {
+    await withRetries(() => deleteDoc(vref), { maxAttempts: 3 });
+  } catch (e) {
+    // Transaction reset below hard-deletes the video if deleteDoc failed or upload recreated it.
+    if (__DEV__) console.warn('[deleteVideo] deleteDoc failed, healing via ledger reset:', e);
+  }
 
   if (challengeDate && !opts?.skipAttemptLedgerReset) {
-    try {
-      await resetRecordingAttemptsAfterVideoDelete({
-        uid: ownerUidForLedger,
-        challengeDate,
-      });
-    } catch (e) {
-      // Record tab auto-heals if this fails; cloud delete trigger also resets attempts.
-      if (__DEV__) console.warn('[deleteVideo] attempt ledger reset failed:', e);
-    }
+    await resetRecordingAttemptsAfterVideoDelete({
+      uid: ownerUidForLedger,
+      challengeDate,
+      forceClearActiveVideo: true,
+    });
   }
 
   if (storagePath) {
@@ -147,6 +161,13 @@ async function deleteVideoByRef(
       await deleteObject(ref(storage(), storagePath));
     } catch {
       // file may already be removed
+    }
+  }
+  if (secondaryStoragePath) {
+    try {
+      await deleteObject(ref(storage(), secondaryStoragePath));
+    } catch {
+      /* ignore */
     }
   }
 

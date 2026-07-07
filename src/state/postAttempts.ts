@@ -59,6 +59,7 @@ export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
 
   return await runTransaction(firestore(), async (tx) => {
     const videoRef = doc(firestore(), 'videos', `${payload.uid}_${payload.challengeDate}`);
+    const attemptRef = doc(firestore(), 'postAttempts', `${payload.uid}_${payload.challengeDate}`);
 
     const videoSnap = await tx.get(videoRef);
     if (videoSnap.exists()) {
@@ -86,6 +87,28 @@ export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
       deleted: false,
       challengeCompleted: true,
     });
+
+    const max = await maxAttemptsForChallengeDate(tx, payload.challengeDate);
+    const attemptSnap = await tx.get(attemptRef);
+    const used = Number(attemptSnap.data()?.used ?? 0);
+    if (used < max) {
+      const baseReduction = Number(attemptSnap.data()?.leapBaseReductionInches ?? 0);
+      const bonus = Number(attemptSnap.data()?.bonusRecordingAttempts ?? 0);
+      const patch: Record<string, unknown> = {
+        uid: payload.uid,
+        challengeDate: payload.challengeDate,
+        used: max,
+        max,
+        updatedAt: serverTimestamp(),
+      };
+      if (baseReduction > 0) {
+        patch.leapBaseReductionInches = baseReduction;
+      }
+      if (bonus > 0) {
+        patch.bonusRecordingAttempts = bonus;
+      }
+      tx.set(attemptRef, patch, { merge: true });
+    }
 
     return { videoId: videoRef.id };
   });
@@ -260,8 +283,10 @@ export function useAttemptsRemaining(
 export async function resetRecordingAttemptsAfterVideoDelete(args: {
   uid: string;
   challengeDate: string;
+  /** User explicitly deleted their post — remove any active video and always restore attempts. */
+  forceClearActiveVideo?: boolean;
 }) {
-  const { uid, challengeDate } = args;
+  const { uid, challengeDate, forceClearActiveVideo = false } = args;
   const videoRef = doc(firestore(), 'videos', `${uid}_${challengeDate}`);
   const attemptRef = doc(firestore(), 'postAttempts', `${uid}_${challengeDate}`);
 
@@ -275,7 +300,7 @@ export async function resetRecordingAttemptsAfterVideoDelete(args: {
             moderationStatus?: string;
             uid?: string;
           } | undefined;
-          if (isActiveLeapVideoDoc(existing, uid)) {
+          if (isActiveLeapVideoDoc(existing, uid) && !forceClearActiveVideo) {
             return;
           }
           tx.delete(videoRef);
@@ -285,8 +310,8 @@ export async function resetRecordingAttemptsAfterVideoDelete(args: {
         const attemptSnap = await tx.get(attemptRef);
         const used = Number(attemptSnap.data()?.used ?? 0);
         const bonus = Number(attemptSnap.data()?.bonusRecordingAttempts ?? 0);
-        const hadStaleVideo = videoSnap.exists();
-        if (!hadStaleVideo && used <= 0 && bonus <= 0) {
+        const hadVideo = videoSnap.exists();
+        if (!forceClearActiveVideo && !hadVideo && used <= 0 && bonus <= 0) {
           return;
         }
 

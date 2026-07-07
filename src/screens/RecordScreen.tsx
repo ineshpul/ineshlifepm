@@ -487,7 +487,7 @@ export function RecordScreen() {
       healGhostLeapRef.current = false;
       return;
     }
-    if (!postedForRecordingDay || attemptsRemaining <= 0) {
+    if (!postedForRecordingDay || attemptsRemaining <= 0 || backgroundUploadActive) {
       healGhostLeapRef.current = false;
       return;
     }
@@ -508,6 +508,7 @@ export function RecordScreen() {
     isStaffUser,
     postedForRecordingDay,
     attemptsRemaining,
+    backgroundUploadActive,
     recordingChallengeDateKey,
   ]);
 

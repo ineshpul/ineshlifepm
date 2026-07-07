@@ -1303,11 +1303,11 @@ export function FeedScreen() {
               setDeletingId(item.id);
               try {
                 await deleteOwnedVideo({ videoId: item.id, viewerUid: user.uid });
-                clearPostedOverride();
-                clearPendingFeedPlayback();
               } catch (e) {
                 showError('Delete failed', e);
               } finally {
+                clearPostedOverride();
+                clearPendingFeedPlayback();
                 setDeletingId(null);
               }
             })(),
