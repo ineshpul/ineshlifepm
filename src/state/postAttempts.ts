@@ -61,7 +61,11 @@ export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
     const videoRef = doc(firestore(), 'videos', `${payload.uid}_${payload.challengeDate}`);
     const attemptRef = doc(firestore(), 'postAttempts', `${payload.uid}_${payload.challengeDate}`);
 
+    // Firestore transactions require ALL reads before ANY writes — read video, challenge, and ledger first.
     const videoSnap = await tx.get(videoRef);
+    const max = await maxAttemptsForChallengeDate(tx, payload.challengeDate);
+    const attemptSnap = await tx.get(attemptRef);
+
     if (videoSnap.exists()) {
       const existing = videoSnap.data() as {
         deleted?: boolean;
@@ -88,8 +92,6 @@ export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
       challengeCompleted: true,
     });
 
-    const max = await maxAttemptsForChallengeDate(tx, payload.challengeDate);
-    const attemptSnap = await tx.get(attemptRef);
     const used = Number(attemptSnap.data()?.used ?? 0);
     if (used < max) {
       const baseReduction = Number(attemptSnap.data()?.leapBaseReductionInches ?? 0);
