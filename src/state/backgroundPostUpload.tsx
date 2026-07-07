@@ -124,14 +124,12 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
       try {
         let uploadParams = params;
         try {
-          const stagedPrimary = await stageFeedPlaybackClip(params.clipUri, 'primary');
-          if (sessionId !== uploadSessionIdRef.current) {
-            throw new BackgroundPostAbortedError();
-          }
-          let stagedSecondary: string | null = null;
-          if (params.secondaryClipUri) {
-            stagedSecondary = await stageFeedPlaybackClip(params.secondaryClipUri, 'pip');
-          }
+          const [stagedPrimary, stagedSecondary] = await Promise.all([
+            stageFeedPlaybackClip(params.clipUri, 'primary'),
+            params.secondaryClipUri
+              ? stageFeedPlaybackClip(params.secondaryClipUri, 'pip')
+              : Promise.resolve(null),
+          ]);
           if (sessionId !== uploadSessionIdRef.current) {
             throw new BackgroundPostAbortedError();
           }

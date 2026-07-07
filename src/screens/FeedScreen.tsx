@@ -49,7 +49,7 @@ import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 import { useAppState } from '../state/appState';
 import { takeCameraRollSaveOffer, type CameraRollSaveOffer } from '../state/pendingCameraRollSave';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
-import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
 import { markFeedGraduationSeen, useFeedGraduationSeen } from '../state/feedGraduation';
 import {
@@ -92,6 +92,7 @@ import {
 } from '../utils/nyTime';
 import {
   fetchFirstApprovedFeedPage,
+  fetchNewerApprovedFeedSince,
   fetchNextApprovedFeedPage,
   type FeedApprovedPageCursor,
 } from '../lib/feedApprovedPagination';
@@ -125,7 +126,7 @@ type FeedVideo = {
 const REEL_BOTTOM_SHEET = 232;
 /** Prior days use {@link nyLeapDayChainBackward} → {@link prevNyDateKey} — **same stepping as streaks** (one NY calendar day per step). */
 const FEED_DAY_WINDOW = 14;
-const FEED_HYDRATE_SAFETY_MS = 8_000;
+const FEED_HYDRATE_SAFETY_MS = 4_000;
 /** Bottom offset stack for last-leap chip above tab bar (chip height + padding). */
 const LAST_LEAP_JUMP_CHIP_STACK = 38;
 
@@ -136,9 +137,9 @@ function filterFeedVideosForViewer(
     viewerUid?: string;
     feedType: string;
     followingTargetUids: ReadonlySet<string>;
-    blockedUsernames: readonly string[];
-    mutedUsernames: readonly string[];
-    hiddenVideoIds: readonly string[];
+    blockedUsernames: ReadonlySet<string>;
+    mutedUsernames: ReadonlySet<string>;
+    hiddenVideoIds: ReadonlySet<string>;
   }
 ): FeedVideo[] {
   let v = items.filter((item) => Boolean(item.url));
@@ -147,9 +148,9 @@ function filterFeedVideosForViewer(
       (item) => item.ownerUid === opts.viewerUid || opts.followingTargetUids.has(item.ownerUid)
     );
   }
-  v = v.filter((item) => !opts.blockedUsernames.includes(item.username));
-  v = v.filter((item) => !opts.mutedUsernames.includes(item.username));
-  v = v.filter((item) => !opts.hiddenVideoIds.includes(item.id));
+  v = v.filter((item) => !opts.blockedUsernames.has(item.username));
+  v = v.filter((item) => !opts.mutedUsernames.has(item.username));
+  v = v.filter((item) => !opts.hiddenVideoIds.has(item.id));
   return v;
 }
 
@@ -893,6 +894,7 @@ export function FeedScreen() {
   const feedSlotRef = React.useRef<View>(null);
   const loadMoreFeedRef = React.useRef<(() => void) | null>(null);
   const refreshFeedRef = React.useRef<(() => Promise<void>) | null>(null);
+  const pollNewerFeedRef = React.useRef<(() => void) | null>(null);
   const canViewEveryoneFeedRef = React.useRef(canViewEveryoneFeed);
   canViewEveryoneFeedRef.current = canViewEveryoneFeed;
 
@@ -976,14 +978,27 @@ export function FeedScreen() {
     [followingRows]
   );
 
+  const blockedUsernames = React.useMemo(
+    () => new Set(preferences.blockedUsernames),
+    [preferences.blockedUsernames]
+  );
+  const mutedUsernames = React.useMemo(
+    () => new Set(preferences.mutedUsernames),
+    [preferences.mutedUsernames]
+  );
+  const hiddenVideoIds = React.useMemo(
+    () => new Set(preferences.hiddenVideoIds),
+    [preferences.hiddenVideoIds]
+  );
+
   const displayVideos = React.useMemo(() => {
     let v = filterFeedVideosForViewer(videos, {
       viewerUid: user?.uid,
       feedType: preferences.feedType,
       followingTargetUids,
-      blockedUsernames: preferences.blockedUsernames,
-      mutedUsernames: preferences.mutedUsernames,
-      hiddenVideoIds: preferences.hiddenVideoIds,
+      blockedUsernames,
+      mutedUsernames,
+      hiddenVideoIds,
     });
 
     if (
@@ -1021,9 +1036,9 @@ export function FeedScreen() {
   }, [
     videos,
     preferences.feedType,
-    preferences.blockedUsernames,
-    preferences.mutedUsernames,
-    preferences.hiddenVideoIds,
+    blockedUsernames,
+    mutedUsernames,
+    hiddenVideoIds,
     user?.uid,
     followingTargetUids,
     feedPreviewMode,
@@ -1171,7 +1186,6 @@ export function FeedScreen() {
         tier2UnlockAnimating ? 1 : 0,
         bypassFeedGate ? 1 : 0,
         postedDatesReady ? [...postedDates].sort().join(',') : 'pending',
-        activeScrollIndex,
         lastLeapJumpIndex,
         lastPostedDateKey ?? '',
       ].join('|'),
@@ -1186,7 +1200,6 @@ export function FeedScreen() {
       bypassFeedGate,
       postedDatesReady,
       postedDates,
-      activeScrollIndex,
       lastLeapJumpIndex,
       lastPostedDateKey,
     ]
@@ -1322,6 +1335,7 @@ export function FeedScreen() {
       setFeedHydrated(true);
       loadMoreFeedRef.current = null;
       refreshFeedRef.current = null;
+      pollNewerFeedRef.current = null;
       return;
     }
 
@@ -1340,7 +1354,7 @@ export function FeedScreen() {
     const bumpHydrated = () => {
       if (cancelled) return;
       const hasPosts = mineDocs.length > 0 || approvedVideos.length > 0;
-      if (hasPosts || (approvedLoadDone && mineListenerSeen)) {
+      if (hasPosts || approvedLoadDone) {
         setFeedHydrated(true);
       }
     };
@@ -1378,7 +1392,7 @@ export function FeedScreen() {
       if (cancelled) return;
       const waitForApproved =
         FEED_GATE_V2 || canViewEveryoneFeedRef.current;
-      if (waitForApproved && (!approvedLoadDone || !mineListenerSeen)) {
+      if (waitForApproved && !approvedLoadDone) {
         return;
       }
       const map = new Map<string, FeedVideo>();
@@ -1433,6 +1447,25 @@ export function FeedScreen() {
     loadMoreFeedRef.current = () => {
       void loadApprovedPage(false);
     };
+    pollNewerFeedRef.current = () => {
+      if (cancelled || feedDayChain.length === 0) return;
+      const newestDay = feedDayChain[0]!;
+      const newestMs = Math.max(
+        0,
+        ...approvedVideos.map((v) => v.createdAtMs),
+        ...mineDocs.map((v) => v.createdAtMs)
+      );
+      void fetchNewerApprovedFeedSince(newestDay, newestMs, docToFeedVideo)
+        .then((newer) => {
+          if (cancelled || newer.length === 0) return;
+          const existingIds = new Set(approvedVideos.map((v) => v.id));
+          const toAdd = newer.filter((v) => !existingIds.has(v.id));
+          if (toAdd.length === 0) return;
+          approvedVideos = [...toAdd, ...approvedVideos];
+          merge();
+        })
+        .catch(() => {});
+    };
 
     const safetyTimer = setTimeout(() => {
       if (cancelled) return;
@@ -1442,76 +1475,67 @@ export function FeedScreen() {
       setFeedHydrated(true);
     }, FEED_HYDRATE_SAFETY_MS);
 
-    void firebaseAuth()
-      .authStateReady()
-      .then(() => {
+    const calToday = nyDateKey();
+    const anchorKey = normalizeNyDateKey(viewingChallengeDateKey, calToday);
+    const leapChain = nyLeapDayChainBackward(anchorKey, FEED_DAY_WINDOW);
+    const calNorm = normalizeNyDateKey(calToday, calToday);
+    feedDayChain =
+      calNorm && calNorm !== anchorKey ? [calNorm, ...leapChain] : leapChain;
+
+    void loadApprovedPage(true);
+
+    const mineRef = doc(
+      firestore(),
+      'videos',
+      todayVideoDocId(user.uid, viewingChallengeDateKey)
+    );
+    mineUnsub = onSnapshot(
+      mineRef,
+      (snap) => {
         if (cancelled) return;
-
-        const calToday = nyDateKey();
-        const anchorKey = normalizeNyDateKey(viewingChallengeDateKey, calToday);
-        const leapChain = nyLeapDayChainBackward(anchorKey, FEED_DAY_WINDOW);
-        const calNorm = normalizeNyDateKey(calToday, calToday);
-        feedDayChain =
-          calNorm && calNorm !== anchorKey ? [calNorm, ...leapChain] : leapChain;
-
-        void loadApprovedPage(true);
-
-        const mineRef = doc(
-          firestore(),
-          'videos',
-          todayVideoDocId(user.uid, viewingChallengeDateKey)
-        );
-        mineUnsub = onSnapshot(
-          mineRef,
-          (snap) => {
-            if (cancelled) return;
-            if (!snap.exists()) {
-              mineDocs = [];
-            } else {
-              const data: any = snap.data();
-              const createdAtMs =
-                typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
-              const rawMineCd = data?.challengeDate;
-              const mineCdRaw =
-                rawMineCd && typeof (rawMineCd as { toDate?: () => Date }).toDate === 'function'
-                  ? nyDateKey((rawMineCd as { toDate: () => Date }).toDate())
-                  : String(rawMineCd ?? '');
-              const mineSecondaryUrl = String(data?.secondaryUrl ?? '').trim();
-              const mineDualFrontIsPrimary = data?.dualFrontIsPrimary === true;
-              mineDocs = [
-                {
-                  id: snap.id,
-                  username: String(data?.username ?? 'user'),
-                  prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
-                  url: String(data?.url ?? ''),
-                  ...(mineSecondaryUrl ? { secondaryUrl: mineSecondaryUrl } : {}),
-                  ...(mineDualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
-                  createdAtMs,
-                  ownerUid: String(data?.uid ?? ''),
-                  moderationStatus: String(data?.moderationStatus ?? 'pending'),
-                  maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
-                  challengeDate: normalizeNyDateKey(mineCdRaw, viewingChallengeDateKey),
-                  likesCount: Math.max(0, Number(data?.likesCount ?? 0)),
-                  commentsCount: Math.max(0, Number(data?.commentsCount ?? 0)),
-                },
-              ];
-            }
-            merge();
-            mineListenerSeen = true;
-            bumpHydrated();
-          },
-          () => {
-            if (cancelled) return;
-            mineDocs = [];
-            merge();
-            mineListenerSeen = true;
-            bumpHydrated();
-          }
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setFeedHydrated(true);
-      });
+        if (!snap.exists()) {
+          mineDocs = [];
+        } else {
+          const data: any = snap.data();
+          const createdAtMs =
+            typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+          const rawMineCd = data?.challengeDate;
+          const mineCdRaw =
+            rawMineCd && typeof (rawMineCd as { toDate?: () => Date }).toDate === 'function'
+              ? nyDateKey((rawMineCd as { toDate: () => Date }).toDate())
+              : String(rawMineCd ?? '');
+          const mineSecondaryUrl = String(data?.secondaryUrl ?? '').trim();
+          const mineDualFrontIsPrimary = data?.dualFrontIsPrimary === true;
+          mineDocs = [
+            {
+              id: snap.id,
+              username: String(data?.username ?? 'user'),
+              prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
+              url: String(data?.url ?? ''),
+              ...(mineSecondaryUrl ? { secondaryUrl: mineSecondaryUrl } : {}),
+              ...(mineDualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
+              createdAtMs,
+              ownerUid: String(data?.uid ?? ''),
+              moderationStatus: String(data?.moderationStatus ?? 'pending'),
+              maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
+              challengeDate: normalizeNyDateKey(mineCdRaw, viewingChallengeDateKey),
+              likesCount: Math.max(0, Number(data?.likesCount ?? 0)),
+              commentsCount: Math.max(0, Number(data?.commentsCount ?? 0)),
+            },
+          ];
+        }
+        merge();
+        mineListenerSeen = true;
+        bumpHydrated();
+      },
+      () => {
+        if (cancelled) return;
+        mineDocs = [];
+        merge();
+        mineListenerSeen = true;
+        bumpHydrated();
+      }
+    );
 
     return () => {
       cancelled = true;
@@ -1519,24 +1543,22 @@ export function FeedScreen() {
       mineUnsub?.();
       loadMoreFeedRef.current = null;
       refreshFeedRef.current = null;
+      pollNewerFeedRef.current = null;
     };
-  }, [nyCalendarDay, viewingChallengeDateKey, user?.uid]);
+  }, [viewingChallengeDateKey, user?.uid]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!feedHydrated) return;
+      pollNewerFeedRef.current?.();
+    }, [feedHydrated])
+  );
 
   if (!user?.uid) {
     return <TakeTheLeapGate variant="feed" />;
   }
 
   if (FEED_GATE_V2 && user?.uid && !hasEverPostedHydrated) {
-    return (
-      <Screen style={styles.feedScreen}>
-        <View style={styles.previewLockLoading}>
-          <ActivityIndicator size="large" color={colors.text} />
-        </View>
-      </Screen>
-    );
-  }
-
-  if (FEED_GATE_V2 && isTier1Teaser && !teaserLimitReady) {
     return (
       <Screen style={styles.feedScreen}>
         <View style={styles.previewLockLoading}>
@@ -1661,7 +1683,7 @@ export function FeedScreen() {
           onScroll={onFeedScroll}
           scrollEventThrottle={16}
           onEndReached={FEED_GATE_V2 || (canViewEveryoneFeed && !feedPreviewMode) ? onEndReachedFeed : undefined}
-          onEndReachedThreshold={2}
+          onEndReachedThreshold={0.6}
           contentContainerStyle={displayVideos.length === 0 ? { flexGrow: 1 } : undefined}
           pagingEnabled
           snapToInterval={pageHeight}

@@ -157,7 +157,7 @@ export function DualCameraRecorder({
 
   const backVideo = useVideoOutput({
     targetResolution: CommonResolutions.HD_16_9,
-    targetBitRate: 8_000_000,
+    targetBitRate: 4_000_000,
     // iOS multi-cam exposes one mic input — attaching it to two recorders races
     // and yields intermittent silent clips. Back camera always owns audio; when
     // the user swaps front to big, playback reads audio from the PIP clip instead.
@@ -167,7 +167,7 @@ export function DualCameraRecorder({
   const frontVideo = useVideoOutput({
     // PIP only needs a light stream — lower resolution keeps the selfie preview smooth.
     targetResolution: CommonResolutions.VGA_16_9,
-    targetBitRate: 2_500_000,
+    targetBitRate: 1_500_000,
     enableAudio: false,
     fileType: 'mp4',
   });

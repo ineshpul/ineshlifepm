@@ -45,6 +45,25 @@ function assertNotAborted(callbacks: PostUploadCallbacks) {
   }
 }
 
+/** Read local clip as Blob via XHR — streams to upload without base64 heap blow-up. */
+function uriToBlobViaXhr(uri: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.onload = () => {
+      const blob = xhr.response;
+      if (blob instanceof Blob && blob.size >= 64) {
+        resolve(blob);
+        return;
+      }
+      reject(new Error('This video looks empty or unreadable. Try recording again or choose another clip.'));
+    };
+    xhr.onerror = () => reject(new Error('Could not read your clip. Record again before posting.'));
+    xhr.responseType = 'blob';
+    xhr.open('GET', uri, true);
+    xhr.send(null);
+  });
+}
+
 function base64ToBytes(b64: string): Uint8Array {
   const a = typeof globalThis.atob === 'function' ? globalThis.atob : undefined;
   if (!a) throw new Error('Base64 decoder is unavailable.');
@@ -54,7 +73,20 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-async function clipUriToBytes(uri: string): Promise<Uint8Array> {
+async function uriToBytesFallback(uri: string): Promise<Uint8Array> {
+  const b64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: 'base64' as FileSystem.EncodingType,
+  });
+  const bytes = base64ToBytes(b64);
+  if (bytes.byteLength < 64) {
+    throw new Error('This video looks empty or unreadable. Try recording again or choose another clip.');
+  }
+  return bytes;
+}
+
+type UploadPayload = Blob | Uint8Array;
+
+async function clipUriToUploadPayload(uri: string): Promise<UploadPayload> {
   if (!uri || uri.startsWith('demo://')) {
     throw new Error('No video to upload. Record again before posting.');
   }
@@ -63,22 +95,26 @@ async function clipUriToBytes(uri: string): Promise<Uint8Array> {
     throw new Error('Recording file is no longer on this device. Record again before posting.');
   }
   try {
-    // `fetch(file://...)` often fails on iOS/Android — read local clips via FileSystem instead.
-    // Firebase Storage accepts a Uint8Array directly, which is more reliable in RN than Blob.
-    const b64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: 'base64' as FileSystem.EncodingType,
-    });
-    const bytes = base64ToBytes(b64);
-    if (bytes.byteLength < 64) {
-      throw new Error('This video looks empty or unreadable. Try recording again or choose another clip.');
+    return await uriToBlobViaXhr(uri);
+  } catch (xhrErr) {
+    try {
+      const res = await fetch(uri);
+      if (res.ok) {
+        const blob = await res.blob();
+        if (blob.size >= 64) return blob;
+      }
+    } catch {
+      /* try base64 last */
     }
-    return bytes;
-  } catch (e) {
-    const msg = String((e as Error)?.message ?? e).toLowerCase();
-    if (msg.includes('network request failed') || msg.includes('network')) {
-      throw new Error('Could not read your clip. Record again before posting.');
+    try {
+      return await uriToBytesFallback(uri);
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e).toLowerCase();
+      if (msg.includes('network request failed') || msg.includes('network')) {
+        throw new Error('Could not read your clip. Record again before posting.');
+      }
+      throw xhrErr instanceof Error ? xhrErr : e;
     }
-    throw e;
   }
 }
 
@@ -126,16 +162,25 @@ export async function runPostVideoUpload(
     callbacks.onProgress(pct);
   };
 
+  const payloadCache = new Map<string, UploadPayload>();
+
+  const loadUploadPayload = async (sourceUri: string): Promise<UploadPayload> => {
+    const cached = payloadCache.get(sourceUri);
+    if (cached) return cached;
+    callbacks.onProgress(1);
+    const payload = await clipUriToUploadPayload(sourceUri);
+    payloadCache.set(sourceUri, payload);
+    return payload;
+  };
+
   const runResumableUpload = async (
     storageRef: typeof primaryRef,
-    sourceUri: string,
+    payload: UploadPayload,
     scaleStart: number,
     scaleSpan: number
   ): Promise<string> => {
     assertNotAborted(callbacks);
-    const bytes = await clipUriToBytes(sourceUri);
-    assertNotAborted(callbacks);
-    const task = uploadBytesResumable(storageRef, bytes, { contentType });
+    const task = uploadBytesResumable(storageRef, payload, { contentType });
     callbacks.onUploadTask?.(task);
     await new Promise<void>((resolve, reject) => {
       const uploadTimeout = setTimeout(() => {
@@ -191,37 +236,59 @@ export async function runPostVideoUpload(
   callbacks.onProgress(0);
   assertNotAborted(callbacks);
 
-  const downloadUrl = await withRetries(
-    () => runResumableUpload(primaryRef, clipUri, 0, primaryShare),
-    {
-      maxAttempts: 3,
-      shouldRetry: (err) => !(err instanceof BackgroundPostAbortedError),
-    }
-  );
+  const [primaryPayload, secondaryPayload] = await Promise.all([
+    loadUploadPayload(clipUri),
+    hasSecondary && secondaryClipUri
+      ? loadUploadPayload(secondaryClipUri)
+      : Promise.resolve(null),
+  ]);
+  assertNotAborted(callbacks);
 
   let secondaryDownloadUrl: string | null = null;
   let secondaryRef: typeof primaryRef | null = null;
   let secondaryPath: string | null = null;
-  if (hasSecondary && secondaryClipUri) {
+
+  if (hasSecondary && secondaryClipUri && secondaryPayload) {
     secondaryPath = `videos/${uid}/${viewingChallengeDateKey}/${Date.now()}_pip.${ext}`;
     secondaryRef = ref(storage(), secondaryPath);
+  }
+
+  const uploadWithRetries = (
+    storageRef: typeof primaryRef,
+    payload: UploadPayload,
+    scaleStart: number,
+    scaleSpan: number
+  ) =>
+    withRetries(() => runResumableUpload(storageRef, payload, scaleStart, scaleSpan), {
+      maxAttempts: 3,
+      shouldRetry: (err) => !(err instanceof BackgroundPostAbortedError),
+    });
+
+  let downloadUrl: string;
+  try {
+    if (secondaryRef && secondaryPayload) {
+      [downloadUrl, secondaryDownloadUrl] = await Promise.all([
+        uploadWithRetries(primaryRef, primaryPayload, 0, primaryShare),
+        uploadWithRetries(secondaryRef, secondaryPayload, primaryShare, secondaryShare),
+      ]);
+    } else {
+      downloadUrl = await uploadWithRetries(primaryRef, primaryPayload, 0, primaryShare);
+    }
+  } catch (e) {
+    if (e instanceof BackgroundPostAbortedError) throw e;
     try {
-      secondaryDownloadUrl = await withRetries(
-        () => runResumableUpload(secondaryRef!, secondaryClipUri, primaryShare, secondaryShare),
-        {
-          maxAttempts: 3,
-          shouldRetry: (err) => !(err instanceof BackgroundPostAbortedError),
-        }
-      );
-    } catch (e) {
-      if (e instanceof BackgroundPostAbortedError) throw e;
+      await deleteObject(primaryRef);
+    } catch {
+      /* ignore */
+    }
+    if (secondaryRef) {
       try {
-        await deleteObject(primaryRef);
+        await deleteObject(secondaryRef);
       } catch {
         /* ignore */
       }
-      throw e;
     }
+    throw e;
   }
 
   assertNotAborted(callbacks);
