@@ -205,6 +205,7 @@ export function UserLeapsScreen({ route }: Props) {
     uid: viewerUid || undefined,
     isAdmin: user?.isAdmin,
     isModerator: user?.isModerator,
+    experimentCohort: user?.experimentCohort,
   });
   const leapGateForOthers = !isOwnerViewer && !canViewOthersVideos;
   React.useEffect(() => {

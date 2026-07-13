@@ -77,6 +77,7 @@ export function VideoPostScreen({ route }: Props) {
     uid: user?.uid,
     isAdmin: user?.isAdmin,
     isModerator: user?.isModerator,
+    experimentCohort: user?.experimentCohort,
   });
 
   const ownerFromId = React.useMemo<string>(() => {

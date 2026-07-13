@@ -42,7 +42,7 @@ import { FeedPostVideo, ReelVideoPlaceholder } from '../components/FeedPostVideo
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { deleteOwnedVideo } from '../services/deleteVideo';
-import { logEngagementScrollingThrottled } from '../services/nativeAnalytics';
+import { logEngagementScrollingThrottled, logExperimentEvent } from '../services/nativeAnalytics';
 import { staffNullVideo } from '../services/nullVideo';
 import { navigateToRecord } from '../navigation/navigationHelpers';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
@@ -629,8 +629,9 @@ export function FeedScreen() {
   const { pendingFeedPlayback, clearPendingFeedPlayback } = useBackgroundPostUpload();
   const { user } = useAuth();
   const isStaffUser = Boolean(user?.isAdmin || user?.isModerator);
-  /** Review demo accounts only — staff admin still posts to unlock the feed. */
-  const bypassFeedGate = Boolean(user?.bypassFeedGate);
+  /** Review demo OR experiment `gate_off` — fully unlocked feed (no teaser wall / tier-2 locks). */
+  const bypassFeedGate =
+    Boolean(user?.bypassFeedGate) || user?.experimentCohort === 'gate_off';
   const canViewEveryoneFeed = hasPostedToday || bypassFeedGate;
   /** Legacy daily preview gate — dormant when {@link FEED_GATE_V2}. */
   const feedPreviewMode = !FEED_GATE_V2 && Boolean(user?.uid && !canViewEveryoneFeed);
@@ -660,11 +661,41 @@ export function FeedScreen() {
   const everPostedBaselineSetRef = React.useRef(false);
   const prevHasEverPostedRef = React.useRef(false);
   const prevHasPostedTodayRef = React.useRef(hasPostedToday);
+  const feedViewedLoggedRef = React.useRef(false);
+  const gateShownLoggedRef = React.useRef(false);
 
   React.useEffect(() => {
     everPostedBaselineSetRef.current = false;
     prevHasEverPostedRef.current = false;
+    feedViewedLoggedRef.current = false;
+    gateShownLoggedRef.current = false;
   }, [user?.uid]);
+
+  React.useEffect(() => {
+    if (!isFocused || !user?.uid || !user.experimentCohort) return;
+    if (feedViewedLoggedRef.current) return;
+    feedViewedLoggedRef.current = true;
+    void logExperimentEvent('feed_viewed');
+  }, [isFocused, user?.uid, user?.experimentCohort]);
+
+  React.useEffect(() => {
+    if (!isFocused || user?.experimentCohort !== 'gate_on') return;
+    if (gateShownLoggedRef.current) return;
+    const gateBlocking =
+      isTier1Teaser ||
+      (isTier2Established && !hasPostedToday) ||
+      (!FEED_GATE_V2 && feedPreviewMode);
+    if (!gateBlocking) return;
+    gateShownLoggedRef.current = true;
+    void logExperimentEvent('gate_shown');
+  }, [
+    isFocused,
+    user?.experimentCohort,
+    isTier1Teaser,
+    isTier2Established,
+    hasPostedToday,
+    feedPreviewMode,
+  ]);
 
   React.useEffect(() => {
     if (!FEED_GATE_V2 || !user?.uid || !graduationSeenHydrated || !hasEverPostedHydrated) return;

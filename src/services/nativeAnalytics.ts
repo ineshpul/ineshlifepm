@@ -1,20 +1,35 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
+import type { ExperimentCohort } from '../experiments/feedGateExperiment';
+
 type FirebaseAnalytics = ReturnType<
   typeof import('@react-native-firebase/analytics').default
 >;
 
 export type EngagementMetric = 'posting' | 'scrolling' | 'chatting';
 
+export type ExperimentAnalyticsEvent =
+  | 'signup_completed'
+  | 'feed_viewed'
+  | 'post_created'
+  | 'session_start'
+  | 'session_end'
+  | 'gate_shown'
+  | 'day_1_return'
+  | 'day_7_return';
+
 let analyticsInstance: FirebaseAnalytics | null | undefined;
 let lastScrollingLogMs = 0;
 
 const SCROLLING_THROTTLE_MS = 30_000;
 
-/** Native Firebase Analytics (iOS EAS builds only; no-op in Expo Go / web). */
+/**
+ * Native Firebase Analytics for iOS/Android EAS builds (no-op in Expo Go / web).
+ * Experiment events are written so they work on both platforms; production verification is iOS-first.
+ */
 function analytics(): FirebaseAnalytics | null {
-  if (Platform.OS !== 'ios') return null;
+  if (Platform.OS !== 'ios' && Platform.OS !== 'android') return null;
   if (analyticsInstance !== undefined) return analyticsInstance;
   if (Constants.executionEnvironment === 'storeClient') {
     analyticsInstance = null;
@@ -53,6 +68,19 @@ export async function setNativeAnalyticsUserId(uid: string | null): Promise<void
   }
 }
 
+/** Attach experiment cohort to all subsequent events for this session. */
+export async function setExperimentCohortUserProperty(
+  cohort: ExperimentCohort | null
+): Promise<void> {
+  const a = analytics();
+  if (!a) return;
+  try {
+    await a.setUserProperty('experiment_cohort', cohort);
+  } catch {
+    // ignore
+  }
+}
+
 export async function logNativeScreenView(screenName: string): Promise<void> {
   const a = analytics();
   if (!a || !screenName) return;
@@ -80,6 +108,20 @@ export async function logEngagementMetric(
     const safeParams: Record<string, string | number> = { engagement_type: metric, ...params };
     await a.logEvent('engagement', safeParams);
     await a.logEvent(`engagement_${metric}`, params ?? {});
+  } catch {
+    // ignore
+  }
+}
+
+/** Feed-gate A/B experiment events (`experiment_cohort` user property should already be set). */
+export async function logExperimentEvent(
+  name: ExperimentAnalyticsEvent,
+  params?: Record<string, string | number>
+): Promise<void> {
+  const a = analytics();
+  if (!a) return;
+  try {
+    await a.logEvent(name, params ?? {});
   } catch {
     // ignore
   }

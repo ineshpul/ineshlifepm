@@ -17,6 +17,13 @@ import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { isAdminUid, parseProfileIsAdmin, parseProfileIsModerator, parseProfileBypassFeedGate } from '../config/admin';
 import { unregisterPushDevice } from '../services/pushNotifications';
+import {
+  ensureExperimentCohort,
+  markSignupCompletedLogged,
+  parseExperimentCohort,
+  type ExperimentCohort,
+} from '../experiments/feedGateExperiment';
+import { logExperimentEvent, setExperimentCohortUserProperty } from '../services/nativeAnalytics';
 import { ensureUserSearchableProfile } from '../services/usernameClaim';
 import { claimReferral } from '../services/referral';
 import { scheduleLeapStatsHealOnSession } from '../services/verticalScore';
@@ -30,6 +37,8 @@ export type AuthUser = {
   isModerator?: boolean;
   /** Set in Firestore `users/{uid}.bypassFeedGate` — full feed without posting (review demo only). */
   bypassFeedGate?: boolean;
+  /** Feed-gate A/B cohort — write-once at signup or when eligible (<10 posts). */
+  experimentCohort?: ExperimentCohort | null;
   /** Firebase email/password account whose email is not verified yet (user is still signed in). */
   needsEmailVerification?: boolean;
 };
@@ -301,6 +310,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const isAdmin = exists && d ? parseProfileIsAdmin(d.isAdmin) || fromUidList : fromUidList;
       const isModerator = exists && d ? parseProfileIsModerator(d.isModerator) : false;
       const bypassFeedGate = exists && d ? parseProfileBypassFeedGate(d.bypassFeedGate) : false;
+      const experimentCohort = exists && d ? parseExperimentCohort(d.experimentCohort) : null;
       const fromDoc = d?.username;
       const usernameFromDoc = typeof fromDoc === 'string' && fromDoc.length > 0 ? fromDoc : null;
       setUser((prev) => {
@@ -310,6 +320,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           isAdmin,
           isModerator,
           bypassFeedGate,
+          experimentCohort,
           username: usernameFromDoc ?? prev.username,
         };
       });
@@ -369,11 +380,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // applyFirebaseSession + foreground retry will heal; signup still succeeds.
       }
 
+      let experimentCohort: ExperimentCohort | null = null;
+      try {
+        experimentCohort = await ensureExperimentCohort(u.uid, { forceEligible: true });
+        if (experimentCohort) {
+          void setExperimentCohortUserProperty(experimentCohort);
+          const freshSignup = await markSignupCompletedLogged(u.uid);
+          if (freshSignup) void logExperimentEvent('signup_completed');
+        }
+      } catch {
+        // ExperimentSync retries assignment on launch for eligible accounts.
+      }
+
       setUser((prev) =>
         mergeAuthUser(prev, {
           uid: u.uid,
           email: u.email ?? '',
           username: resolvedUsername,
+          experimentCohort,
           needsEmailVerification: hasPasswordProvider(u) && !u.emailVerified,
         })
       );

@@ -58,15 +58,18 @@ export function useCanViewEveryoneFeed(uid: string | undefined) {
  * Primary rule: must have posted for the current noon→noon cycle (`useCanViewEveryoneFeed`).
  * Staff override: admins/moderators may view on profile/leap screens (moderation/support).
  * Feed tab uses {@link AuthUser.bypassFeedGate} for review demo accounts only.
+ * `gate_off` experiment cohort is fully unlocked (same viewing access as bypass).
  */
 export function useCanViewOtherUsersVideos(args: {
   uid: string | undefined;
   isAdmin?: boolean;
   isModerator?: boolean;
+  /** When `gate_off`, feed/profile/leap gates are fully unlocked. */
+  experimentCohort?: 'gate_on' | 'gate_off' | null;
 }): boolean {
-  const { uid, isAdmin, isModerator } = args;
+  const { uid, isAdmin, isModerator, experimentCohort } = args;
   const canView = useCanViewEveryoneFeed(uid);
-  return Boolean(canView || isAdmin || isModerator);
+  return Boolean(canView || isAdmin || isModerator || experimentCohort === 'gate_off');
 }
 
 /**

@@ -6,7 +6,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { CHALLENGE_INSTRUCTIONS } from '../content/challengeCopy';
 import { getExpoExtra } from '../config/expoExtra';
 import { firestore, storage } from '../firebase/firebase';
-import { logEngagementMetric } from './nativeAnalytics';
+import { logEngagementMetric, logExperimentEvent } from './nativeAnalytics';
 import { saveVideoToCameraRoll } from './saveVideoToCameraRoll';
 import {
   commitPostedVideo,
@@ -355,6 +355,7 @@ export async function runPostVideoUpload(
   const clipUriForOffer = recordedForSave ? clipUri : null;
 
   void logEngagementMetric('posting', { challenge_date: viewingChallengeDateKey });
+  void logExperimentEvent('post_created', { challenge_date: viewingChallengeDateKey });
 
   assertNotAborted(callbacks);
 

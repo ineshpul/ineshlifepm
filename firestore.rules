@@ -79,6 +79,10 @@ service cloud.firestore {
       return v is int && v >= 10 && v <= 20;
     }
 
+    function validExperimentCohort(v) {
+      return v == 'gate_on' || v == 'gate_off';
+    }
+
     /** One-time write of `users/{uid}.feedTeaserCardLimit` by the account owner. */
     function isOneTimeFeedTeaserLimitWrite() {
       return !resource.data.keys().hasAny(['feedTeaserCardLimit'])
@@ -90,6 +94,48 @@ service cloud.firestore {
     function isOneTimeFeedGraduationSeenWrite() {
       return !resource.data.keys().hasAny(['feedGraduationSeenAt'])
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['feedGraduationSeenAt']);
+    }
+
+    /** One-time experiment cohort assignment (never overwrite). */
+    function isOneTimeExperimentCohortWrite() {
+      return !resource.data.keys().hasAny(['experimentCohort'])
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['experimentCohort', 'experimentAssignedAt'])
+        && validExperimentCohort(request.resource.data.experimentCohort)
+        && request.resource.data.experimentAssignedAt == request.time;
+    }
+
+    /** Experiment analytics fields — owner may set only after cohort assignment. */
+    function isExperimentAnalyticsWrite() {
+      return resource.data.keys().hasAny(['experimentCohort'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'experimentDay1Returned',
+          'experimentDay7Returned',
+          'experimentTotalSessionSeconds',
+        ])
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['experimentDay1Returned'])
+          || (
+            request.resource.data.experimentDay1Returned == true
+            && resource.data.get('experimentDay1Returned', false) != true
+          )
+        )
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['experimentDay7Returned'])
+          || (
+            request.resource.data.experimentDay7Returned == true
+            && resource.data.get('experimentDay7Returned', false) != true
+          )
+        )
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['experimentTotalSessionSeconds'])
+          || (
+            request.resource.data.experimentTotalSessionSeconds is int
+            && request.resource.data.experimentTotalSessionSeconds >= 0
+            && request.resource.data.experimentTotalSessionSeconds
+              >= resource.data.get('experimentTotalSessionSeconds', 0)
+          )
+        );
     }
 
     function ownsUsernameClaimForUser(userId, key) {
@@ -661,6 +707,17 @@ service cloud.firestore {
         return maxRecordingAttemptsForChallengeDate(request.resource.data.challengeDate);
       }
 
+      // Missing, soft-deleted, or rejected/nulled — does not block recording-attempt refund/reset.
+      // Active posts still block (prevents wiping the ledger while a live leap exists).
+      function leapVideoMissingOrInactive() {
+        return !exists(/databases/$(database)/documents/videos/$(attemptId))
+          || get(/databases/$(database)/documents/videos/$(attemptId)).data.deleted == true
+          || get(/databases/$(database)/documents/videos/$(attemptId)).data.moderationStatus in [
+            'rejected',
+            'nulled',
+          ];
+      }
+
       allow create: if signedIn()
         && attemptId.matches('^' + request.auth.uid + '_.+')
         && attemptDocIdMatchesFields()
@@ -688,7 +745,7 @@ service cloud.firestore {
           request.resource.data.used == prevUsedCount() + 1
           || (
             request.resource.data.used == prevUsedCount() - 1
-            && !exists(/databases/$(database)/documents/videos/$(attemptId))
+            && leapVideoMissingOrInactive()
           )
           || (
             request.resource.data.used == request.resource.data.max
@@ -716,7 +773,7 @@ service cloud.firestore {
           || (
             (
               isStaff()
-              || !exists(/databases/$(database)/documents/videos/$(attemptId))
+              || leapVideoMissingOrInactive()
             )
             && request.resource.data.uid == request.auth.uid
             && request.resource.data.used == 0
@@ -725,10 +782,10 @@ service cloud.firestore {
           )
         );
 
-      // Only after the daily video doc is gone (delete flow), so users cannot wipe the ledger while a post exists.
+      // Only when the daily video is gone or inactive (delete/reject flow).
       allow delete: if signedIn()
         && attemptId.matches('^' + request.auth.uid + '_.+')
-        && !exists(/databases/$(database)/documents/videos/$(attemptId));
+        && leapVideoMissingOrInactive();
     }
 
     /** One doc per normalized username; `uid` is the account that owns the handle. */
@@ -784,6 +841,11 @@ service cloud.firestore {
           'referredAt',
           'feedTeaserCardLimit',
           'feedGraduationSeenAt',
+          'experimentCohort',
+          'experimentAssignedAt',
+          'experimentDay1Returned',
+          'experimentDay7Returned',
+          'experimentTotalSessionSeconds',
         ])
         && (
           !request.resource.data.keys().hasAny(['usernameLower'])
@@ -822,6 +884,11 @@ service cloud.firestore {
               'referredAt',
               'feedTeaserCardLimit',
               'feedGraduationSeenAt',
+              'experimentCohort',
+              'experimentAssignedAt',
+              'experimentDay1Returned',
+              'experimentDay7Returned',
+              'experimentTotalSessionSeconds',
             ])
             && (
               !request.resource.data.diff(resource.data).affectedKeys().hasAny(['username', 'usernameLower'])
@@ -834,6 +901,8 @@ service cloud.firestore {
           )
           || isOneTimeFeedTeaserLimitWrite()
           || isOneTimeFeedGraduationSeenWrite()
+          || isOneTimeExperimentCohortWrite()
+          || isExperimentAnalyticsWrite()
         );
       allow delete: if false;
 

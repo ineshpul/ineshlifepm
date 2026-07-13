@@ -6,6 +6,7 @@ import * as Notifications from 'expo-notifications';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { ExperimentSync } from './src/components/ExperimentSync';
 import { NativeAnalyticsSync } from './src/components/NativeAnalyticsSync';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
@@ -158,6 +159,7 @@ export default function App() {
           <SettingsPreferencesProvider>
             <OtaUpdateOnLaunch />
             <NativeAnalyticsSync />
+            <ExperimentSync />
             <UserNotificationPrefSync />
             <PushTokenRegistrar />
             <AppStateProvider>

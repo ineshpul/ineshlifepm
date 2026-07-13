@@ -187,6 +187,7 @@ export function UserProfileScreen({ route, navigation }: Props) {
     uid: viewerUid || undefined,
     isAdmin: user?.isAdmin,
     isModerator: user?.isModerator,
+    experimentCohort: user?.experimentCohort,
   });
   const leapGateForOthers = !isSelf && !canViewOthersVideos;
   const followingVisible = showFollowingListToOthers(profile ?? undefined);
