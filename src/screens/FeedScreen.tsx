@@ -27,7 +27,7 @@ import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { FeedCameraRollSaveBanner } from '../components/FeedCameraRollSaveBanner';
 import { FeedGraduationMoment } from '../components/FeedGraduationMoment';
-import { FeedLockedCardOverlay } from '../components/FeedLockedCardOverlay';
+import { LockedLeapFrame } from '../components/LockedLeapFrame';
 import { FeedPreviewChoice } from '../components/FeedPreviewChoice';
 import { FeedLastLeapJumpChip } from '../components/FeedLastLeapJumpChip';
 import { FeedSinceLastLeapBanner } from '../components/FeedSinceLastLeapBanner';
@@ -900,6 +900,9 @@ export function FeedScreen() {
 
   React.useEffect(() => {
     void Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
+    return () => {
+      void Audio.setIsEnabledAsync(true).catch(() => {});
+    };
   }, []);
   const [videos, setVideos] = React.useState<FeedVideo[]>([]);
   /** False until auth is ready and we have had at least one merge from Firestore listeners. */
@@ -960,6 +963,8 @@ export function FeedScreen() {
 
   /** Soft nudge only while card locks are off — keep feed fully playable. */
   const tier2HasActiveLocks = TIER2_CARD_LOCKS_ENABLED && tier2NeedsPostToUnlock;
+  const tier2CardLocksApply =
+    TIER2_CARD_LOCKS_ENABLED && isTier2Established && !hasPostedToday;
 
   const { leapsSinceLastPost, leapsSinceLastPostReady } = useLeapsSinceLastPostCount({
     enabled: tier2NeedsPostToUnlock,
@@ -1193,6 +1198,38 @@ export function FeedScreen() {
   const activateReelVideo = React.useCallback((videoId: string) => {
     setActiveVideoId(videoId);
   }, []);
+
+  // Hard-silence the audio session while the active reel is a locked tile.
+  // Belt-and-suspenders if any native player was left alive from a prior row.
+  React.useEffect(() => {
+    if (!isFocused || !tier2CardLocksApply) {
+      void Audio.setIsEnabledAsync(true).catch(() => {});
+      return;
+    }
+    if (!postedDatesReady) {
+      void Audio.setIsEnabledAsync(false).catch(() => {});
+      return;
+    }
+    const active = displayVideos.find((v) => v.id === activeVideoId);
+    const locked = active
+      ? !lastPostedDateKey ||
+        isTier2CardLocked({
+          challengeDate: active.challengeDate,
+          lastPostedDateKey,
+          hasPostedToday: false,
+          bypassFeedGate,
+        })
+      : false;
+    void Audio.setIsEnabledAsync(!locked).catch(() => {});
+  }, [
+    isFocused,
+    tier2CardLocksApply,
+    postedDatesReady,
+    lastPostedDateKey,
+    activeVideoId,
+    displayVideos,
+    bypassFeedGate,
+  ]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -1730,8 +1767,8 @@ export function FeedScreen() {
           nestedScrollEnabled
           removeClippedSubviews={Platform.OS === 'android' ? !tier2HasActiveLocks : false}
           initialNumToRender={3}
-          maxToRenderPerBatch={3}
-          windowSize={3}
+          maxToRenderPerBatch={tier2HasActiveLocks ? 1 : 3}
+          windowSize={tier2HasActiveLocks ? 1 : 3}
           updateCellsBatchingPeriod={50}
           getItemLayout={
             slotHeight > 0 && pageHeight > 40
@@ -1768,29 +1805,32 @@ export function FeedScreen() {
               firstPreviousLeapsIndex >= 0 &&
               index === firstPreviousLeapsIndex;
 
+            /**
+             * Locked tiles must NEVER mount FeedPostVideo / expo-av / expo-video.
+             * Pause+mute was racing into full playback under the frost on device.
+             * Locked / lock-pending → LockedLeapFrame (tint + frost) only.
+             * Unlocked active → one live reel. Inactive → empty placeholder.
+             */
             const wouldBeTier2Locked =
               TIER2_CARD_LOCKS_ENABLED &&
               isTier2Established &&
-              isTier2CardLocked({
-                challengeDate: item.challengeDate,
-                lastPostedDateKey,
-                hasPostedToday: false,
-                bypassFeedGate,
-              });
-            const isTier2Locked =
-              TIER2_CARD_LOCKS_ENABLED &&
-              isTier2Established &&
-              isTier2CardLocked({
-                challengeDate: item.challengeDate,
-                lastPostedDateKey,
-                hasPostedToday,
-                bypassFeedGate,
-              });
+              postedDatesReady &&
+              (!lastPostedDateKey ||
+                isTier2CardLocked({
+                  challengeDate: item.challengeDate,
+                  lastPostedDateKey,
+                  hasPostedToday: false,
+                  bypassFeedGate,
+                }));
+            const isTier2Locked = tier2CardLocksApply && wouldBeTier2Locked;
+            const awaitingLockDecision = tier2CardLocksApply && !postedDatesReady;
             const showLockedOverlay =
               wouldBeTier2Locked && (isTier2Locked || tier2UnlockAnimating);
-            const overlayUnlocking = tier2UnlockAnimating && wouldBeTier2Locked && !isTier2Locked;
-            // Keep the clip playing under the frost so locked tiles still show the leap.
-            const videoShouldPlay = isFocused && activeVideoId === item.id;
+            const overlayUnlocking =
+              tier2UnlockAnimating && wouldBeTier2Locked && !isTier2Locked;
+            const freezeLocked = showLockedOverlay || awaitingLockDecision;
+            const mountLiveReel =
+              isFocused && activeVideoId === item.id && !freezeLocked;
             const playback = resolveFeedPlaybackUrls(item, pendingFeedPlayback);
 
             return (
@@ -1799,13 +1839,15 @@ export function FeedScreen() {
               collapsable={false}
             >
               <View style={[styles.reelVideoSlot, { bottom: sheetBottom }]}>
-                {isFocused ? (
+                {freezeLocked && isFocused ? (
+                  <LockedLeapFrame unlocking={overlayUnlocking} />
+                ) : mountLiveReel ? (
                   <FeedPostVideo
                     reel
                     url={playback.url}
                     secondaryUrl={playback.secondaryUrl}
                     dualFrontIsPrimary={playback.dualFrontIsPrimary}
-                    shouldPlay={videoShouldPlay}
+                    shouldPlay
                     isMuted={false}
                     useNativeControls
                     maxDurationSeconds={item.maxDurationSeconds}
@@ -1819,9 +1861,6 @@ export function FeedScreen() {
                 ) : (
                   <ReelVideoPlaceholder />
                 )}
-                {showLockedOverlay ? (
-                  <FeedLockedCardOverlay unlocking={overlayUnlocking} />
-                ) : null}
               </View>
 
               <View

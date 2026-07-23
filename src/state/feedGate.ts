@@ -3,7 +3,7 @@ import { normalizeNyDateKey, nextNyDateKey, nyDateKeyToSortUtcMs } from '../util
 /** Feature flag — new tier-based feed gate (legacy preview path dormant when true). */
 export const FEED_GATE_V2 = true;
 
-/** Per-card frosted locks on newer leap days (tier 2) — video keeps playing under the tile. */
+/** Per-card frosted locks on newer leap days (tier 2) — still frame only, no playback. */
 export const TIER2_CARD_LOCKS_ENABLED = true;
 
 export type FeedGateTier = 'tier1_teaser' | 'tier2_daily';

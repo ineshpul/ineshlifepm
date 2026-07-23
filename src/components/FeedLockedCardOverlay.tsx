@@ -32,7 +32,7 @@ export function FeedLockedCardOverlay({ unlocking = false }: Props) {
     },
     frost: {
       ...StyleSheet.absoluteFillObject,
-      // Lighter frost so the playing leap stays visible under the lock tile.
+      // Light frost over a frozen still (locked tiles do not play).
       backgroundColor: c.cardTint,
       opacity: 0.45,
     },
