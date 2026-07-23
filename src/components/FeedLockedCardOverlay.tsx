@@ -25,7 +25,6 @@ export function FeedLockedCardOverlay({ unlocking = false }: Props) {
   const styles = useThemedStyles((c) => ({
     root: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: c.overlay,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: 24,
@@ -33,8 +32,9 @@ export function FeedLockedCardOverlay({ unlocking = false }: Props) {
     },
     frost: {
       ...StyleSheet.absoluteFillObject,
+      // Lighter frost so the playing leap stays visible under the lock tile.
       backgroundColor: c.cardTint,
-      opacity: 0.72,
+      opacity: 0.45,
     },
     lockIcon: {
       width: 64,

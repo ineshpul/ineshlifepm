@@ -1,20 +1,10 @@
 import { normalizeNyDateKey, nextNyDateKey, nyDateKeyToSortUtcMs } from '../utils/nyTime';
 
-/**
- * Kill-switch: restore the pre–feed-gate experience.
- * Same Daily Leaps reel UI, but no teaser walls, frosted locks, or "post to unlock" chrome.
- * Turn back to `false` only when re-shipping a working gate.
- */
-export const FEED_GATE_DISABLED = true;
-
 /** Feature flag — new tier-based feed gate (legacy preview path dormant when true). */
-export const FEED_GATE_V2 = !FEED_GATE_DISABLED;
+export const FEED_GATE_V2 = true;
 
-/**
- * Per-card frosted locks on newer leap days (tier 2).
- * Forced off while {@link FEED_GATE_DISABLED} is true.
- */
-export const TIER2_CARD_LOCKS_ENABLED = false;
+/** Per-card frosted locks on newer leap days (tier 2) — video keeps playing under the tile. */
+export const TIER2_CARD_LOCKS_ENABLED = true;
 
 export type FeedGateTier = 'tier1_teaser' | 'tier2_daily';
 
@@ -115,7 +105,7 @@ export function isTier2CardLocked(args: {
   const lastKey = args.lastPostedDateKey
     ? normalizeNyDateKey(args.lastPostedDateKey, '')
     : '';
-  // Missing last-post date: fail open so the whole feed is not frosted blank.
+  // Missing last-post date: fail open (don't frost the entire feed blank).
   if (!lastKey) return false;
 
   const cdMs = nyDateKeyToSortUtcMs(cd, 0);
