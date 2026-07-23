@@ -159,6 +159,85 @@ export async function incrementApprovedPostCountForLeap(
   });
 }
 
+/**
+ * Bump "people posted today" on every active create (pending or approved).
+ * Distinct from {@link incrementApprovedPostCountForLeap} so moderation lag does not zero the Today label.
+ */
+export async function incrementPostedPostCountForLeap(
+  db: admin.firestore.Firestore,
+  video: Record<string, unknown>,
+  videoId: string
+): Promise<void> {
+  const fallbackMs = toMillis(video.createdAt) || Date.now();
+  const videoChallengeDate = String(video.challengeDate ?? '').trim();
+  const dayStatsKey = leapDayKeyFromStoredChallengeDate(videoChallengeDate, fallbackMs);
+  const ref = db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayStatsKey}`);
+
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const data = snap.data() ?? {};
+    const countedIds = (data.countedPostedVideoIds ?? {}) as Record<string, boolean>;
+    if (countedIds[videoId]) return;
+
+    tx.set(
+      ref,
+      {
+        challengeDate: dayStatsKey,
+        postedPostCount: admin.firestore.FieldValue.increment(1),
+        [`countedPostedVideoIds.${videoId}`]: true,
+        lastPostedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  });
+
+  logger.info('dailyChallengeStats postedPostCount increment', {
+    dayStatsDocPath: `${DAILY_CHALLENGE_STATS_COLLECTION}/${dayStatsKey}`,
+    dayStatsKey,
+    videoChallengeDate,
+    videoId,
+  });
+}
+
+export async function decrementPostedPostCountForLeap(
+  db: admin.firestore.Firestore,
+  video: Record<string, unknown>,
+  videoId: string
+): Promise<void> {
+  const fallbackMs = toMillis(video.createdAt) || Date.now();
+  const videoChallengeDate = String(video.challengeDate ?? '').trim();
+  const dayStatsKey = leapDayKeyFromStoredChallengeDate(videoChallengeDate, fallbackMs);
+  const ref = db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayStatsKey}`);
+
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const data = snap.data() ?? {};
+    const countedIds = (data.countedPostedVideoIds ?? {}) as Record<string, boolean>;
+
+    if (countedIds[videoId]) {
+      tx.set(
+        ref,
+        {
+          postedPostCount: admin.firestore.FieldValue.increment(-1),
+          [`countedPostedVideoIds.${videoId}`]: admin.firestore.FieldValue.delete(),
+        },
+        { merge: true }
+      );
+      return;
+    }
+
+    const current = Number(data.postedPostCount ?? 0);
+    if (current > 0) {
+      tx.set(
+        ref,
+        { postedPostCount: admin.firestore.FieldValue.increment(-1) },
+        { merge: true }
+      );
+    }
+  });
+}
+
 export async function decrementApprovedPostCountForLeap(
   db: admin.firestore.Firestore,
   video: Record<string, unknown>,

@@ -16,7 +16,9 @@ import {
 } from './verticalScoreEngine';
 import {
   decrementApprovedPostCountForLeap,
+  decrementPostedPostCountForLeap,
   incrementApprovedPostCountForLeap,
+  incrementPostedPostCountForLeap,
   syncApprovedPostCountForVideoChallenge,
 } from './dailyChallengeStatsPosts';
 import {
@@ -1238,6 +1240,11 @@ export const onVerticalScoreVideoCreated = onDocumentCreated(
 
     if (status === 'pending') {
       try {
+        await incrementPostedPostCountForLeap(db, data, videoId);
+      } catch (e) {
+        logger.warn('postedPostCount increment failed (pending create)', { videoId, uid, e });
+      }
+      try {
         await awardLeapInchesOnPending(db, videoRef, videoId, data);
       } catch (e) {
         logger.warn('pending leap inches award failed', { videoId, uid, e });
@@ -1246,6 +1253,15 @@ export const onVerticalScoreVideoCreated = onDocumentCreated(
         const freshSnap = await videoRef.get();
         if (freshSnap.exists && String(freshSnap.data()?.moderationStatus ?? '') === 'approved') {
           await ensureLeapInchesOnApproval(db, videoRef, videoId);
+          try {
+            await incrementApprovedPostCountForLeap(db, freshSnap.data() as Record<string, unknown>, videoId);
+          } catch (incErr) {
+            logger.warn('approvedPostCount increment after pending→approved race failed', {
+              videoId,
+              uid,
+              e: incErr,
+            });
+          }
         }
       } catch (e) {
         logger.warn('leap inches settlement after pending create failed', { videoId, uid, e });
@@ -1263,6 +1279,16 @@ export const onVerticalScoreVideoCreated = onDocumentCreated(
     }
 
     if (status === 'approved') {
+      try {
+        await incrementPostedPostCountForLeap(db, data, videoId);
+      } catch (e) {
+        logger.warn('postedPostCount increment failed (approved create)', { videoId, uid, e });
+      }
+      try {
+        await incrementApprovedPostCountForLeap(db, data, videoId);
+      } catch (e) {
+        logger.warn('approvedPostCount increment failed (approved create)', { videoId, uid, e });
+      }
       try {
         await awardLeapInchesOnFullApproval(db, videoRef, videoId, data);
       } catch (e) {
@@ -1311,6 +1337,12 @@ export const onVerticalScoreVideoDeleted = onDocumentDeleted(
     }
 
     try {
+      // Any active post (pending or approved) counted toward "posted today".
+      try {
+        await decrementPostedPostCountForLeap(db, data, videoId);
+      } catch (e) {
+        logger.warn('postedPostCount decrement on delete failed', { videoId, e });
+      }
       if (wasApproved) {
         try {
           await decrementApprovedPostCountForLeap(db, data, videoId);

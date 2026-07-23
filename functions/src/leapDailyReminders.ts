@@ -4,7 +4,8 @@ import * as admin from 'firebase-admin';
 
 import { countApprovedVideosForDay } from './dailyChallengeStatsPosts';
 import { sendExpoPushBatch } from './expoPush';
-import { getDayKey } from './leapDayKey';
+import { getDayKey, leapDayKeyFromStoredChallengeDate } from './leapDayKey';
+import { DAILY_CHALLENGE_STATS_COLLECTION } from './verticalXpBonuses';
 
 const REGION = 'us-central1';
 const NOTIFICATION_PROMPT_MAX = 150;
@@ -66,6 +67,27 @@ function todayVideoDocId(uid: string, challengeDate: string): string {
   return `${uid}_${challengeDate}`;
 }
 
+/** Prefer submission count on stats; fall back to live approved query. */
+async function countPeoplePostedForDay(
+  db: admin.firestore.Firestore,
+  dayKey: string
+): Promise<number> {
+  const statsKey = leapDayKeyFromStoredChallengeDate(dayKey);
+  try {
+    const snap = await db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${statsKey}`).get();
+    if (snap.exists) {
+      const data = snap.data() as Record<string, unknown>;
+      const posted = Number(data.postedPostCount);
+      if (Number.isFinite(posted) && posted >= 0) return posted;
+      const approved = Number(data.approvedPostCount);
+      if (Number.isFinite(approved) && approved >= 0) return approved;
+    }
+  } catch (e) {
+    logger.warn('posted count stats read failed', { dayKey, e });
+  }
+  return countApprovedVideosForDay(db, dayKey);
+}
+
 function userHasPostedVideo(
   snap: admin.firestore.DocumentSnapshot,
   uid: string
@@ -85,7 +107,7 @@ async function sendLeapDailyReminders(kind: ReminderKind): Promise<void> {
   const [prompt, postedCount] = await Promise.all([
     kind === 'afternoon' ? Promise.resolve(null) : resolveChallengePrompt(db, viewingChallengeDateKey),
     kind === 'afternoon'
-      ? countApprovedVideosForDay(db, viewingChallengeDateKey)
+      ? countPeoplePostedForDay(db, viewingChallengeDateKey)
       : Promise.resolve(0),
   ]);
 

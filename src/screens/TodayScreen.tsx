@@ -291,7 +291,7 @@ export function TodayScreen() {
   const headerCountdown = window.isLive ? window.msUntilExpire : window.msUntilDrop;
   const liveCount = useLiveCount({
     enabled: window.isLive,
-    challengeDateKey: challenge.dateKey,
+    challengeDateKey: challenge.dateKey?.trim() ? challenge.dateKey : undefined,
   });
 
   const titleType = React.useMemo(

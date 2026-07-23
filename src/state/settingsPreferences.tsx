@@ -19,10 +19,19 @@ import { computeFeedViewingFromNow, nextNyFireUtcMs } from '../utils/nyTime';
 
 const STATS_COLLECTION = 'dailyChallengeStats';
 
-function approvedCountFromStats(data: Record<string, unknown> | undefined): number | null {
+function postedCountFromStats(data: Record<string, unknown> | undefined): number | null {
   if (!data) return null;
+  const posted = Number(data.postedPostCount);
+  if (Number.isFinite(posted) && posted >= 0) return posted;
   const n = Number(data.approvedPostCount);
   if (Number.isFinite(n) && n >= 0) return n;
+  const countedPosted = data.countedPostedVideoIds;
+  if (countedPosted && typeof countedPosted === 'object' && !Array.isArray(countedPosted)) {
+    const keys = Object.keys(countedPosted as Record<string, unknown>).filter((k) =>
+      Boolean((countedPosted as Record<string, unknown>)[k])
+    );
+    if (keys.length > 0) return keys.length;
+  }
   const counted = data.countedApprovedVideoIds;
   if (counted && typeof counted === 'object' && !Array.isArray(counted)) {
     const keys = Object.keys(counted as Record<string, unknown>).filter((k) =>
@@ -216,7 +225,7 @@ export function SettingsPreferencesProvider({ children }: { children: React.Reac
       onSnapshot(
         doc(firestore(), STATS_COLLECTION, statsKey),
         (snap) => {
-          const n = approvedCountFromStats(
+          const n = postedCountFromStats(
             snap.exists() ? (snap.data() as Record<string, unknown>) : undefined
           );
           if (n != null) totals.set(statsKey, n);

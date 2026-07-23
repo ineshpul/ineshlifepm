@@ -7,6 +7,7 @@ import {
   getDayKey,
   statsDocKeysForLeapDay,
 } from '../lib/leapDayKey';
+import { normalizeNyDateKey } from '../utils/nyTime';
 import { useAuth } from './auth';
 
 const STATS_COLLECTION = 'dailyChallengeStats';
@@ -20,10 +21,20 @@ function countCacheKey(uid: string, leapDayKey: string) {
   return `${uid}:${leapDayKey}`;
 }
 
-function approvedCountFromStats(data: Record<string, unknown> | undefined): number | null {
+function postedCountFromStats(data: Record<string, unknown> | undefined): number | null {
   if (!data) return null;
-  const n = Number(data.approvedPostCount);
-  if (Number.isFinite(n) && n >= 0) return n;
+  // Prefer submission count (pending + approved) so moderation lag does not zero the Today label.
+  const posted = Number(data.postedPostCount);
+  if (Number.isFinite(posted) && posted >= 0) return posted;
+  const approved = Number(data.approvedPostCount);
+  if (Number.isFinite(approved) && approved >= 0) return approved;
+  const countedPosted = data.countedPostedVideoIds;
+  if (countedPosted && typeof countedPosted === 'object' && !Array.isArray(countedPosted)) {
+    const keys = Object.keys(countedPosted as Record<string, unknown>).filter((k) =>
+      Boolean((countedPosted as Record<string, unknown>)[k])
+    );
+    if (keys.length > 0) return keys.length;
+  }
   const counted = data.countedApprovedVideoIds;
   if (counted && typeof counted === 'object' && !Array.isArray(counted)) {
     const keys = Object.keys(counted as Record<string, unknown>).filter((k) =>
@@ -50,7 +61,8 @@ function countApprovedInSnapshot(
 
 /**
  * Live approved-post count for today's leap (noon→noon NY).
- * Uses the same `challengeDate` keys + query shape as Feed (`orderBy createdAt desc`).
+ * Prefers the max of `dailyChallengeStats` and the approved-videos query so a brief empty
+ * videos snapshot cannot wipe a real stats count (which was showing "0 posted today").
  */
 export function useLiveCount(opts?: { enabled?: boolean; challengeDateKey?: string }) {
   const enabled = opts?.enabled !== false;
@@ -64,12 +76,12 @@ export function useLiveCount(opts?: { enabled?: boolean; challengeDateKey?: stri
       return;
     }
     if (!isFirebaseConfigured() || !authReady || !user?.uid) {
+      // Keep last known count while auth hydrates — avoid flashing "— posted today".
       return;
     }
 
     let alive = true;
     let videoCount = 0;
-    /** After the videos query fires, use it as source of truth (stats can stay high after deletes). */
     let videosSnapReady = false;
     const statsTotals = new Map<string, number>();
     let publishCount: (() => void) | null = null;
@@ -82,8 +94,8 @@ export function useLiveCount(opts?: { enabled?: boolean; challengeDateKey?: stri
 
     const setup = () => {
       const nowMs = Date.now();
-      const leapDayKey =
-        challengeDateKeyProp ?? getDayKey('America/New_York', nowMs);
+      const fallbackLeap = getDayKey('America/New_York', nowMs);
+      const leapDayKey = normalizeNyDateKey(String(challengeDateKeyProp ?? '').trim(), fallbackLeap);
       const inKeys = challengeDateInKeysForLeapDay(leapDayKey, nowMs);
       const statsDocKeys = statsDocKeysForLeapDay(leapDayKey, nowMs);
       const cacheKey = countCacheKey(user.uid, leapDayKey);
@@ -99,9 +111,9 @@ export function useLiveCount(opts?: { enabled?: boolean; challengeDateKey?: stri
             hasStats = true;
           }
         }
-        const next = videosSnapReady
-          ? videoCount
-          : Math.max(hasStats ? statsSum : 0, videoCount);
+        // Always take the higher signal. Stats alone used to be ignored after an empty
+        // videos snapshot, which zeroed the Today "posted today" label.
+        const next = Math.max(hasStats ? statsSum : 0, videoCount);
         countCache.set(cacheKey, next);
         setCount(next);
       };
@@ -113,18 +125,15 @@ export function useLiveCount(opts?: { enabled?: boolean; challengeDateKey?: stri
         publish();
       }
 
-      console.log('[live] posted today read', {
-        leapDayKey,
-        challengeDateInKeys: inKeys,
-        statsDocKeys,
-        statsDocPaths: statsDocKeys.map((k) => `${STATS_COLLECTION}/${k}`),
-        cachedCount: cached ?? null,
-      });
-
-      if (inKeys.length === 0) {
-        videoCount = 0;
-        publish();
-        return () => {};
+      if (__DEV__) {
+        console.log('[live] posted today read', {
+          leapDayKey,
+          challengeDateInKeys: inKeys,
+          statsDocKeys,
+          statsDocPaths: statsDocKeys.map((k) => `${STATS_COLLECTION}/${k}`),
+          cachedCount: cached ?? null,
+          videosSnapReady,
+        });
       }
 
       const scheduleRetry = () => {
@@ -139,6 +148,47 @@ export function useLiveCount(opts?: { enabled?: boolean; challengeDateKey?: stri
           teardown = setup();
         }, LISTENER_RETRY_MS);
       };
+
+      const unsubStatsList = statsDocKeys.map((statsKey) =>
+        onSnapshot(
+          doc(firestore(), STATS_COLLECTION, statsKey),
+          (snap) => {
+            const statsCount = postedCountFromStats(
+              snap.exists() ? (snap.data() as Record<string, unknown>) : undefined
+            );
+            if (statsCount != null) {
+              statsTotals.set(statsKey, statsCount);
+            } else {
+              statsTotals.delete(statsKey);
+            }
+            if (__DEV__) {
+              console.log('[live] posted today stats snapshot', {
+                statsKey,
+                exists: snap.exists(),
+                postedPostCount: snap.data()?.postedPostCount,
+                approvedPostCount: snap.data()?.approvedPostCount,
+                statsCount,
+              });
+            }
+            publish();
+          },
+          (err) => {
+            if (__DEV__) {
+              console.warn('[live] posted today stats listener failed', { statsKey, err });
+            }
+            publish();
+          }
+        )
+      );
+
+      if (inKeys.length === 0) {
+        videoCount = 0;
+        videosSnapReady = true;
+        publish();
+        return () => {
+          for (const u of unsubStatsList) u();
+        };
+      }
 
       const videosQ = query(
         collection(firestore(), 'videos'),
@@ -157,47 +207,25 @@ export function useLiveCount(opts?: { enabled?: boolean; challengeDateKey?: stri
           }
           videosSnapReady = true;
           videoCount = countApprovedInSnapshot(snap.docs);
-          console.log('[live] posted today videos snapshot', {
-            leapDayKey,
-            inKeys,
-            size: snap.size,
-            counted: videoCount,
-            fromCache: snap.metadata.fromCache,
-          });
+          if (__DEV__) {
+            console.log('[live] posted today videos snapshot', {
+              leapDayKey,
+              inKeys,
+              size: snap.size,
+              counted: videoCount,
+              fromCache: snap.metadata.fromCache,
+            });
+          }
           publish();
         },
         (err) => {
-          console.warn('[live] posted today videos listener failed', { leapDayKey, inKeys, err });
+          if (__DEV__) {
+            console.warn('[live] posted today videos listener failed', { leapDayKey, inKeys, err });
+          }
+          // Keep stats-driven count; retry videos in case of transient permission/index errors.
           publish();
           scheduleRetry();
         }
-      );
-
-      const unsubStatsList = statsDocKeys.map((statsKey) =>
-        onSnapshot(
-          doc(firestore(), STATS_COLLECTION, statsKey),
-          (snap) => {
-            const statsCount = approvedCountFromStats(
-              snap.exists() ? (snap.data() as Record<string, unknown>) : undefined
-            );
-            if (statsCount != null) {
-              statsTotals.set(statsKey, statsCount);
-            } else {
-              statsTotals.delete(statsKey);
-            }
-            console.log('[live] posted today stats snapshot', {
-              statsKey,
-              exists: snap.exists(),
-              approvedPostCount: snap.data()?.approvedPostCount,
-              statsCount,
-            });
-            publish();
-          },
-          (err) => {
-            console.warn('[live] posted today stats listener failed', { statsKey, err });
-            publish();
-          }
-        )
       );
 
       return () => {
@@ -215,7 +243,9 @@ export function useLiveCount(opts?: { enabled?: boolean; challengeDateKey?: stri
         teardown = setup();
       })
       .catch((err) => {
-        console.warn('[live] posted today authStateReady failed', err);
+        if (__DEV__) {
+          console.warn('[live] posted today authStateReady failed', err);
+        }
         if (!alive) return;
         teardown = setup();
       });
