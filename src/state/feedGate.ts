@@ -3,6 +3,13 @@ import { normalizeNyDateKey, nextNyDateKey, nyDateKeyToSortUtcMs } from '../util
 /** Feature flag — new tier-based feed gate (legacy preview path dormant when true). */
 export const FEED_GATE_V2 = true;
 
+/**
+ * Per-card frosted locks on newer leap days (tier 2).
+ * When false, the feed stays scrollable/playable; the since-last-leap banner can still nudge.
+ * Disabled after locks stole FlatList gestures and left users on a blank locked wall.
+ */
+export const TIER2_CARD_LOCKS_ENABLED = false;
+
 export type FeedGateTier = 'tier1_teaser' | 'tier2_daily';
 
 export function resolveFeedGateTier(hasEverPosted: boolean): FeedGateTier {
@@ -102,7 +109,8 @@ export function isTier2CardLocked(args: {
   const lastKey = args.lastPostedDateKey
     ? normalizeNyDateKey(args.lastPostedDateKey, '')
     : '';
-  if (!lastKey) return true;
+  // Missing last-post date: fail open so the whole feed is not frosted blank.
+  if (!lastKey) return false;
 
   const cdMs = nyDateKeyToSortUtcMs(cd, 0);
   const lastMs = nyDateKeyToSortUtcMs(lastKey, 0);

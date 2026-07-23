@@ -54,6 +54,7 @@ import { useAuth } from '../state/auth';
 import { markFeedGraduationSeen, useFeedGraduationSeen } from '../state/feedGraduation';
 import {
   FEED_GATE_V2,
+  TIER2_CARD_LOCKS_ENABLED,
   isAtTier1Wall,
   isTier2CardLocked,
   shouldShowLastLeapJumpChip,
@@ -956,7 +957,8 @@ export function FeedScreen() {
   const tier2NeedsPostToUnlock =
     isTier2Established && !hasPostedToday && postedDatesReady;
 
-  const tier2HasActiveLocks = tier2NeedsPostToUnlock;
+  /** Soft nudge only while card locks are off — keep feed fully playable. */
+  const tier2HasActiveLocks = TIER2_CARD_LOCKS_ENABLED && tier2NeedsPostToUnlock;
 
   const { leapsSinceLastPost, leapsSinceLastPostReady } = useLeapsSinceLastPostCount({
     enabled: tier2NeedsPostToUnlock,
@@ -964,7 +966,7 @@ export function FeedScreen() {
     viewingChallengeDateKey,
   });
 
-  const showSinceLastLeapBanner = tier2NeedsPostToUnlock;
+  const showSinceLastLeapBanner = tier2NeedsPostToUnlock && TIER2_CARD_LOCKS_ENABLED;
 
   const showTier1ExploreBanner =
     isTier1Teaser && teaserLimitReady && !showTeaserWallBar && !graduationWallDissolving;
@@ -1141,15 +1143,17 @@ export function FeedScreen() {
 
   /** Show while still above the last allowed leap day (locked newer content). */
   const activeFeedChallengeDate = displayVideos[activeScrollIndex]?.challengeDate;
-  const showLastLeapJump = shouldShowLastLeapJumpChip({
-    tier2NeedsPostToUnlock,
-    lastPostedDateKey,
-    lastLeapJumpIndex,
-    activeScrollIndex,
-    activeChallengeDate: activeFeedChallengeDate,
-    hasPostedToday,
-    bypassFeedGate,
-  });
+  const showLastLeapJump =
+    TIER2_CARD_LOCKS_ENABLED &&
+    shouldShowLastLeapJumpChip({
+      tier2NeedsPostToUnlock,
+      lastPostedDateKey,
+      lastLeapJumpIndex,
+      activeScrollIndex,
+      activeChallengeDate: activeFeedChallengeDate,
+      hasPostedToday,
+      bypassFeedGate,
+    });
 
   const scrollToLastLeap = React.useCallback(() => {
     const jumpIfReady = (): boolean => {
@@ -1764,6 +1768,7 @@ export function FeedScreen() {
               index === firstPreviousLeapsIndex;
 
             const wouldBeTier2Locked =
+              TIER2_CARD_LOCKS_ENABLED &&
               isTier2Established &&
               isTier2CardLocked({
                 challengeDate: item.challengeDate,
@@ -1772,6 +1777,7 @@ export function FeedScreen() {
                 bypassFeedGate,
               });
             const isTier2Locked =
+              TIER2_CARD_LOCKS_ENABLED &&
               isTier2Established &&
               isTier2CardLocked({
                 challengeDate: item.challengeDate,

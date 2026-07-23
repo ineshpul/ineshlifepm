@@ -82,12 +82,15 @@ export function FeedLockedCardOverlay({ unlocking = false }: Props) {
   }
 
   return (
-    <View style={styles.root} pointerEvents="auto">
+    // box-none: let vertical reel swipes reach FlatList; only the Leap CTA captures taps.
+    <View style={styles.root} pointerEvents="box-none">
       <View style={styles.frost} pointerEvents="none" />
-      <View style={styles.lockIcon}>
+      <View style={styles.lockIcon} pointerEvents="none">
         <Ionicons name="lock-closed-outline" size={28} color={colors.green} />
       </View>
-      <Text style={styles.title}>Post today&apos;s leap to unlock newer leaps</Text>
+      <Text style={styles.title} pointerEvents="none">
+        Post today&apos;s leap to unlock newer leaps
+      </Text>
       <PrimaryButton
         title="Leap"
         variant="green"
