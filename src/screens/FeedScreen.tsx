@@ -53,6 +53,7 @@ import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { useAuth } from '../state/auth';
 import { markFeedGraduationSeen, useFeedGraduationSeen } from '../state/feedGraduation';
 import {
+  FEED_GATE_DISABLED,
   FEED_GATE_V2,
   TIER2_CARD_LOCKS_ENABLED,
   isAtTier1Wall,
@@ -630,12 +631,15 @@ export function FeedScreen() {
   const { pendingFeedPlayback, clearPendingFeedPlayback } = useBackgroundPostUpload();
   const { user } = useAuth();
   const isStaffUser = Boolean(user?.isAdmin || user?.isModerator);
-  /** Review demo OR experiment `gate_off` — fully unlocked feed (no teaser wall / tier-2 locks). */
+  /** Review demo, experiment `gate_off`, or full gate kill-switch — unlocked playable feed. */
   const bypassFeedGate =
-    Boolean(user?.bypassFeedGate) || user?.experimentCohort === 'gate_off';
+    FEED_GATE_DISABLED ||
+    Boolean(user?.bypassFeedGate) ||
+    user?.experimentCohort === 'gate_off';
   const canViewEveryoneFeed = hasPostedToday || bypassFeedGate;
-  /** Legacy daily preview gate — dormant when {@link FEED_GATE_V2}. */
-  const feedPreviewMode = !FEED_GATE_V2 && Boolean(user?.uid && !canViewEveryoneFeed);
+  /** Legacy daily preview gate — dormant when {@link FEED_GATE_V2} or gate is disabled. */
+  const feedPreviewMode =
+    !FEED_GATE_DISABLED && !FEED_GATE_V2 && Boolean(user?.uid && !canViewEveryoneFeed);
 
   const { hasEverPosted, hasEverPostedHydrated } = useHasPostedAnyVideo(user?.uid);
   const gateTierResolved = hasEverPostedHydrated
