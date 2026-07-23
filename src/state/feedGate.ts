@@ -1,12 +1,18 @@
 import { normalizeNyDateKey, nextNyDateKey, nyDateKeyToSortUtcMs } from '../utils/nyTime';
 
+/**
+ * Kill-switch: restore the pre–feed-gate experience.
+ * Same Daily Leaps reel UI, but no teaser walls, frosted locks, or "post to unlock" chrome.
+ * Turn back to `false` only when re-shipping a working gate.
+ */
+export const FEED_GATE_DISABLED = true;
+
 /** Feature flag — new tier-based feed gate (legacy preview path dormant when true). */
-export const FEED_GATE_V2 = true;
+export const FEED_GATE_V2 = !FEED_GATE_DISABLED;
 
 /**
  * Per-card frosted locks on newer leap days (tier 2).
- * When false, the feed stays scrollable/playable; the since-last-leap banner can still nudge.
- * Disabled after locks stole FlatList gestures and left users on a blank locked wall.
+ * Forced off while {@link FEED_GATE_DISABLED} is true.
  */
 export const TIER2_CARD_LOCKS_ENABLED = false;
 
