@@ -58,6 +58,7 @@ export function BestPartCard({ post, showOwner = true }: Props) {
       width: '100%' as const,
       aspectRatio: 4 / 5,
       backgroundColor: '#111',
+      overflow: 'hidden' as const,
     },
     media: { width: '100%' as const, height: '100%' as const },
     playBtn: {
@@ -108,6 +109,18 @@ export function BestPartCard({ post, showOwner = true }: Props) {
       borderRadius: 8,
     },
     durationText: { color: '#fff', fontSize: 12, fontWeight: '700' as const },
+    pip: {
+      position: 'absolute' as const,
+      top: 12,
+      right: 12,
+      width: 88,
+      height: 118,
+      borderRadius: 12,
+      overflow: 'hidden' as const,
+      borderWidth: 2,
+      borderColor: '#fff',
+      backgroundColor: '#000',
+    },
   }));
 
   const relative = formatRelative(post.createdAt);
@@ -143,6 +156,19 @@ export function BestPartCard({ post, showOwner = true }: Props) {
             ) : null}
           </>
         )}
+        {post.secondaryUrl ? (
+          <View style={styles.pip}>
+            <Video
+              source={{ uri: post.secondaryUrl }}
+              style={styles.media}
+              resizeMode={ResizeMode.COVER}
+              shouldPlay={playing || post.mediaType === 'photo'}
+              isLooping
+              isMuted
+              useNativeControls={false}
+            />
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.body}>

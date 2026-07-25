@@ -284,11 +284,6 @@ export function BestPartScreen() {
               <Text style={styles.emptyTitle}>
                 {segment === 'mine' ? 'No moments yet' : 'No public moments yet'}
               </Text>
-              <Text style={styles.emptyBody}>
-                {segment === 'mine'
-                  ? 'Capture one good moment today through Leap’s camera. Photo or short video with a caption.'
-                  : 'When people share publicly, their best parts of the day show up here. No leap gate.'}
-              </Text>
             </View>
           }
           renderItem={({ item }) => (
@@ -304,7 +299,6 @@ export function BestPartScreen() {
             {postedToday ? 'Retake today’s moment' : 'Post the best part of your day'}
           </Text>
         </Pressable>
-        <Text style={styles.hint}>CAPTURED LIVE IN LEAP · NO UPLOADS</Text>
       </View>
     </Screen>
   );

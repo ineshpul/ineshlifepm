@@ -1069,6 +1069,9 @@ service cloud.firestore {
           'mediaType',
           'url',
           'storagePath',
+          'secondaryUrl',
+          'secondaryStoragePath',
+          'dualFrontIsPrimary',
           'durationSeconds',
           'isPrivate',
           'deleted',
@@ -1107,7 +1110,25 @@ service cloud.firestore {
           && (!('durationSeconds' in request.resource.data)
             || (request.resource.data.durationSeconds is int
               && request.resource.data.durationSeconds >= 0
-              && request.resource.data.durationSeconds <= 60));
+              && request.resource.data.durationSeconds <= 60))
+          && (
+            (
+              !('secondaryUrl' in request.resource.data)
+              && !('secondaryStoragePath' in request.resource.data)
+              && !('dualFrontIsPrimary' in request.resource.data)
+            )
+            || (
+              request.resource.data.mediaType == 'video'
+              && request.resource.data.secondaryUrl is string
+              && request.resource.data.secondaryUrl.size() > 0
+              && request.resource.data.secondaryUrl.size() < 2048
+              && request.resource.data.secondaryStoragePath is string
+              && request.resource.data.secondaryStoragePath.matches(
+                '^bestParts/' + request.auth.uid + '/' + request.resource.data.dateKey + '/[^/]+$'
+              )
+              && request.resource.data.dualFrontIsPrimary is bool
+            )
+          );
       }
 
       allow read: if signedIn()

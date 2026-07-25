@@ -11,12 +11,16 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Audio, Video, ResizeMode } from 'expo-av';
 import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera';
-import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import {
+  DualCameraRecorder,
+  type DualCameraController,
+} from '../components/DualCameraRecorder';
 import { useAuth } from '../state/auth';
 import { commitBestPartPost } from '../services/bestPartPosts';
 import { uploadBestPartMedia } from '../services/bestPartUpload';
@@ -31,6 +35,9 @@ import { showError, showInfo } from '../utils/ui';
 
 type Stage = 'capture' | 'compose';
 type CaptureMode = BestPartMediaType;
+type CameraLayout = 'single' | 'dual';
+
+const DOUBLE_TAP_MS = 280;
 
 export function BestPartCaptureScreen() {
   const { colors } = useTheme();
@@ -38,10 +45,13 @@ export function BestPartCaptureScreen() {
   const navigation = useNavigation();
   const { user } = useAuth();
   const cameraRef = React.useRef<CameraView | null>(null);
+  const dualControllerRef = React.useRef<DualCameraController | null>(null);
+  const lastTapRef = React.useRef(0);
   const [permission, requestPermission] = useCameraPermissions();
 
   const [stage, setStage] = React.useState<Stage>('capture');
   const [mode, setMode] = React.useState<CaptureMode>('photo');
+  const [cameraLayout, setCameraLayout] = React.useState<CameraLayout>('single');
   const [facing, setFacing] = React.useState<CameraType>('back');
   const [ready, setReady] = React.useState(false);
   const [recording, setRecording] = React.useState(false);
@@ -50,12 +60,16 @@ export function BestPartCaptureScreen() {
   const recordSecsRef = React.useRef(0);
 
   const [localUri, setLocalUri] = React.useState<string | null>(null);
+  const [secondaryUri, setSecondaryUri] = React.useState<string | null>(null);
+  const [dualFrontIsPrimary, setDualFrontIsPrimary] = React.useState(false);
   const [mediaType, setMediaType] = React.useState<CaptureMode>('photo');
   const [durationSeconds, setDurationSeconds] = React.useState<number | undefined>();
   const [caption, setCaption] = React.useState('');
   const [isPrivate, setIsPrivate] = React.useState(false);
   const [posting, setPosting] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
+
+  const dualMode = cameraLayout === 'dual' && mode === 'video';
 
   const styles = useThemedStyles((c) => ({
     root: { flex: 1, backgroundColor: '#0E0E0E' },
@@ -79,6 +93,7 @@ export function BestPartCaptureScreen() {
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
     },
+    iconBtnActive: { backgroundColor: c.green },
     modeRow: {
       position: 'absolute' as const,
       bottom: insets.bottom + 110,
@@ -86,17 +101,20 @@ export function BestPartCaptureScreen() {
       right: 0,
       flexDirection: 'row' as const,
       justifyContent: 'center' as const,
-      gap: 18,
+      gap: 22,
       zIndex: 4,
     },
     modeChip: {
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      borderRadius: 999,
+      width: 52,
+      height: 52,
+      borderRadius: 26,
       backgroundColor: 'rgba(0,0,0,0.45)',
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      borderWidth: 2,
+      borderColor: 'transparent',
     },
-    modeChipOn: { backgroundColor: c.green },
-    modeText: { color: '#fff', fontWeight: '800' as const, fontSize: 13, letterSpacing: 0.8 },
+    modeChipOn: { borderColor: '#fff' },
     shutterWrap: {
       position: 'absolute' as const,
       bottom: insets.bottom + 28,
@@ -120,40 +138,26 @@ export function BestPartCaptureScreen() {
       borderRadius: 30,
       backgroundColor: '#fff',
     },
+    shutterInnerVideo: {
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      backgroundColor: c.coral,
+    },
     shutterRecording: {
       width: 28,
       height: 28,
       borderRadius: 6,
       backgroundColor: c.coral,
     },
-    prompt: {
+    recordTimer: {
       position: 'absolute' as const,
       top: insets.top + 64,
-      left: 24,
-      right: 24,
+      alignSelf: 'center' as const,
       zIndex: 4,
-      alignItems: 'center' as const,
-    },
-    promptText: {
-      color: '#fff',
-      fontSize: 20,
-      fontWeight: '800' as const,
-      textAlign: 'center' as const,
-      textShadowColor: 'rgba(0,0,0,0.45)',
-      textShadowRadius: 8,
-    },
-    subPrompt: {
-      marginTop: 6,
-      color: 'rgba(255,255,255,0.8)',
-      fontSize: 13,
-      fontWeight: '600' as const,
-      textAlign: 'center' as const,
-    },
-    recordTimer: {
-      marginTop: 10,
       color: c.coral,
       fontWeight: '800' as const,
-      fontSize: 16,
+      fontSize: 18,
     },
     compose: {
       flex: 1,
@@ -163,12 +167,18 @@ export function BestPartCaptureScreen() {
       paddingBottom: insets.bottom + 16,
     },
     composeTop: {
-      flexDirection: 'row' as const,
-      alignItems: 'center' as const,
-      justifyContent: 'space-between' as const,
+      height: 44,
       marginBottom: 12,
+      justifyContent: 'center' as const,
     },
-    composeTitle: { fontSize: 18, fontWeight: '800' as const, color: c.text },
+    composeSideLeft: { position: 'absolute' as const, left: 0, zIndex: 2 },
+    composeSideRight: { position: 'absolute' as const, right: 0, zIndex: 2 },
+    composeTitle: {
+      fontSize: 18,
+      fontWeight: '800' as const,
+      color: c.text,
+      textAlign: 'center' as const,
+    },
     preview: {
       width: '100%' as const,
       aspectRatio: 4 / 5,
@@ -178,6 +188,18 @@ export function BestPartCaptureScreen() {
       marginBottom: 14,
     },
     previewMedia: { width: '100%' as const, height: '100%' as const },
+    previewPip: {
+      position: 'absolute' as const,
+      top: 12,
+      right: 12,
+      width: 88,
+      height: 118,
+      borderRadius: 12,
+      overflow: 'hidden' as const,
+      borderWidth: 2,
+      borderColor: '#fff',
+      backgroundColor: '#000',
+    },
     input: {
       minHeight: 88,
       borderRadius: 16,
@@ -199,7 +221,6 @@ export function BestPartCaptureScreen() {
       paddingVertical: 10,
     },
     privateLabel: { fontSize: 15, fontWeight: '700' as const, color: c.text },
-    privateHint: { fontSize: 12, color: c.muted2, marginTop: 2, maxWidth: 240 },
     postBtn: {
       marginTop: 18,
       backgroundColor: c.green,
@@ -217,7 +238,12 @@ export function BestPartCaptureScreen() {
       gap: 12,
       backgroundColor: c.bg,
     },
-    permText: { fontSize: 16, color: c.text, textAlign: 'center' as const, fontWeight: '600' as const },
+    permText: {
+      fontSize: 16,
+      color: c.text,
+      textAlign: 'center' as const,
+      fontWeight: '600' as const,
+    },
     permBtn: {
       marginTop: 8,
       backgroundColor: c.green,
@@ -236,6 +262,29 @@ export function BestPartCaptureScreen() {
 
   React.useEffect(() => () => clearRecordTimer(), [clearRecordTimer]);
 
+  const ensureMic = React.useCallback(async () => {
+    const current = await Audio.getPermissionsAsync();
+    if (current.granted) return true;
+    const next = await Audio.requestPermissionsAsync();
+    return next.granted;
+  }, []);
+
+  const flipFacing = React.useCallback(() => {
+    if (recording || dualMode) return;
+    setReady(false);
+    setFacing((f) => (f === 'back' ? 'front' : 'back'));
+  }, [recording, dualMode]);
+
+  const onPreviewTap = React.useCallback(() => {
+    const now = Date.now();
+    if (now - lastTapRef.current < DOUBLE_TAP_MS) {
+      lastTapRef.current = 0;
+      flipFacing();
+      return;
+    }
+    lastTapRef.current = now;
+  }, [flipFacing]);
+
   const close = () => {
     if (posting) return;
     navigation.goBack();
@@ -244,6 +293,8 @@ export function BestPartCaptureScreen() {
   const onRetake = () => {
     if (posting) return;
     setLocalUri(null);
+    setSecondaryUri(null);
+    setDualFrontIsPrimary(false);
     setCaption('');
     setDurationSeconds(undefined);
     setStage('capture');
@@ -259,6 +310,8 @@ export function BestPartCaptureScreen() {
       });
       if (!photo?.uri) throw new Error('No photo returned.');
       setLocalUri(photo.uri);
+      setSecondaryUri(null);
+      setDualFrontIsPrimary(false);
       setMediaType('photo');
       setDurationSeconds(undefined);
       setStage('compose');
@@ -268,6 +321,14 @@ export function BestPartCaptureScreen() {
   };
 
   const stopRecording = async () => {
+    if (dualMode) {
+      try {
+        await dualControllerRef.current?.stop();
+      } catch {
+        // race with auto-stop
+      }
+      return;
+    }
     try {
       await cameraRef.current?.stopRecording();
     } catch {
@@ -275,8 +336,13 @@ export function BestPartCaptureScreen() {
     }
   };
 
-  const startRecording = async () => {
+  const startSingleRecording = async () => {
     if (!cameraRef.current || !ready || recording) return;
+    const micOk = await ensureMic();
+    if (!micOk) {
+      showInfo('Microphone needed', 'Allow microphone access to record video.');
+      return;
+    }
     setRecording(true);
     setRecordSecs(0);
     recordSecsRef.current = 0;
@@ -297,11 +363,38 @@ export function BestPartCaptureScreen() {
       setRecording(false);
       if (!clip?.uri) throw new Error('No video returned.');
       setLocalUri(clip.uri);
+      setSecondaryUri(null);
+      setDualFrontIsPrimary(false);
       setMediaType('video');
       setDurationSeconds(
         Math.min(BEST_PART_MAX_VIDEO_SECONDS, Math.max(1, recordSecsRef.current || 1))
       );
       setStage('compose');
+    } catch (err) {
+      clearRecordTimer();
+      setRecording(false);
+      showError('Could not record', err);
+    }
+  };
+
+  const startDualRecording = async () => {
+    const controller = dualControllerRef.current;
+    if (!controller?.supported || !controller.isReady || recording) return;
+    const micOk = await ensureMic();
+    if (!micOk) {
+      showInfo('Microphone needed', 'Allow microphone access to record video.');
+      return;
+    }
+    setRecording(true);
+    setRecordSecs(0);
+    recordSecsRef.current = 0;
+    clearRecordTimer();
+    recordTimerRef.current = setInterval(() => {
+      recordSecsRef.current += 1;
+      setRecordSecs(recordSecsRef.current);
+    }, 1000);
+    try {
+      await controller.start();
     } catch (err) {
       clearRecordTimer();
       setRecording(false);
@@ -318,37 +411,58 @@ export function BestPartCaptureScreen() {
       void stopRecording();
       return;
     }
-    void startRecording();
+    if (dualMode) {
+      void startDualRecording();
+      return;
+    }
+    void startSingleRecording();
   };
 
   const onPost = async () => {
     if (!user?.uid || !localUri || posting) return;
     const trimmed = caption.trim();
     if (!trimmed) {
-      showInfo('Caption needed', 'Add a short caption for your moment.');
+      showInfo('Caption needed', 'Add a short caption.');
       return;
     }
     setPosting(true);
     setProgress(0);
     try {
-      const uploaded = await uploadBestPartMedia({
+      const dateKey = nyDateKey();
+      const primary = await uploadBestPartMedia({
         uid: user.uid,
-        dateKey: nyDateKey(),
+        dateKey,
         localUri,
         mediaType,
-        onProgress: setProgress,
+        onProgress: (pct) => setProgress(secondaryUri ? Math.round(pct * 0.55) : pct),
       });
+      let secondary:
+        | { url: string; storagePath: string }
+        | undefined;
+      if (mediaType === 'video' && secondaryUri) {
+        secondary = await uploadBestPartMedia({
+          uid: user.uid,
+          dateKey,
+          localUri: secondaryUri,
+          mediaType: 'video',
+          onProgress: (pct) => setProgress(55 + Math.round(pct * 0.45)),
+        });
+      }
       await commitBestPartPost({
         uid: user.uid,
         username: user.username,
         caption: trimmed,
         mediaType,
-        url: uploaded.url,
-        storagePath: uploaded.storagePath,
+        url: primary.url,
+        storagePath: primary.storagePath,
+        secondaryUrl: secondary?.url,
+        secondaryStoragePath: secondary?.storagePath,
+        dualFrontIsPrimary: secondary ? dualFrontIsPrimary : undefined,
         isPrivate,
         durationSeconds: mediaType === 'video' ? durationSeconds : undefined,
+        dateKey,
       });
-      showInfo('Posted', isPrivate ? 'Saved privately to Mine.' : 'Shared with the community.');
+      showInfo('Posted', isPrivate ? 'Saved privately.' : 'Shared.');
       navigation.goBack();
     } catch (err) {
       showError('Could not post', err);
@@ -368,7 +482,7 @@ export function BestPartCaptureScreen() {
   if (!permission.granted) {
     return (
       <View style={styles.perm}>
-        <Text style={styles.permText}>Leap needs camera access to capture today’s best moment live.</Text>
+        <Text style={styles.permText}>Camera access is required.</Text>
         <Pressable style={styles.permBtn} onPress={() => void requestPermission()}>
           <Text style={styles.postText}>Allow camera</Text>
         </Pressable>
@@ -386,11 +500,11 @@ export function BestPartCaptureScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.composeTop}>
-          <Pressable onPress={onRetake} disabled={posting} hitSlop={8}>
+          <Pressable style={styles.composeSideLeft} onPress={onRetake} disabled={posting} hitSlop={8}>
             <Text style={{ color: colors.green, fontWeight: '800' }}>Retake</Text>
           </Pressable>
-          <Text style={styles.composeTitle}>Caption & share</Text>
-          <Pressable onPress={close} disabled={posting} hitSlop={8}>
+          <Text style={styles.composeTitle}>New Post</Text>
+          <Pressable style={styles.composeSideRight} onPress={close} disabled={posting} hitSlop={8}>
             <Ionicons name="close" size={24} color={colors.text} />
           </Pressable>
         </View>
@@ -408,13 +522,26 @@ export function BestPartCaptureScreen() {
               useNativeControls={false}
             />
           )}
+          {secondaryUri ? (
+            <View style={styles.previewPip}>
+              <Video
+                source={{ uri: secondaryUri }}
+                style={StyleSheet.absoluteFill}
+                resizeMode={ResizeMode.COVER}
+                shouldPlay
+                isLooping
+                isMuted
+                useNativeControls={false}
+              />
+            </View>
+          ) : null}
         </View>
 
         <TextInput
           style={styles.input}
           value={caption}
           onChangeText={(t) => setCaption(t.slice(0, BEST_PART_MAX_CAPTION))}
-          placeholder="What made this the best part?"
+          placeholder="Caption"
           placeholderTextColor={colors.muted2}
           multiline
           maxLength={BEST_PART_MAX_CAPTION}
@@ -422,10 +549,7 @@ export function BestPartCaptureScreen() {
         />
 
         <View style={styles.privateRow}>
-          <View>
-            <Text style={styles.privateLabel}>Keep it private</Text>
-            <Text style={styles.privateHint}>Only you see it in Mine. Off = Community.</Text>
-          </View>
+          <Text style={styles.privateLabel}>Keep it private</Text>
           <Switch
             value={isPrivate}
             onValueChange={setIsPrivate}
@@ -443,7 +567,7 @@ export function BestPartCaptureScreen() {
           {posting ? (
             <Text style={styles.postText}>Posting… {progress}%</Text>
           ) : (
-            <Text style={styles.postText}>{isPrivate ? 'Save privately' : 'Post'}</Text>
+            <Text style={styles.postText}>{isPrivate ? 'Save' : 'Post'}</Text>
           )}
         </Pressable>
       </KeyboardAvoidingView>
@@ -452,38 +576,82 @@ export function BestPartCaptureScreen() {
 
   return (
     <View style={styles.root}>
-      <CameraView
-        key={`${mode}-${facing}`}
-        ref={cameraRef}
-        style={StyleSheet.absoluteFill}
-        facing={facing}
-        mode={mode === 'photo' ? 'picture' : 'video'}
-        mirror={facing === 'front'}
-        onCameraReady={() => setReady(true)}
-        onMountError={({ message }) => showError('Camera error', message)}
-      />
+      {dualMode ? (
+        <DualCameraRecorder
+          active
+          maxDurationSec={BEST_PART_MAX_VIDEO_SECONDS}
+          controllerRef={dualControllerRef}
+          onRecordingTick={(left) => {
+            const used = Math.max(0, BEST_PART_MAX_VIDEO_SECONDS - left);
+            recordSecsRef.current = used;
+            setRecordSecs(used);
+          }}
+          onCapture={(clip) => {
+            clearRecordTimer();
+            setRecording(false);
+            setLocalUri(clip.primaryUri);
+            setSecondaryUri(clip.secondaryUri);
+            setDualFrontIsPrimary(clip.frontIsPrimary);
+            setMediaType('video');
+            setDurationSeconds(
+              Math.min(BEST_PART_MAX_VIDEO_SECONDS, Math.max(1, recordSecsRef.current || 1))
+            );
+            setStage('compose');
+          }}
+          onError={(err) => {
+            clearRecordTimer();
+            setRecording(false);
+            showError('Camera error', err);
+          }}
+        />
+      ) : (
+        <View style={StyleSheet.absoluteFill}>
+          <CameraView
+            key={`${mode}-${facing}`}
+            ref={cameraRef}
+            style={StyleSheet.absoluteFill}
+            facing={facing}
+            mode={mode === 'photo' ? 'picture' : 'video'}
+            mirror={facing === 'front'}
+            onCameraReady={() => setReady(true)}
+            onMountError={({ message }) => showError('Camera error', message)}
+          />
+          <Pressable
+            style={[StyleSheet.absoluteFill, { zIndex: 1 }]}
+            onPress={onPreviewTap}
+            accessibilityLabel="Double tap to flip camera"
+          />
+        </View>
+      )}
 
       <View style={styles.topBar}>
         <Pressable style={styles.iconBtn} onPress={close} accessibilityLabel="Close">
           <Ionicons name="close" size={22} color="#fff" />
         </Pressable>
-        <Pressable
-          style={styles.iconBtn}
-          onPress={() => {
-            setReady(false);
-            setFacing((f) => (f === 'back' ? 'front' : 'back'));
-          }}
-          accessibilityLabel="Flip camera"
-        >
-          <Ionicons name="camera-reverse-outline" size={22} color="#fff" />
-        </Pressable>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          {!dualMode && !recording ? (
+            <Pressable style={styles.iconBtn} onPress={flipFacing} accessibilityLabel="Flip camera">
+              <Ionicons name="camera-reverse-outline" size={22} color="#fff" />
+            </Pressable>
+          ) : null}
+          {mode === 'video' && !recording ? (
+            <Pressable
+              style={[styles.iconBtn, dualMode && styles.iconBtnActive]}
+              onPress={() => {
+                setCameraLayout((m) => (m === 'single' ? 'dual' : 'single'));
+                setReady(false);
+              }}
+              accessibilityLabel={dualMode ? 'Single camera' : 'Dual camera'}
+            >
+              <Ionicons name={dualMode ? 'copy' : 'copy-outline'} size={20} color="#fff" />
+            </Pressable>
+          ) : null}
+        </View>
       </View>
 
-      <View style={styles.prompt} pointerEvents="none">
-        <Text style={styles.promptText}>Post the best part of your day</Text>
-        <Text style={styles.subPrompt}>Captured live in Leap. No uploads.</Text>
-        {recording ? <Text style={styles.recordTimer}>0:{String(recordSecs).padStart(2, '0')}</Text> : null}
-      </View>
+      {recording ? (
+        <Text style={styles.recordTimer}>0:{String(recordSecs).padStart(2, '0')}</Text>
+      ) : null}
 
       {!recording ? (
         <View style={styles.modeRow}>
@@ -491,10 +659,12 @@ export function BestPartCaptureScreen() {
             style={[styles.modeChip, mode === 'photo' && styles.modeChipOn]}
             onPress={() => {
               setReady(false);
+              setCameraLayout('single');
               setMode('photo');
             }}
+            accessibilityLabel="Photo"
           >
-            <Text style={styles.modeText}>PHOTO</Text>
+            <Ionicons name="camera" size={26} color="#fff" />
           </Pressable>
           <Pressable
             style={[styles.modeChip, mode === 'video' && styles.modeChipOn]}
@@ -502,8 +672,9 @@ export function BestPartCaptureScreen() {
               setReady(false);
               setMode('video');
             }}
+            accessibilityLabel="Video"
           >
-            <Text style={styles.modeText}>VIDEO</Text>
+            <Ionicons name="videocam" size={26} color={colors.coral} />
           </Pressable>
         </View>
       ) : null}
@@ -512,10 +683,20 @@ export function BestPartCaptureScreen() {
         <Pressable
           style={styles.shutterOuter}
           onPress={onShutter}
-          disabled={!ready}
-          accessibilityLabel={mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : 'Start recording'}
+          disabled={dualMode ? false : !ready}
+          accessibilityLabel={
+            mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : 'Start recording'
+          }
         >
-          <View style={recording ? styles.shutterRecording : styles.shutterInner} />
+          <View
+            style={
+              recording
+                ? styles.shutterRecording
+                : mode === 'video'
+                  ? styles.shutterInnerVideo
+                  : styles.shutterInner
+            }
+          />
         </Pressable>
       </View>
     </View>

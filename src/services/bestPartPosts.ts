@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteField,
   doc,
   getDoc,
   limit,
@@ -42,6 +43,10 @@ function mapDoc(id: string, data: Record<string, unknown>): BestPartPost | null 
     mediaType,
     url,
     storagePath,
+    secondaryUrl: typeof data.secondaryUrl === 'string' ? data.secondaryUrl : undefined,
+    secondaryStoragePath:
+      typeof data.secondaryStoragePath === 'string' ? data.secondaryStoragePath : undefined,
+    dualFrontIsPrimary: data.dualFrontIsPrimary === true,
     durationSeconds: typeof data.durationSeconds === 'number' ? data.durationSeconds : undefined,
     isPrivate: data.isPrivate === true,
     deleted: data.deleted === true,
@@ -59,6 +64,9 @@ export async function commitBestPartPost(args: {
   mediaType: BestPartMediaType;
   url: string;
   storagePath: string;
+  secondaryUrl?: string;
+  secondaryStoragePath?: string;
+  dualFrontIsPrimary?: boolean;
   isPrivate: boolean;
   durationSeconds?: number;
   dateKey?: string;
@@ -78,7 +86,7 @@ export async function commitBestPartPost(args: {
   const existing = await getDoc(doc(firestore(), BEST_PART_COLLECTION, id));
   const prev = existing.exists() ? (existing.data() as Partial<BestPartDoc>) : null;
 
-  const payload: BestPartDoc = {
+  const payload: Record<string, unknown> = {
     uid: args.uid,
     username: args.username.trim() || 'user',
     ...(photoUrl ? { photoUrl } : {}),
@@ -95,6 +103,16 @@ export async function commitBestPartPost(args: {
     createdAt: prev?.createdAt ?? serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
+
+  if (args.secondaryUrl && args.secondaryStoragePath) {
+    payload.secondaryUrl = args.secondaryUrl;
+    payload.secondaryStoragePath = args.secondaryStoragePath;
+    payload.dualFrontIsPrimary = args.dualFrontIsPrimary === true;
+  } else if (existing.exists()) {
+    payload.secondaryUrl = deleteField();
+    payload.secondaryStoragePath = deleteField();
+    payload.dualFrontIsPrimary = deleteField();
+  }
 
   await setDoc(doc(firestore(), BEST_PART_COLLECTION, id), payload, { merge: true });
   return { id, dateKey };

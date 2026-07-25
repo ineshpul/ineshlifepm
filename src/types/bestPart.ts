@@ -12,6 +12,10 @@ export type BestPartDoc = {
   mediaType: BestPartMediaType;
   url: string;
   storagePath: string;
+  /** Optional BeReal-style PIP companion clip (dual-camera video). */
+  secondaryUrl?: string;
+  secondaryStoragePath?: string;
+  dualFrontIsPrimary?: boolean;
   durationSeconds?: number;
   isPrivate: boolean;
   deleted: boolean;
