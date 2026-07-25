@@ -1,38 +1,45 @@
-{
-  "cli": {
-    "version": ">= 18.8.1",
-    "appVersionSource": "local"
-  },
-  "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal",
-      "ios": {
-        "image": "macos-sequoia-15.6-xcode-26.2"
-      },
-      "channel": "development"
-    },
-    "preview": {
-      "distribution": "internal",
-      "ios": {
-        "image": "macos-sequoia-15.6-xcode-26.2"
-      },
-      "channel": "preview"
-    },
-    "production": {
-      "autoIncrement": true,
-      "ios": {
-        "image": "macos-sequoia-15.6-xcode-26.2"
-      },
-      "channel": "production"
-    }
-  },
-  "submit": {
-    "production": {
-      "ios": {
-        "appleTeamId": "8T2CFL7T23",
-        "ascAppId": "6764062329"
-      }
-    }
-  }
+﻿{
+    "cli":  {
+                "version":  "\u003e= 18.8.1",
+                "appVersionSource":  "local"
+            },
+    "build":  {
+                  "development":  {
+                                      "developmentClient":  true,
+                                      "distribution":  "internal",
+                                      "ios":  {
+                                                  "image":  "macos-sequoia-15.6-xcode-26.2"
+                                              },
+                                      "channel":  "development"
+                                  },
+                  "preview":  {
+                                  "distribution":  "internal",
+                                  "ios":  {
+                                              "image":  "macos-sequoia-15.6-xcode-26.2"
+                                          },
+                                  "channel":  "preview"
+                              },
+                  "production":  {
+                                     "autoIncrement":  true,
+                                     "ios":  {
+                                                 "image":  "macos-sequoia-15.6-xcode-26.2"
+                                             },
+                                     "channel":  "production"
+                                 },
+                  "internalTesting":  {
+                                          "distribution":  "store",
+                                          "channel":  "preview",
+                                          "ios":  {
+                                                      "image":  "macos-sequoia-15.6-xcode-26.2"
+                                                  }
+                                      }
+              },
+    "submit":  {
+                   "production":  {
+                                      "ios":  {
+                                                  "appleTeamId":  "8T2CFL7T23",
+                                                  "ascAppId":  "6764062329"
+                                              }
+                                  }
+               }
 }
