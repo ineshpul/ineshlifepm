@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Platform } from 'react-native';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused, useNavigation, useNavigationState } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { useThemedStackScreenOptions } from './themedStackScreenOptions';
@@ -32,13 +32,33 @@ const Stack = createNativeStackNavigator<ChatStackParamList>();
 export function ChatStackNavigator() {
   const tabFocused = useIsFocused();
   const themedHeader = useThemedStackScreenOptions();
+  const navigation = useNavigation();
+  const nestedRouteName = useNavigationState(
+    (state) => state.routes[state.index]?.name ?? 'ChatInbox'
+  );
+
+  /**
+   * Material-top-tabs (UIPageViewController) asserts if the pager animates while a nested
+   * chat screen is pushed — disable tab swipe off the inbox to avoid SIGABRT on iOS.
+   */
+  React.useLayoutEffect(() => {
+    const parent = navigation.getParent();
+    if (!parent) return;
+    const onInbox = nestedRouteName === 'ChatInbox';
+    parent.setOptions({ swipeEnabled: onInbox });
+    return () => {
+      parent.setOptions({ swipeEnabled: true });
+    };
+  }, [navigation, nestedRouteName]);
 
   return (
     <Stack.Navigator
       screenOptions={{
         ...themedHeader,
         headerShown: tabFocused,
-        ...(Platform.OS === 'ios' ? { headerBackTitle: '' } : {}),
+        ...(Platform.OS === 'ios'
+          ? { headerBackTitle: '', headerBackButtonDisplayMode: 'minimal' as const }
+          : {}),
       }}
     >
       <Stack.Screen name="ChatInbox" component={ChatInboxScreen} options={{ title: 'Chats' }} />
@@ -55,7 +75,11 @@ export function ChatStackNavigator() {
       />
       <Stack.Screen name="GroupInfo" component={GroupInfoScreen} options={{ title: 'Group info' }} />
       <Stack.Screen name="NewChat" component={NewChatScreen} options={{ title: 'New message' }} />
-      <Stack.Screen name="NewGroup" component={NewGroupScreen} options={{ title: 'New group' }} />
+      <Stack.Screen
+        name="NewGroup"
+        component={NewGroupScreen}
+        options={{ title: 'New group', headerBackVisible: false }}
+      />
       <Stack.Screen name="MemberPicker" component={MemberPickerScreen} options={{ title: 'Add people' }} />
       <Stack.Screen
         name="ChatSearch"

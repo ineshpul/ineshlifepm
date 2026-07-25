@@ -17,6 +17,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
+import { ChatHeaderBack } from '../chat/components/ChatHeaderBack';
 import {
   subscribeMutualFollows,
   syncFollowingProfilePhotos,
@@ -33,7 +34,7 @@ export function MemberPickerScreen({ navigation, route }: Props) {
     screen: { flex: 1, backgroundColor: colors.bg },
     hint: {
       marginHorizontal: 16,
-      marginTop: 10,
+      marginTop: 8,
       fontSize: 13,
       fontWeight: '600',
       color: colors.muted,
@@ -107,6 +108,20 @@ export function MemberPickerScreen({ navigation, route }: Props) {
   const [loading, setLoading] = React.useState(true);
   const [q, setQ] = React.useState('');
   const [sel, setSel] = React.useState<Set<string>>(() => new Set(existing));
+
+  const goBack = React.useCallback(() => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.navigate('NewGroup', { pickedUids: Array.from(sel) });
+  }, [navigation, sel]);
+
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      headerBackVisible: false,
+      headerLeft: () => (
+        <ChatHeaderBack onPress={goBack} accessibilityLabel="Back to New group" />
+      ),
+    });
+  }, [navigation, goBack]);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !user?.uid) {

@@ -23,6 +23,7 @@ import {
 } from '../services/social';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { getOrCreateDm } from '../services/chat/chatFirestore';
+import { ChatHeaderBack } from '../chat/components/ChatHeaderBack';
 import { ChatHeaderIconButton } from '../chat/components/ChatHeaderIconButton';
 import { showError } from '../utils/ui';
 
@@ -135,25 +136,36 @@ export function NewChatScreen({ navigation, route }: Props) {
     navigation.replace('ChatInbox');
   }, [navigation]);
 
-  React.useEffect(() => {
-    // When sharing, use the native stack header (avoid double headers).
-    if (!sharePost) return;
+  const goBack = React.useCallback(() => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.navigate('ChatInbox');
+  }, [navigation]);
+
+  React.useLayoutEffect(() => {
+    // Flat custom header controls — avoids iOS 26 circular bar-button chrome.
+    if (sharePost) {
+      navigation.setOptions({
+        title: 'Share',
+        headerBackVisible: false,
+        headerLeft: () => (
+          <ChatHeaderIconButton
+            name="close"
+            onPress={cancelShare}
+            accessibilityLabel="Cancel sharing"
+            size={22}
+          />
+        ),
+      });
+      return;
+    }
     navigation.setOptions({
-      title: 'Share',
+      title: 'New message',
       headerBackVisible: false,
       headerLeft: () => (
-        <ChatHeaderIconButton
-          name="close"
-          onPress={cancelShare}
-          accessibilityLabel="Cancel sharing"
-          size={22}
-        />
+        <ChatHeaderBack onPress={goBack} accessibilityLabel="Back to Chats" />
       ),
     });
-    return () => {
-      navigation.setOptions({ title: 'New message', headerLeft: undefined, headerBackVisible: true });
-    };
-  }, [navigation, sharePost, cancelShare]);
+  }, [navigation, sharePost, cancelShare, goBack]);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !user?.uid) {

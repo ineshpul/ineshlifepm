@@ -111,11 +111,6 @@ export function ChatInboxScreen({ navigation }: Props) {
             accessibilityLabel="Search chats"
           />
           <ChatHeaderIconButton
-            name="people-outline"
-            onPress={() => navigation.navigate('NewGroup')}
-            accessibilityLabel="New group"
-          />
-          <ChatHeaderIconButton
             name="create-outline"
             onPress={() => navigation.navigate('NewChat')}
             accessibilityLabel="New chat"

@@ -1,12 +1,14 @@
 import * as React from 'react';
-import { Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { Ionicons } from '@expo/vector-icons';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
+import { ChatHeaderBack } from '../chat/components/ChatHeaderBack';
 import { createGroupConversation } from '../services/chat/chatFirestore';
 import { subscribeMutualFollows, type FollowingRow } from '../services/social';
 import { isFirebaseConfigured } from '../firebase/firebase';
@@ -18,7 +20,13 @@ export function NewGroupScreen({ navigation, route }: Props) {
   const { user } = useAuth();
   const { colors } = useTheme();
   const styles = useThemedStyles((colors) => ({
-    screen: { flex: 1, backgroundColor: colors.bg, padding: 20, gap: 12 },
+    screen: {
+      flex: 1,
+      backgroundColor: colors.bg,
+      paddingHorizontal: 20,
+      paddingTop: 12,
+      gap: 12,
+    },
     label: { fontSize: 13, fontWeight: '900', color: colors.muted, letterSpacing: 0.4 },
     input: {
       borderWidth: 1,
@@ -30,9 +38,33 @@ export function NewGroupScreen({ navigation, route }: Props) {
       backgroundColor: colors.card,
       color: colors.text,
     },
+    addRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: 14,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    addRowPressed: { opacity: 0.88 },
+    addIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      backgroundColor: colors.cardTint,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    addBody: { flex: 1, minWidth: 0 },
+    addTitle: { fontSize: 15, fontWeight: '800', color: colors.text },
+    addSub: { marginTop: 2, fontSize: 12, fontWeight: '600', color: colors.muted },
     meta: { fontSize: 14, color: colors.muted, fontWeight: '600', lineHeight: 20 },
     people: { fontSize: 14, color: colors.text, fontWeight: '700', lineHeight: 20 },
-    hint: { fontSize: 13, color: colors.muted, fontWeight: '600', lineHeight: 18 },
   }));
 
   const picked = route.params?.pickedUids ?? [];
@@ -56,18 +88,20 @@ export function NewGroupScreen({ navigation, route }: Props) {
       });
   }, [picked, mutual, user?.uid]);
 
+  const goBack = React.useCallback(() => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.navigate('ChatInbox');
+  }, [navigation]);
+
   React.useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: () => (
-        <TouchableOpacity
-          style={{ marginRight: 12, paddingVertical: 6 }}
-          onPress={() => navigation.navigate('MemberPicker', { mode: 'group', existingUids: picked })}
-        >
-          <Text style={{ fontWeight: '800', color: colors.moss }}>Add</Text>
-        </TouchableOpacity>
+      headerBackVisible: false,
+      headerRight: () => null,
+      headerLeft: () => (
+        <ChatHeaderBack onPress={goBack} accessibilityLabel="Back to Chats" />
       ),
     });
-  }, [navigation, picked, colors.moss]);
+  }, [navigation, goBack]);
 
   const onCreate = async () => {
     if (!user?.uid || creating) return;
@@ -94,8 +128,12 @@ export function NewGroupScreen({ navigation, route }: Props) {
     }
   };
 
+  const totalPeople = pickedPeople.length + 1;
+  const peopleLabel =
+    totalPeople === 1 ? '1 person including you' : `${totalPeople} people including you`;
+
   return (
-    <Screen style={styles.screen}>
+    <Screen style={styles.screen} edges={['bottom', 'left', 'right']} dismissKeyboardOnTap>
       <Text style={styles.label}>Group name</Text>
       <TextInput
         style={styles.input}
@@ -104,18 +142,33 @@ export function NewGroupScreen({ navigation, route }: Props) {
         value={name}
         onChangeText={setName}
       />
-      <Text style={styles.meta}>
-        {pickedPeople.length + 1} people including you
-      </Text>
+      <Pressable
+        style={({ pressed }) => [styles.addRow, pressed && styles.addRowPressed]}
+        onPress={() => navigation.navigate('MemberPicker', { mode: 'group', existingUids: picked })}
+        accessibilityRole="button"
+        accessibilityLabel="Add people to group"
+      >
+        <View style={styles.addIcon}>
+          <Ionicons name="person-add-outline" size={18} color={colors.moss} />
+        </View>
+        <View style={styles.addBody}>
+          <Text style={styles.addTitle}>
+            {pickedPeople.length > 0 ? 'Edit people' : 'Add people'}
+          </Text>
+          <Text style={styles.addSub}>
+            {pickedPeople.length > 0
+              ? `${pickedPeople.length} selected`
+              : 'Pick people you follow who follow you back'}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={colors.muted2} />
+      </Pressable>
+      <Text style={styles.meta}>{peopleLabel}</Text>
       {pickedPeople.length > 0 ? (
         <Text style={styles.people} numberOfLines={4}>
           You, {pickedPeople.map((p) => `@${p.label}`).join(', ')}
         </Text>
-      ) : (
-        <Text style={styles.hint}>
-          Tap Add to pick people you follow who follow you back.
-        </Text>
-      )}
+      ) : null}
       <PrimaryButton
         title={creating ? 'Creating…' : 'Create group'}
         variant="green"
