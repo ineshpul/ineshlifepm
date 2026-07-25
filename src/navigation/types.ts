@@ -8,6 +8,8 @@ export type RootStackParamList = {
   SignIn: undefined;
   ForgotPassword: { email?: string } | undefined;
   Tabs: NavigatorScreenParams<TabsParamList> | undefined;
+  /** Leaperboard — opened from Daily Leaps feed (not a bottom tab). */
+  Leaperboard: undefined;
   /** Full-screen camera / post flow (opened from Leap — not a bottom tab). */
   Record: undefined;
   /** Best part of your day — live photo/video capture + caption (not a bottom tab). */

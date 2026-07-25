@@ -8,7 +8,6 @@ import { useThemedStyles } from '../theme/ThemeProvider';
 import { TodayScreen } from '../screens/TodayScreen';
 import { BestPartScreen } from '../screens/BestPartScreen';
 import { FeedScreen } from '../screens/FeedScreen';
-import { TopScreen } from '../screens/TopScreen';
 import { MeScreen } from '../screens/MeScreen';
 import { ChatStackNavigator } from './ChatStack';
 import type { ChatStackParamList } from './ChatStack';
@@ -18,11 +17,10 @@ import { ChatUnreadProvider } from '../chat/ChatUnreadContext';
 
 export type TabsParamList = {
   Today: undefined;
-  /** Best part of your day — ungated photo/video moments (sun tab). */
-  Best: undefined;
   /** Everyone’s leaps (gated until you post). Same reel as before; lives on the play tab. */
   Feed: undefined;
-  Top: undefined;
+  /** Best part of your day — ungated photo/video moments (sun tab, after Feed). */
+  Best: undefined;
   Chat: NavigatorScreenParams<ChatStackParamList> | undefined;
   Me: undefined;
 };
@@ -103,17 +101,6 @@ export function AppTabs() {
           }}
         />
         <Tab.Screen
-          name="Best"
-          component={BestPartScreen}
-          options={{
-            title: 'Best of the day',
-            tabBarAccessibilityLabel: 'Best part of your day',
-            tabBarIcon: ({ focused, color }) => (
-              <TabIcon name="sunny-outline" focused={focused} color={color} />
-            ),
-          }}
-        />
-        <Tab.Screen
           name="Feed"
           component={FeedScreen}
           options={{
@@ -125,13 +112,13 @@ export function AppTabs() {
           }}
         />
         <Tab.Screen
-          name="Top"
-          component={TopScreen}
+          name="Best"
+          component={BestPartScreen}
           options={{
-            title: 'How high can you jump?',
-            tabBarAccessibilityLabel: 'How high can you jump? Leaperboard',
+            title: 'Best of the day',
+            tabBarAccessibilityLabel: 'Best part of your day',
             tabBarIcon: ({ focused, color }) => (
-              <TabIcon name="trending-up-outline" focused={focused} color={color} />
+              <TabIcon name="sunny-outline" focused={focused} color={color} />
             ),
           }}
         />

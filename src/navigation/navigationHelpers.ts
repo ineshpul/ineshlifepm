@@ -11,12 +11,11 @@ export function navigateToFeedTab(navigation: NavigationProp<ParamListBase>) {
       {
         name: 'Tabs',
         state: {
-          index: 2,
+          index: 1,
           routes: [
             { name: 'Today' },
-            { name: 'Best' },
             { name: 'Feed' },
-            { name: 'Top' },
+            { name: 'Best' },
             { name: 'Chat' },
             { name: 'Me' },
           ],
@@ -33,7 +32,7 @@ export function navigateToFeedTab(navigation: NavigationProp<ParamListBase>) {
 }
 
 /** Record lives on the root stack (modal), not inside tabs — resolve the stack that owns `Record`. */
-/** Opens `UserProfile` on the root stack (works from nested tab routes like Top). */
+/** Opens `UserProfile` on the root stack (works from nested tab routes). */
 export function navigateToUserProfile(
   navigation: NavigationProp<ParamListBase>,
   params: MainStackParamList['UserProfile']
@@ -48,6 +47,20 @@ export function navigateToUserProfile(
     'UserProfile',
     params
   );
+}
+
+/** Opens the leaperboard on the root stack (from Daily Leaps feed). */
+export function navigateToLeaperboard(navigation: NavigationProp<ParamListBase>) {
+  if (rootNavigationRef.isReady()) {
+    rootNavigationRef.navigate('Leaperboard');
+    return;
+  }
+  const parent = navigation.getParent?.();
+  if (parent?.navigate) {
+    parent.navigate('Leaperboard' as never);
+    return;
+  }
+  navigation.navigate('Leaperboard' as never);
 }
 
 export function navigateToRecord(navigation: NavigationProp<ParamListBase>) {
@@ -102,9 +115,8 @@ const tabsStateToday = {
   index: 0,
   routes: [
     { name: 'Today' as const },
-    { name: 'Best' as const },
     { name: 'Feed' as const },
-    { name: 'Top' as const },
+    { name: 'Best' as const },
     { name: 'Chat' as const },
     { name: 'Me' as const },
   ],

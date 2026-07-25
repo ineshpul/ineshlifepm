@@ -44,7 +44,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { deleteOwnedVideo } from '../services/deleteVideo';
 import { logEngagementScrollingThrottled, logExperimentEvent } from '../services/nativeAnalytics';
 import { staffNullVideo } from '../services/nullVideo';
-import { navigateToRecord } from '../navigation/navigationHelpers';
+import { navigateToLeaperboard, navigateToRecord } from '../navigation/navigationHelpers';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 import { useAppState } from '../state/appState';
 import { takeCameraRollSaveOffer, type CameraRollSaveOffer } from '../state/pendingCameraRollSave';
@@ -1698,6 +1698,14 @@ export function FeedScreen() {
           </View>
           {user?.uid ? (
             <View style={styles.headerRight}>
+              <TouchableOpacity
+                style={styles.notifBtn}
+                onPress={() => navigateToLeaperboard(nav)}
+                accessibilityRole="button"
+                accessibilityLabel="Leaperboard"
+              >
+                <Ionicons name="trending-up-outline" size={22} color={colors.text} />
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.notifBtn}
                 onPress={() => {

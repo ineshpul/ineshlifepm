@@ -13,6 +13,7 @@ import { RecordScreen } from '../screens/RecordScreen';
 import { BestPartCaptureScreen } from '../screens/BestPartCaptureScreen';
 import { BestPartWeekRecapScreen } from '../screens/BestPartWeekRecapScreen';
 import { BestPartPostScreen } from '../screens/BestPartPostScreen';
+import { TopScreen } from '../screens/TopScreen';
 import { useAuth } from '../state/auth';
 import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
 import { SignInScreen } from '../screens/SignInScreen';
@@ -72,6 +73,15 @@ function LoggedInStack() {
       screenOptions={{ ...themedHeader, headerShown: false }}
     >
       <MainStack.Screen name="Tabs" component={AppTabs} />
+      <MainStack.Screen
+        name="Leaperboard"
+        component={TopScreen}
+        options={{
+          headerShown: true,
+          title: 'Leaperboard',
+          headerBackTitle: 'Feed',
+        }}
+      />
       <MainStack.Screen
         name="Record"
         component={RecordScreen}
