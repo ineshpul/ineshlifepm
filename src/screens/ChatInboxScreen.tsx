@@ -2,7 +2,6 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -10,17 +9,16 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { useAuth } from '../state/auth';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import type { ChatStackParamList } from '../navigation/ChatStack';
-import { useConversations } from '../chat/hooks/useConversations';
+import { useChatInboxData } from '../chat/ChatUnreadContext';
 import { useChatNotifications } from '../chat/hooks/useChatNotifications';
+import { ChatHeaderIconButton } from '../chat/components/ChatHeaderIconButton';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 
 type Props = NativeStackScreenProps<ChatStackParamList, 'ChatInbox'>;
@@ -38,82 +36,89 @@ function formatTime(ts: { toMillis?: () => number } | null | undefined) {
 
 export function ChatInboxScreen({ navigation }: Props) {
   const { colors } = useTheme();
-  const styles = useThemedStyles((colors) => ({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  offline: { padding: 24, textAlign: 'center', color: colors.muted, fontWeight: '600' },
-  empty: { flex: 1, paddingHorizontal: 28, paddingTop: 18, gap: 14 },
-  emptyTitle: { fontSize: 24, fontWeight: '900', color: colors.text },
-  emptySub: { fontSize: 15, lineHeight: 22, color: colors.muted, fontWeight: '600' },
-  newGroup: { alignSelf: 'flex-start', paddingVertical: 8 },
-  newGroupText: { fontSize: 15, fontWeight: '800', color: colors.moss },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border2,
-    gap: 12,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: colors.cardTint,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  avatarImg: { width: 48, height: 48 },
-  avatarInitial: { fontSize: 18, fontWeight: '900', color: colors.moss },
-  rowBody: { flex: 1, minWidth: 0 },
-  rowTop: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  title: { flex: 1, fontSize: 16, fontWeight: '800', color: colors.text },
-  mutedText: { opacity: 0.55 },
-  time: { fontSize: 12, fontWeight: '700', color: colors.muted2 },
-  preview: { marginTop: 4, fontSize: 14, color: colors.muted, fontWeight: '600' },
-  badge: {
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    paddingHorizontal: 6,
-    backgroundColor: colors.coral,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badgeTxt: { color: colors.white, fontSize: 11, fontWeight: '900' },
-  unreadBanner: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    backgroundColor: colors.cardTint,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  unreadBannerText: { fontSize: 13, fontWeight: '800', color: colors.text },
-}));
+  const styles = useThemedStyles((c) => ({
+    screen: { flex: 1, backgroundColor: c.bg },
+    center: { flex: 1, alignItems: 'center' as const, justifyContent: 'center' as const },
+    offline: { padding: 24, textAlign: 'center' as const, color: c.muted, fontWeight: '600' as const },
+    empty: { flex: 1, paddingHorizontal: 28, paddingTop: 18, gap: 14 },
+    emptyTitle: { fontSize: 24, fontWeight: '900' as const, color: c.text },
+    emptySub: { fontSize: 15, lineHeight: 22, color: c.muted, fontWeight: '600' as const },
+    newGroup: { alignSelf: 'flex-start' as const, paddingVertical: 8 },
+    newGroupText: { fontSize: 15, fontWeight: '800' as const, color: c.moss },
+    headerActions: { flexDirection: 'row' as const, alignItems: 'center' as const, marginRight: 2 },
+    row: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      paddingHorizontal: 16,
+      paddingVertical: 11,
+      gap: 12,
+    },
+    avatar: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      backgroundColor: c.cardTint,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      overflow: 'hidden' as const,
+    },
+    avatarImg: { width: 52, height: 52 },
+    avatarInitial: { fontSize: 18, fontWeight: '800' as const, color: c.moss },
+    rowBody: {
+      flex: 1,
+      minWidth: 0,
+      paddingBottom: 11,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.border2,
+    },
+    rowTop: { flexDirection: 'row' as const, justifyContent: 'space-between' as const, gap: 8, alignItems: 'center' as const },
+    title: { flex: 1, fontSize: 16, fontWeight: '700' as const, color: c.text },
+    titleUnread: { fontWeight: '900' as const },
+    mutedText: { opacity: 0.55 },
+    time: { fontSize: 12, fontWeight: '600' as const, color: c.muted2 },
+    timeUnread: { color: c.moss, fontWeight: '800' as const },
+    previewRow: { marginTop: 3, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 8 },
+    preview: { flex: 1, fontSize: 14, color: c.muted, fontWeight: '500' as const },
+    previewUnread: { color: c.text2, fontWeight: '700' as const },
+    badge: {
+      minWidth: 20,
+      height: 20,
+      borderRadius: 10,
+      paddingHorizontal: 6,
+      backgroundColor: c.moss,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+    },
+    badgeTxt: { color: c.white, fontSize: 11, fontWeight: '900' as const },
+  }));
   const insets = useSafeAreaInsets();
   const tabBarClearance = floatingTabContentClearance(insets.bottom);
-  const { user } = useAuth();
-  const { rows, loading, totalUnread } = useConversations(user?.uid);
+  const { rows, loading } = useChatInboxData();
   useChatNotifications();
+
+  const listVersion = React.useMemo(
+    () => rows.reduce((n, r) => n + r.member.unreadCount, 0) + rows.length,
+    [rows]
+  );
 
   React.useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <View style={{ flexDirection: 'row', gap: 12, marginRight: 4 }}>
-          <TouchableOpacity onPress={() => navigation.navigate('ChatSearch')} accessibilityLabel="Search chats">
-            <Ionicons name="search-outline" size={22} color={colors.text} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.navigate('NewChat')} accessibilityLabel="New chat">
-            <Ionicons name="create-outline" size={22} color={colors.text} />
-          </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <ChatHeaderIconButton
+            name="search-outline"
+            onPress={() => navigation.navigate('ChatSearch')}
+            accessibilityLabel="Search chats"
+          />
+          <ChatHeaderIconButton
+            name="create-outline"
+            onPress={() => navigation.navigate('NewChat')}
+            accessibilityLabel="New chat"
+          />
         </View>
       ),
     });
-  }, [navigation, colors.text]);
+  }, [navigation, styles.headerActions]);
 
   if (!isFirebaseConfigured()) {
     return (
@@ -125,14 +130,7 @@ export function ChatInboxScreen({ navigation }: Props) {
 
   return (
     <Screen style={styles.screen} edges={['bottom', 'left', 'right']}>
-      {totalUnread > 0 ? (
-        <View style={styles.unreadBanner}>
-          <Text style={styles.unreadBannerText}>
-            {totalUnread} unread {totalUnread === 1 ? 'conversation' : 'conversations'}
-          </Text>
-        </View>
-      ) : null}
-      {loading ? (
+      {loading && rows.length === 0 ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.moss} />
         </View>
@@ -151,17 +149,18 @@ export function ChatInboxScreen({ navigation }: Props) {
         <FlatList
           data={rows}
           keyExtractor={(r) => r.conversationId}
-          extraData={rows.map((r) => `${r.conversationId}:${r.member.convAvatarUrl ?? ''}`).join('|')}
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={() => {}} />}
-          contentContainerStyle={{ paddingBottom: tabBarClearance }}
+          extraData={listVersion}
+          contentContainerStyle={{ paddingBottom: tabBarClearance, paddingTop: 4 }}
           renderItem={({ item }) => {
             const title =
               (item.member.convTitle || item.member.displayNameSnap || 'Chat').trim() || 'Chat';
             const muted = item.member.muted;
+            const unread = item.member.unreadCount > 0;
             const avatarUri = (item.member.convAvatarUrl ?? '').trim();
             return (
               <TouchableOpacity
                 style={styles.row}
+                activeOpacity={0.7}
                 onPress={() =>
                   navigation.navigate('Conversation', {
                     conversationId: item.conversationId,
@@ -185,20 +184,29 @@ export function ChatInboxScreen({ navigation }: Props) {
                 </View>
                 <View style={styles.rowBody}>
                   <View style={styles.rowTop}>
-                    <Text style={[styles.title, muted && styles.mutedText]} numberOfLines={1}>
+                    <Text
+                      style={[styles.title, unread && styles.titleUnread, muted && styles.mutedText]}
+                      numberOfLines={1}
+                    >
                       {title}
                     </Text>
-                    <Text style={styles.time}>{formatTime(item.member.lastActivityAt)}</Text>
+                    <Text style={[styles.time, unread && styles.timeUnread]}>
+                      {formatTime(item.member.lastActivityAt)}
+                    </Text>
                   </View>
-                  <Text style={styles.preview} numberOfLines={2}>
-                    {item.member.lastMessagePreview || ' '}
-                  </Text>
+                  <View style={styles.previewRow}>
+                    <Text style={[styles.preview, unread && styles.previewUnread]} numberOfLines={1}>
+                      {item.member.lastMessagePreview || ' '}
+                    </Text>
+                    {unread ? (
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeTxt}>
+                          {item.member.unreadCount > 99 ? '99+' : item.member.unreadCount}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
                 </View>
-                {item.member.unreadCount > 0 ? (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeTxt}>{item.member.unreadCount > 99 ? '99+' : item.member.unreadCount}</Text>
-                  </View>
-                ) : null}
               </TouchableOpacity>
             );
           }}

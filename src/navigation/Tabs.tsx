@@ -14,6 +14,7 @@ import { ChatStackNavigator } from './ChatStack';
 import type { ChatStackParamList } from './ChatStack';
 import { FloatingTabBar } from './FloatingTabBar';
 import { BackgroundUploadBar } from '../components/BackgroundUploadBar';
+import { ChatUnreadProvider } from '../chat/ChatUnreadContext';
 
 export type TabsParamList = {
   Today: undefined;
@@ -69,6 +70,7 @@ export function AppTabs() {
   }));
 
   return (
+    <ChatUnreadProvider>
     <View style={styles.tabsRoot}>
       <BackgroundUploadBar />
       <Tab.Navigator
@@ -157,5 +159,6 @@ export function AppTabs() {
         />
       </Tab.Navigator>
     </View>
+    </ChatUnreadProvider>
   );
 }

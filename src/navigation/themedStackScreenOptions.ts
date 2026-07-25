@@ -11,7 +11,6 @@ export function useThemedStackScreenOptions(): NativeStackNavigationOptions {
     headerTitleStyle: { fontWeight: '800', color: colors.text },
     headerStyle: { backgroundColor: colors.bg },
     headerShadowVisible: false,
-    headerBackTitleVisible: false,
     ...(Platform.OS === 'ios' ? { headerBackTitle: '' } : {}),
     contentStyle: { backgroundColor: colors.bg },
   };

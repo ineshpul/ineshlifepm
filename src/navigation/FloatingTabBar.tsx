@@ -1,32 +1,37 @@
 import * as React from 'react';
-import { Platform, Pressable, View } from 'react-native';
+import { Platform, Pressable, Text, View } from 'react-native';
 import type { MaterialTopTabBarProps } from '@react-navigation/material-top-tabs';
+import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import { useChatUnreadCount } from '../chat/ChatUnreadContext';
 import {
   FLOATING_TAB_BOTTOM_GAP,
   FLOATING_TAB_PILL_HEIGHT,
   FLOATING_TAB_SIDE_INSET,
 } from './tabBarMetrics';
 
+const CHAT_INBOX_ROUTES = new Set(['ChatInbox']);
+
 export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTabBarProps) {
   const insets = useSafeAreaInsets();
   const bottom = Math.max(insets.bottom, FLOATING_TAB_BOTTOM_GAP);
   const { colors } = useTheme();
+  const chatUnread = useChatUnreadCount();
   const styles = useThemedStyles((c) => ({
     host: {
-      position: 'absolute',
+      position: 'absolute' as const,
       left: 0,
       right: 0,
       bottom: 0,
-      alignItems: 'center',
+      alignItems: 'center' as const,
       paddingHorizontal: FLOATING_TAB_SIDE_INSET,
     },
     pill: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      justifyContent: 'space-between' as const,
       width: '100%',
       maxWidth: 420,
       height: FLOATING_TAB_PILL_HEIGHT,
@@ -50,8 +55,8 @@ export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTa
     },
     tab: {
       flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
       minHeight: 44,
     },
     tabPressed: {
@@ -61,13 +66,37 @@ export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTa
       width: 36,
       height: 36,
       borderRadius: 18,
-      alignItems: 'center',
-      justifyContent: 'center',
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
     },
     iconWrapFocused: {
       backgroundColor: c.cardTint,
     },
+    badge: {
+      position: 'absolute' as const,
+      top: 2,
+      right: 2,
+      minWidth: 16,
+      height: 16,
+      borderRadius: 8,
+      paddingHorizontal: 4,
+      backgroundColor: c.moss,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+    },
+    badgeTxt: { color: c.white, fontSize: 9, fontWeight: '900' as const },
   }));
+
+  const focusedRoute = state.routes[state.index];
+  const nestedName =
+    focusedRoute?.name === 'Chat'
+      ? getFocusedRouteNameFromRoute(focusedRoute) ?? 'ChatInbox'
+      : null;
+  const hideTabBar = focusedRoute?.name === 'Chat' && nestedName != null && !CHAT_INBOX_ROUTES.has(nestedName);
+
+  if (hideTabBar) {
+    return null;
+  }
 
   return (
     <View pointerEvents="box-none" style={[styles.host, { paddingBottom: bottom }]}>
@@ -99,6 +128,8 @@ export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTa
             color: isFocused ? colors.green : colors.muted2,
           });
 
+          const showBadge = route.name === 'Chat' && chatUnread > 0;
+
           return (
             <Pressable
               key={route.key}
@@ -109,7 +140,14 @@ export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTa
               accessibilityLabel={options.tabBarAccessibilityLabel ?? options.title ?? route.name}
               style={({ pressed }) => [styles.tab, pressed && styles.tabPressed]}
             >
-              <View style={[styles.iconWrap, isFocused && styles.iconWrapFocused]}>{icon}</View>
+              <View style={[styles.iconWrap, isFocused && styles.iconWrapFocused]}>
+                {icon}
+                {showBadge ? (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeTxt}>{chatUnread > 99 ? '99+' : chatUnread}</Text>
+                  </View>
+                ) : null}
+              </View>
             </Pressable>
           );
         })}

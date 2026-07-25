@@ -6,7 +6,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -21,6 +20,7 @@ import type { ChatStackParamList } from '../navigation/ChatStack';
 import { subscribeFollowing, syncFollowingProfilePhotos, type FollowingRow } from '../services/social';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { getOrCreateDm } from '../services/chat/chatFirestore';
+import { ChatHeaderIconButton } from '../chat/components/ChatHeaderIconButton';
 import { showError } from '../utils/ui';
 import { UsernameLink } from '../components/UsernameLink';
 
@@ -30,16 +30,6 @@ export function NewChatScreen({ navigation, route }: Props) {
   const { colors } = useTheme();
   const styles = useThemedStyles((colors) => ({
   screen: { flex: 1, backgroundColor: colors.bg },
-  headerCloseBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   shareBanner: {
     paddingHorizontal: 16,
     paddingTop: 10,
@@ -111,20 +101,18 @@ export function NewChatScreen({ navigation, route }: Props) {
     if (!sharePost) return;
     navigation.setOptions({
       title: 'Share',
+      headerBackVisible: false,
       headerLeft: () => (
-        <TouchableOpacity
+        <ChatHeaderIconButton
+          name="close"
           onPress={cancelShare}
-          accessibilityRole="button"
           accessibilityLabel="Cancel sharing"
-          hitSlop={10}
-          style={styles.headerCloseBtn}
-        >
-          <Ionicons name="close" size={20} color={colors.text} />
-        </TouchableOpacity>
+          size={22}
+        />
       ),
     });
     return () => {
-      navigation.setOptions({ title: 'New message', headerLeft: undefined });
+      navigation.setOptions({ title: 'New message', headerLeft: undefined, headerBackVisible: true });
     };
   }, [navigation, sharePost, cancelShare]);
 
