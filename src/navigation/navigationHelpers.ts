@@ -11,9 +11,10 @@ export function navigateToFeedTab(navigation: NavigationProp<ParamListBase>) {
       {
         name: 'Tabs',
         state: {
-          index: 1,
+          index: 2,
           routes: [
             { name: 'Today' },
+            { name: 'Best' },
             { name: 'Feed' },
             { name: 'Top' },
             { name: 'Chat' },
@@ -62,10 +63,46 @@ export function navigateToRecord(navigation: NavigationProp<ParamListBase>) {
   navigation.navigate('Record' as never);
 }
 
+export function navigateToBestPartCapture(navigation: NavigationProp<ParamListBase>) {
+  if (rootNavigationRef.isReady()) {
+    rootNavigationRef.navigate('BestPartCapture');
+    return;
+  }
+  const parent = navigation.getParent?.();
+  if (parent?.navigate) {
+    parent.navigate('BestPartCapture' as never);
+    return;
+  }
+  navigation.navigate('BestPartCapture' as never);
+}
+
+export function navigateToBestPartWeekRecap(
+  navigation: NavigationProp<ParamListBase>,
+  params: MainStackParamList['BestPartWeekRecap']
+) {
+  if (rootNavigationRef.isReady()) {
+    rootNavigationRef.navigate('BestPartWeekRecap', params);
+    return;
+  }
+  const parent = navigation.getParent?.();
+  if (parent?.navigate) {
+    (parent as { navigate: (n: 'BestPartWeekRecap', p: typeof params) => void }).navigate(
+      'BestPartWeekRecap',
+      params
+    );
+    return;
+  }
+  (navigation as { navigate: (n: 'BestPartWeekRecap', p: typeof params) => void }).navigate(
+    'BestPartWeekRecap',
+    params
+  );
+}
+
 const tabsStateToday = {
   index: 0,
   routes: [
     { name: 'Today' as const },
+    { name: 'Best' as const },
     { name: 'Feed' as const },
     { name: 'Top' as const },
     { name: 'Chat' as const },

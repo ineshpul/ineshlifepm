@@ -10,6 +10,8 @@ import {
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { RecordScreen } from '../screens/RecordScreen';
+import { BestPartCaptureScreen } from '../screens/BestPartCaptureScreen';
+import { BestPartWeekRecapScreen } from '../screens/BestPartWeekRecapScreen';
 import { useAuth } from '../state/auth';
 import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
 import { SignInScreen } from '../screens/SignInScreen';
@@ -72,6 +74,28 @@ function LoggedInStack() {
       <MainStack.Screen
         name="Record"
         component={RecordScreen}
+        options={{
+          headerShown: false,
+          headerBackVisible: false,
+          presentation: 'fullScreenModal',
+          animation: 'fade',
+          gestureEnabled: true,
+        }}
+      />
+      <MainStack.Screen
+        name="BestPartCapture"
+        component={BestPartCaptureScreen}
+        options={{
+          headerShown: false,
+          headerBackVisible: false,
+          presentation: 'fullScreenModal',
+          animation: 'fade',
+          gestureEnabled: true,
+        }}
+      />
+      <MainStack.Screen
+        name="BestPartWeekRecap"
+        component={BestPartWeekRecapScreen}
         options={{
           headerShown: false,
           headerBackVisible: false,

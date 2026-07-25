@@ -10,6 +10,18 @@ export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabsParamList> | undefined;
   /** Full-screen camera / post flow (opened from Leap — not a bottom tab). */
   Record: undefined;
+  /** Best part of your day — live photo/video capture + caption (not a bottom tab). */
+  BestPartCapture: undefined;
+  /** Sunday-style playback of this week’s best-part moments. */
+  BestPartWeekRecap: {
+    posts: Array<{
+      id: string;
+      dateKey: string;
+      caption: string;
+      mediaType: 'photo' | 'video';
+      url: string;
+    }>;
+  };
   ChallengeAdmin: undefined;
   Notifications: undefined;
   Settings: undefined;

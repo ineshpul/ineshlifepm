@@ -1049,5 +1049,95 @@ service cloud.firestore {
             && request.resource.data.maxDurationSeconds <= 600));
       allow delete: if false;
     }
+
+    /**
+     * Best part of your day — ungated moments (photo/video + caption).
+     * Doc id: `{uid}_{dateKey}` (NY calendar day). Private posts are owner/staff only.
+     */
+    match /bestParts/{bestPartId} {
+      function bestPartDateKeyOk(k) {
+        return k is string && k.matches('^\\d{4}-\\d{2}-\\d{2}$');
+      }
+
+      function bestPartCreateKeysOk() {
+        return request.resource.data.keys().hasOnly([
+          'uid',
+          'username',
+          'photoUrl',
+          'dateKey',
+          'caption',
+          'mediaType',
+          'url',
+          'storagePath',
+          'durationSeconds',
+          'isPrivate',
+          'deleted',
+          'likesCount',
+          'commentsCount',
+          'createdAt',
+          'updatedAt',
+        ]);
+      }
+
+      function bestPartShapeOk() {
+        return request.resource.data.uid == request.auth.uid
+          && bestPartId == request.resource.data.uid + '_' + request.resource.data.dateKey
+          && bestPartDateKeyOk(request.resource.data.dateKey)
+          && request.resource.data.username is string
+          && request.resource.data.username.size() >= 1
+          && request.resource.data.username.size() <= 40
+          && request.resource.data.caption is string
+          && request.resource.data.caption.size() >= 1
+          && request.resource.data.caption.size() <= 280
+          && (request.resource.data.mediaType == 'photo' || request.resource.data.mediaType == 'video')
+          && request.resource.data.url is string
+          && request.resource.data.url.size() > 0
+          && request.resource.data.storagePath is string
+          && request.resource.data.storagePath.matches(
+            '^bestParts/' + request.auth.uid + '/' + request.resource.data.dateKey + '/[^/]+$'
+          )
+          && request.resource.data.isPrivate is bool
+          && request.resource.data.deleted is bool
+          && request.resource.data.likesCount is int
+          && request.resource.data.likesCount >= 0
+          && request.resource.data.commentsCount is int
+          && request.resource.data.commentsCount >= 0
+          && (!('photoUrl' in request.resource.data)
+            || (request.resource.data.photoUrl is string && request.resource.data.photoUrl.size() <= 2000))
+          && (!('durationSeconds' in request.resource.data)
+            || (request.resource.data.durationSeconds is int
+              && request.resource.data.durationSeconds >= 0
+              && request.resource.data.durationSeconds <= 60));
+      }
+
+      allow read: if signedIn()
+        && (
+          !exists(/databases/$(database)/documents/bestParts/$(bestPartId))
+          || isStaff()
+          || resource.data.uid == request.auth.uid
+          || (
+            resource.data.deleted != true
+            && resource.data.isPrivate != true
+          )
+        );
+
+      allow create: if signedIn()
+        && bestPartCreateKeysOk()
+        && bestPartShapeOk()
+        && request.resource.data.deleted == false
+        && request.resource.data.likesCount == 0
+        && request.resource.data.commentsCount == 0;
+
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && bestPartCreateKeysOk()
+        && bestPartShapeOk()
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.dateKey == resource.data.dateKey
+        && request.resource.data.likesCount == resource.data.likesCount
+        && request.resource.data.commentsCount == resource.data.commentsCount;
+
+      allow delete: if false;
+    }
   }
 }

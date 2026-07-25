@@ -85,6 +85,43 @@ service firebase.storage {
       allow write, delete: if isChatConvMember() && request.auth.uid == uploaderUid;
     }
 
+    // Best part of your day media — owner write; public read when Firestore doc is public.
+    match /bestParts/{userId}/{dateKey}/{fileName} {
+      function bestPartDocId() {
+        return userId + '_' + dateKey;
+      }
+
+      function bestPartPublicInFirestore() {
+        return firestore.exists(/databases/(default)/documents/bestParts/$(bestPartDocId()))
+          && firestore.get(/databases/(default)/documents/bestParts/$(bestPartDocId())).data.deleted != true
+          && firestore.get(/databases/(default)/documents/bestParts/$(bestPartDocId())).data.isPrivate != true
+          && firestore.get(/databases/(default)/documents/bestParts/$(bestPartDocId())).data.uid == userId;
+      }
+
+      function requestUserIsStaffBest() {
+        return firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+          && (
+            firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin == true
+            || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.isModerator == true
+          );
+      }
+
+      allow read: if request.auth != null
+        && (
+          request.auth.uid == userId
+          || requestUserIsStaffBest()
+          || bestPartPublicInFirestore()
+        );
+
+      allow write: if request.auth != null && request.auth.uid == userId;
+
+      allow delete: if request.auth != null
+        && (
+          request.auth.uid == userId
+          || requestUserIsStaffBest()
+        );
+    }
+
     // Admin analytics exports (auto-updated at end of each leap day).
     match /exports/{fileName} {
       function requestUserIsAdminExport() {
