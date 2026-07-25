@@ -13,6 +13,7 @@ import { Image } from 'expo-image';
 
 import { Screen } from '../components/Screen';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
 import { useChatInboxData } from '../chat/ChatUnreadContext';
 import { ChatHeaderBack } from '../chat/components/ChatHeaderBack';
@@ -21,11 +22,25 @@ import {
   type MessageSearchHitGroup,
 } from '../chat/searchMessagesParallel';
 import type { ChatMessage } from '../chat/types';
+import {
+  subscribeMutualFollows,
+  type FollowingRow,
+} from '../services/social';
+import { isFirebaseConfigured } from '../firebase/firebase';
+import { getOrCreateDm } from '../services/chat/chatFirestore';
+import { showError } from '../utils/ui';
 
 type Props = NativeStackScreenProps<ChatStackParamList, 'ChatSearch'>;
 
 type ListRow =
   | { type: 'section'; id: string; title: string }
+  | {
+      type: 'person';
+      id: string;
+      uid: string;
+      title: string;
+      avatarUrl?: string | null;
+    }
   | {
       type: 'chat';
       id: string;
@@ -121,11 +136,14 @@ export function ChatSearchScreen({ navigation }: Props) {
     loading: { marginTop: 20 },
   }));
 
+  const { user } = useAuth();
   const { rows } = useChatInboxData();
+  const [mutual, setMutual] = React.useState<FollowingRow[]>([]);
   const [q, setQ] = React.useState('');
   const [debounced, setDebounced] = React.useState('');
   const [messageHits, setMessageHits] = React.useState<MessageSearchHitGroup[]>([]);
   const [loadingMessages, setLoadingMessages] = React.useState(false);
+  const [openingUid, setOpeningUid] = React.useState<string | null>(null);
   const searchGen = React.useRef(0);
 
   React.useLayoutEffect(() => {
@@ -144,9 +162,25 @@ export function ChatSearchScreen({ navigation }: Props) {
   }, [navigation]);
 
   React.useEffect(() => {
+    if (!isFirebaseConfigured() || !user?.uid) {
+      setMutual([]);
+      return;
+    }
+    return subscribeMutualFollows(user.uid, setMutual);
+  }, [user?.uid]);
+
+  React.useEffect(() => {
     const t = setTimeout(() => setDebounced(q.trim()), 250);
     return () => clearTimeout(t);
   }, [q]);
+
+  const peopleMatches = React.useMemo(() => {
+    const s = debounced.toLowerCase().replace(/^@+/u, '');
+    if (!s) return [];
+    return mutual
+      .filter((r) => r.targetUsername.toLowerCase().replace(/^@+/u, '').includes(s))
+      .slice(0, 20);
+  }, [mutual, debounced]);
 
   const chatMatches = React.useMemo(() => {
     const s = debounced.toLowerCase();
@@ -189,6 +223,27 @@ export function ChatSearchScreen({ navigation }: Props) {
   const listData = React.useMemo((): ListRow[] => {
     if (!debounced) return [];
     const out: ListRow[] = [];
+
+    out.push({ type: 'section', id: 'sec-people', title: 'People' });
+    if (peopleMatches.length === 0) {
+      out.push({
+        type: 'empty',
+        id: 'empty-people',
+        text: 'No mutual follows match that name',
+      });
+    } else {
+      for (const r of peopleMatches) {
+        const title = r.targetUsername.replace(/^@+/u, '') || 'user';
+        out.push({
+          type: 'person',
+          id: `person-${r.targetUid}`,
+          uid: r.targetUid,
+          title,
+          avatarUrl: r.targetPhotoUrl,
+        });
+      }
+    }
+
     out.push({ type: 'section', id: 'sec-chats', title: 'Chats' });
     if (chatMatches.length === 0) {
       out.push({ type: 'empty', id: 'empty-chats', text: 'No matching chats' });
@@ -225,10 +280,27 @@ export function ChatSearchScreen({ navigation }: Props) {
       }
     }
     return out;
-  }, [debounced, chatMatches, messageHits, loadingMessages]);
+  }, [debounced, peopleMatches, chatMatches, messageHits, loadingMessages]);
 
   const openConversation = (conversationId: string, threadTitle: string) => {
     navigation.navigate('Conversation', { conversationId, threadTitle });
+  };
+
+  const openPerson = async (uid: string, username: string) => {
+    if (!user?.uid || openingUid) return;
+    setOpeningUid(uid);
+    try {
+      const id = await getOrCreateDm({
+        currentUid: user.uid,
+        otherUid: uid,
+        otherDisplayName: username,
+      });
+      navigation.navigate('Conversation', { conversationId: id, threadTitle: username });
+    } catch (e) {
+      showError('Could not open chat', e);
+    } finally {
+      setOpeningUid(null);
+    }
   };
 
   return (
@@ -236,7 +308,7 @@ export function ChatSearchScreen({ navigation }: Props) {
       <View style={styles.searchWrap}>
         <TextInput
           style={styles.input}
-          placeholder="Search chats and messages"
+          placeholder="Search people, chats, and messages"
           placeholderTextColor={colors.muted2}
           value={q}
           onChangeText={setQ}
@@ -250,9 +322,9 @@ export function ChatSearchScreen({ navigation }: Props) {
 
       {!debounced ? (
         <View style={styles.idle}>
-          <Text style={styles.idleTitle}>Search chats and messages</Text>
+          <Text style={styles.idleTitle}>Search people and chats</Text>
           <Text style={styles.idleSub}>
-            Find people you message or jump into a past conversation by text.
+            Find mutual follows by username, jump into a chat, or search past messages.
           </Text>
         </View>
       ) : (
@@ -274,14 +346,27 @@ export function ChatSearchScreen({ navigation }: Props) {
             }
             const avatarUri = (item.avatarUrl ?? '').trim();
             const preview =
-              item.type === 'chat' ? item.preview || ' ' : item.message.text || ' ';
+              item.type === 'chat'
+                ? item.preview || ' '
+                : item.type === 'message'
+                  ? item.message.text || ' '
+                  : 'Message';
             const time =
               item.type === 'message' ? formatTime(item.message.createdAt) : '';
+            const title =
+              item.type === 'person' ? `@${item.title}` : item.title;
             return (
               <TouchableOpacity
                 style={styles.row}
                 activeOpacity={0.7}
-                onPress={() => openConversation(item.conversationId, item.title)}
+                disabled={item.type === 'person' && openingUid === item.uid}
+                onPress={() => {
+                  if (item.type === 'person') {
+                    void openPerson(item.uid, item.title);
+                    return;
+                  }
+                  openConversation(item.conversationId, item.title);
+                }}
               >
                 <View style={styles.avatar}>
                   {avatarUri ? (
@@ -292,18 +377,22 @@ export function ChatSearchScreen({ navigation }: Props) {
                       cachePolicy="memory-disk"
                     />
                   ) : (
-                    <Text style={styles.avatarInitial}>{item.title.slice(0, 1).toUpperCase()}</Text>
+                    <Text style={styles.avatarInitial}>
+                      {item.title.replace(/^@+/u, '').slice(0, 1).toUpperCase()}
+                    </Text>
                   )}
                 </View>
                 <View style={styles.body}>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Text style={styles.title} numberOfLines={1}>
-                      {item.title}
+                      {title}
                     </Text>
                     {time ? <Text style={styles.time}>{time}</Text> : null}
                   </View>
                   <Text style={styles.preview} numberOfLines={2}>
-                    {preview}
+                    {item.type === 'person' && openingUid === item.uid
+                      ? 'Opening…'
+                      : preview}
                   </Text>
                 </View>
               </TouchableOpacity>

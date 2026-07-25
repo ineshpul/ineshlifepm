@@ -56,7 +56,11 @@ function mergeLivePage(prev: ChatMessage[], page: ChatMessage[]): ChatMessage[] 
   return [...older, ...page, ...pending];
 }
 
-export function useMessages(conversationId: string | undefined, myUid: string | undefined) {
+export function useMessages(
+  conversationId: string | undefined,
+  myUid: string | undefined,
+  myUsername?: string
+) {
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [loadingOlder, setLoadingOlder] = React.useState(false);
@@ -145,6 +149,7 @@ export function useMessages(conversationId: string | undefined, myUid: string | 
           await sendChatMessage({
             conversationId,
             senderId: myUid,
+            senderUsername: myUsername,
             text: job.payload.text,
             replyTo: job.payload.replyTo,
             attachments: job.payload.attachments,
@@ -167,7 +172,7 @@ export function useMessages(conversationId: string | undefined, myUid: string | 
       pumpRunningRef.current = false;
       if (sendQueueRef.current.length > 0) void pumpSendQueue();
     }
-  }, [conversationId, myUid]);
+  }, [conversationId, myUid, myUsername]);
 
   const send = React.useCallback(
     (args: {

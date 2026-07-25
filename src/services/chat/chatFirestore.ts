@@ -200,6 +200,23 @@ export async function createConversation(args: {
   const id = doc(collection(firestore(), P.CONVERSATIONS)).id;
   const cref = convRef(id);
   const now = serverTimestamp();
+
+  /** Resolve usernames so group threads / Group Info can show who is who. */
+  const profileByUid = new Map<string, { username: string; photoUrl: string | null }>();
+  await Promise.all(
+    uniq.map(async (uid) => {
+      try {
+        const snap = await getDoc(doc(firestore(), 'users', uid));
+        const data = snap.data() as Record<string, unknown> | undefined;
+        const username = String(data?.username ?? 'Member').trim() || 'Member';
+        const photoUrl = data?.photoUrl ? String(data.photoUrl).trim() || null : null;
+        profileByUid.set(uid, { username, photoUrl });
+      } catch {
+        profileByUid.set(uid, { username: 'Member', photoUrl: null });
+      }
+    })
+  );
+
   // IMPORTANT: Firestore rules for `conversationMembers` require the parent conversation doc to exist.
   // Batched writes do not make `exists(/conversations/{id})` true for other writes in the same batch,
   // so we create the conversation first, then write member rows.
@@ -219,11 +236,14 @@ export async function createConversation(args: {
   const batch = writeBatch(firestore());
   for (const uid of uniq) {
     const role = uid === args.createdBy ? 'owner' : 'member';
+    const profile = profileByUid.get(uid);
+    const displayNameSnap = profile?.username ?? 'Member';
     batch.set(doc(membersCol(id), uid), {
       memberUid: uid,
       convTitle: args.name,
       convAvatarUrl: args.avatarUrl ?? null,
       convType: args.type,
+      displayNameSnap,
       role,
       joinedAt: now,
       muted: false,
@@ -236,15 +256,18 @@ export async function createConversation(args: {
     });
     batch.set(
       inboxDoc(uid, id),
-      inboxMirrorBootstrap({
-        conversationId: id,
-        memberUid: uid,
-        convTitle: args.name,
-        convAvatarUrl: args.avatarUrl ?? null,
-        convType: args.type,
-        role,
-        now,
-      }),
+      {
+        ...inboxMirrorBootstrap({
+          conversationId: id,
+          memberUid: uid,
+          convTitle: args.name,
+          convAvatarUrl: args.avatarUrl ?? null,
+          convType: args.type,
+          role,
+          now,
+        }),
+        displayNameSnap,
+      },
       { merge: true }
     );
   }
@@ -579,6 +602,8 @@ function previewFromPayload(text?: string, attachments?: MessageAttachment[], sh
 export async function sendChatMessage(args: {
   conversationId: string;
   senderId: string;
+  /** Used to prefix group inbox previews ("alex: hey"). */
+  senderUsername?: string;
   text?: string;
   replyTo?: ReplyRef;
   attachments?: MessageAttachment[];
@@ -617,22 +642,39 @@ export async function sendChatMessage(args: {
 
     /** Firestore requires every `tx.get` before any `tx.set` / `tx.update`. */
     const convType = (cdata.type as ConversationType) ?? 'group';
-    const memberUnread: { uid: string; curUnread: number; convType: ConversationType }[] = [];
+    const memberUnread: {
+      uid: string;
+      curUnread: number;
+      convType: ConversationType;
+      displayNameSnap?: string;
+    }[] = [];
     for (const uid of memberIds) {
       const mdoc = doc(membersCol(args.conversationId), uid);
       const msnap = await tx.get(mdoc);
       const md = msnap.data() as Record<string, unknown> | undefined;
+      const snapName =
+        typeof md?.displayNameSnap === 'string' ? String(md.displayNameSnap).trim() : '';
       memberUnread.push({
         uid,
         curUnread: Number(md?.unreadCount ?? 0),
         convType: (md?.convType as ConversationType) || convType,
+        displayNameSnap: snapName || undefined,
       });
     }
 
     const mref = doc(messagesCol(args.conversationId));
     const now = serverTimestamp();
-    const preview = previewFromPayload(text, atts, args.sharePost);
+    const rawPreview = previewFromPayload(text, atts, args.sharePost);
     const searchBlob = [text, args.sharePost?.title ?? ''].join(' ').trim().toLowerCase();
+
+    /** Groups: prefix inbox preview with sender so it's clear who said what. */
+    let senderLabel = (args.senderUsername ?? '').trim().replace(/^@+/u, '');
+    if (!senderLabel) {
+      const fromMember = memberUnread.find((m) => m.uid === args.senderId)?.displayNameSnap;
+      if (fromMember) senderLabel = fromMember.replace(/^@+/u, '');
+    }
+    const preview =
+      convType === 'group' && senderLabel ? `${senderLabel}: ${rawPreview}` : rawPreview;
 
     tx.set(mref, {
       conversationId: args.conversationId,
@@ -655,7 +697,7 @@ export async function sendChatMessage(args: {
       updatedAt: now,
       lastActivityAt: now,
       lastMessage: {
-        text: preview,
+        text: rawPreview,
         senderId: args.senderId,
         kind: args.sharePost ? 'share_post' : atts.length ? 'attachment' : 'text',
         at: now,

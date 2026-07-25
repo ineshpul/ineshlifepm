@@ -266,3 +266,54 @@ export function subscribeFollowing(
     () => onUpdate([])
   );
 }
+
+/** True when `targetUid` has a following doc pointing at `viewerUid` (they follow you back). */
+export async function userFollowsBack(viewerUid: string, targetUid: string): Promise<boolean> {
+  if (!isFirebaseConfigured() || !viewerUid || !targetUid || viewerUid === targetUid) return false;
+  try {
+    const snap = await getDoc(doc(firestore(), 'users', targetUid, 'following', viewerUid));
+    return snap.exists();
+  } catch {
+    // Private following lists (or rules) — treat as not mutual.
+    return false;
+  }
+}
+
+/**
+ * People you follow who also follow you back. Chat pickers use this so DMs / groups
+ * only surface mutual connections.
+ */
+export function subscribeMutualFollows(
+  viewerUid: string | undefined,
+  onUpdate: (rows: FollowingRow[]) => void
+) {
+  if (!isFirebaseConfigured() || !viewerUid) {
+    onUpdate([]);
+    return () => {};
+  }
+  let cancelled = false;
+  let gen = 0;
+
+  const unsub = subscribeFollowing(viewerUid, (following) => {
+    const myGen = ++gen;
+    if (following.length === 0) {
+      if (!cancelled) onUpdate([]);
+      return;
+    }
+    void (async () => {
+      const checks = await Promise.all(
+        following.map(async (row) => {
+          const mutual = await userFollowsBack(viewerUid, row.targetUid);
+          return mutual ? row : null;
+        })
+      );
+      if (cancelled || myGen !== gen) return;
+      onUpdate(checks.filter((r): r is FollowingRow => r != null));
+    })();
+  });
+
+  return () => {
+    cancelled = true;
+    unsub();
+  };
+}

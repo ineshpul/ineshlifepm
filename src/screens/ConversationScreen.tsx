@@ -24,7 +24,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
 import { Swipeable } from 'react-native-gesture-handler';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { Screen } from '../components/Screen';
@@ -59,6 +59,8 @@ import { showError, showInfo } from '../utils/ui';
 import { navigateToUserProfile } from '../navigation/navigationHelpers';
 
 type Props = NativeStackScreenProps<ChatStackParamList, 'Conversation'>;
+
+type MemberProfile = { username: string; photoUrl: string | null };
 
 function sameDay(a: Date, b: Date) {
   return a.toDateString() === b.toDateString();
@@ -111,7 +113,9 @@ export function ConversationScreen({ navigation, route }: Props) {
     paddingBottom: 10,
   },
   rowMsg: { marginBottom: 6, maxWidth: '88%' },
+  rowMsgGroup: { maxWidth: '92%' },
   rowMsgCluster: { marginTop: -2 },
+  rowMsgClusterStart: { marginTop: 8 },
   rowMine: { alignSelf: 'flex-end' },
   rowTheirs: { alignSelf: 'flex-start' },
   swipeReply: { justifyContent: 'center', paddingHorizontal: 12 },
@@ -146,7 +150,8 @@ export function ConversationScreen({ navigation, route }: Props) {
   const { conversation, members, myMember } = useConversation(conversationId, user?.uid);
   const { messages, loading, loadOlder, hasMore, loadingOlder, send, markRead } = useMessages(
     conversationId,
-    user?.uid
+    user?.uid,
+    user?.username
   );
   /** Newest first — pairs with `inverted` FlatList so latest sits by the composer (standard chat layout). */
   const displayMessages = React.useMemo(() => [...messages].reverse(), [messages]);
@@ -223,6 +228,67 @@ export function ConversationScreen({ navigation, route }: Props) {
       () => setDmPeerUser(null)
     );
   }, [dmPeer?.memberUid]);
+
+  /** Group member usernames + avatars so every bubble can show who is speaking. */
+  const [memberProfiles, setMemberProfiles] = React.useState<Record<string, MemberProfile>>({});
+  const membersKey = React.useMemo(
+    () => members.map((m) => `${m.memberUid}:${m.displayNameSnap ?? ''}`).join('|'),
+    [members]
+  );
+
+  React.useEffect(() => {
+    if (!isFirebaseConfigured() || conversation?.type !== 'group' || members.length === 0) {
+      setMemberProfiles({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        members.map(async (m) => {
+          const fromSnap = (m.displayNameSnap ?? '').trim().replace(/^@+/u, '');
+          try {
+            const snap = await getDoc(doc(firestore(), 'users', m.memberUid));
+            const d = snap.data() as Record<string, unknown> | undefined;
+            const username =
+              (d?.username != null ? String(d.username).trim() : '') || fromSnap || 'Member';
+            const photoUrl =
+              d?.photoUrl != null && String(d.photoUrl).trim() !== '' ? String(d.photoUrl) : null;
+            return [m.memberUid, { username: username.replace(/^@+/u, ''), photoUrl }] as const;
+          } catch {
+            return [m.memberUid, { username: fromSnap || 'Member', photoUrl: null }] as const;
+          }
+        })
+      );
+      if (!cancelled) setMemberProfiles(Object.fromEntries(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversation?.type, membersKey]);
+
+  const resolveMemberLabel = React.useCallback(
+    (uid: string | undefined) => {
+      if (!uid) return '';
+      if (uid === user?.uid) return user?.username?.replace(/^@+/u, '') || 'you';
+      const fromProfile = memberProfiles[uid]?.username;
+      if (fromProfile) return fromProfile;
+      const fromMember = members.find((m) => m.memberUid === uid)?.displayNameSnap;
+      return (fromMember ?? '').replace(/^@+/u, '') || '';
+    },
+    [memberProfiles, members, user?.uid, user?.username]
+  );
+
+  const typingLabel = React.useMemo(() => {
+    if (!typingUids.length) return '';
+    const names = typingUids
+      .map((uid) => resolveMemberLabel(uid))
+      .map((n) => n.trim())
+      .filter(Boolean);
+    if (!names.length) return 'Someone is typing…';
+    if (names.length === 1) return `${names[0]} is typing…`;
+    if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
+    return 'Several people are typing…';
+  }, [typingUids, resolveMemberLabel]);
 
   const goBack = React.useCallback(() => {
     if (navigation.canGoBack()) navigation.goBack();
@@ -516,6 +582,20 @@ export function ConversationScreen({ navigation, route }: Props) {
         newer?.deletedForEveryone ||
         (newer?.deletedForSelfUids && user?.uid && newer.deletedForSelfUids.includes(user.uid))
       );
+    const isClusterStart =
+      !older ||
+      older.senderId !== item.senderId ||
+      showDate ||
+      Boolean(
+        older.deletedForEveryone ||
+          (older.deletedForSelfUids && user?.uid && older.deletedForSelfUids.includes(user.uid))
+      );
+    const isGroup = conversation?.type === 'group';
+    const senderLabel = isGroup ? resolveMemberLabel(item.senderId) : '';
+    const senderAvatarUrl = isGroup ? memberProfiles[item.senderId]?.photoUrl ?? null : null;
+    const replySenderLabel = item.replyTo
+      ? resolveMemberLabel(item.replyTo.senderId) || item.replyTo.senderUsername
+      : undefined;
     const hidden =
       item.deletedForEveryone ||
       (item.deletedForSelfUids && user?.uid && item.deletedForSelfUids.includes(user.uid));
@@ -533,7 +613,12 @@ export function ConversationScreen({ navigation, route }: Props) {
             <View style={styles.swipeReply}>
               <TouchableOpacity
                 onPress={() =>
-                  setReplyTo({ messageId: item.id, textSnippet: item.text ?? '', senderId: item.senderId })
+                  setReplyTo({
+                    messageId: item.id,
+                    textSnippet: item.text ?? '',
+                    senderId: item.senderId,
+                    senderUsername: senderLabel || undefined,
+                  })
                 }
               >
                 <Ionicons name="return-down-back" size={22} color={colors.moss} />
@@ -544,14 +629,21 @@ export function ConversationScreen({ navigation, route }: Props) {
           <View
             style={[
               styles.rowMsg,
+              isGroup && styles.rowMsgGroup,
               mine ? styles.rowMine : styles.rowTheirs,
               sameSenderCluster && styles.rowMsgCluster,
+              isGroup && !mine && isClusterStart && styles.rowMsgClusterStart,
             ]}
           >
             <MessageBubble
               message={item}
               mine={mine}
               myUid={user?.uid}
+              groupLayout={isGroup}
+              showSenderMeta={Boolean(isGroup && !mine && isClusterStart)}
+              senderLabel={senderLabel}
+              senderAvatarUrl={senderAvatarUrl}
+              replySenderLabel={replySenderLabel}
               reactions={reactionMap[item.id]}
               onLongPress={() => {
                 Alert.alert('Message', undefined, [
@@ -562,6 +654,7 @@ export function ConversationScreen({ navigation, route }: Props) {
                         messageId: item.id,
                         textSnippet: item.text ?? '',
                         senderId: item.senderId,
+                        senderUsername: senderLabel || undefined,
                       }),
                   },
                   { text: 'React', onPress: () => setReactionMsg(item) },
@@ -708,7 +801,7 @@ export function ConversationScreen({ navigation, route }: Props) {
       >
         {typingUids.length > 0 ? (
           <View style={styles.typingBanner}>
-            <Text style={styles.typingTxt}>Someone is typing…</Text>
+            <Text style={styles.typingTxt}>{typingLabel || 'Someone is typing…'}</Text>
           </View>
         ) : null}
         <FlatList

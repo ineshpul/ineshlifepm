@@ -13,6 +13,14 @@ type Props = {
   message: ChatMessage;
   mine: boolean;
   myUid?: string;
+  /** Keep left avatar rail for all incoming group bubbles (name/avatar on cluster start). */
+  groupLayout?: boolean;
+  /** Group chats: show who sent this (first bubble in a cluster). */
+  showSenderMeta?: boolean;
+  senderLabel?: string;
+  senderAvatarUrl?: string | null;
+  /** Resolve reply “Replying to X” with a username when available. */
+  replySenderLabel?: string;
   reactions?: ReactionChip[];
   onLongPress: () => void;
   onOpenVideo: (url: string) => void;
@@ -24,6 +32,11 @@ function MessageBubbleInner({
   message,
   mine,
   myUid,
+  groupLayout,
+  showSenderMeta,
+  senderLabel,
+  senderAvatarUrl,
+  replySenderLabel,
   reactions,
   onLongPress,
   onOpenVideo,
@@ -32,6 +45,31 @@ function MessageBubbleInner({
 }: Props) {
   const { colors } = useTheme();
   const styles = useThemedStyles((c) => ({
+    wrap: { flexDirection: 'row' as const, alignItems: 'flex-end' as const, gap: 8 },
+    wrapMine: { flexDirection: 'row-reverse' as const },
+    avatarCol: { width: 28, alignItems: 'center' as const },
+    avatar: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: c.cardTint,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      overflow: 'hidden' as const,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.border2,
+    },
+    avatarImg: { width: 28, height: 28 },
+    avatarTxt: { fontSize: 11, fontWeight: '900' as const, color: c.moss },
+    avatarSpacer: { width: 28, height: 28 },
+    col: { maxWidth: '100%' as const, flexShrink: 1 },
+    senderName: {
+      fontSize: 12,
+      fontWeight: '800' as const,
+      color: c.moss,
+      marginBottom: 3,
+      marginLeft: 4,
+    },
     bubble: {
       borderRadius: 20,
       paddingHorizontal: 14,
@@ -96,13 +134,22 @@ function MessageBubbleInner({
     failed: { marginTop: 3, fontSize: 11, fontWeight: '700' as const, color: c.danger },
   }));
 
-  return (
+  const label = (senderLabel ?? '').replace(/^@+/u, '').trim();
+  const photo = (senderAvatarUrl ?? '').trim();
+  const showAvatarRail = Boolean(groupLayout) && !mine;
+  const showName = Boolean(showSenderMeta && label && !mine);
+  const replyWho =
+    message.replyTo?.senderId === myUid
+      ? 'you'
+      : (replySenderLabel || message.replyTo?.senderUsername || 'message').replace(/^@+/u, '');
+
+  const body = (
     <Pressable onLongPress={onLongPress}>
+      {showName ? <Text style={styles.senderName}>{label}</Text> : null}
       {message.replyTo ? (
         <View style={styles.replyPreview}>
           <Text style={styles.replyPrevTxt} numberOfLines={2}>
-            Replying to {message.replyTo.senderId === myUid ? 'you' : 'message'}:{' '}
-            {message.replyTo.textSnippet}
+            Replying to {replyWho}: {message.replyTo.textSnippet}
           </Text>
         </View>
       ) : null}
@@ -184,6 +231,29 @@ function MessageBubbleInner({
         </View>
       ) : null}
     </Pressable>
+  );
+
+  if (!showAvatarRail) {
+    return body;
+  }
+
+  return (
+    <View style={[styles.wrap, mine && styles.wrapMine]}>
+      <View style={styles.avatarCol}>
+        {showSenderMeta ? (
+          <View style={styles.avatar}>
+            {photo ? (
+              <Image source={{ uri: photo }} style={styles.avatarImg} contentFit="cover" />
+            ) : (
+              <Text style={styles.avatarTxt}>{(label || '?').slice(0, 1).toUpperCase()}</Text>
+            )}
+          </View>
+        ) : (
+          <View style={styles.avatarSpacer} />
+        )}
+      </View>
+      <View style={styles.col}>{body}</View>
+    </View>
   );
 }
 

@@ -94,9 +94,9 @@ export function AppTabs() {
           component={TodayScreen}
           options={{
             title: 'Today',
-            tabBarAccessibilityLabel: 'Today',
+            tabBarAccessibilityLabel: 'Home',
             tabBarIcon: ({ focused, color }) => (
-              <TabIcon name="today-outline" focused={focused} color={color} />
+              <TabIcon name="home-outline" focused={focused} color={color} />
             ),
           }}
         />

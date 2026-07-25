@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -17,7 +16,11 @@ import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { Screen } from '../components/Screen';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
-import { subscribeFollowing, syncFollowingProfilePhotos, type FollowingRow } from '../services/social';
+import {
+  subscribeMutualFollows,
+  syncFollowingProfilePhotos,
+  type FollowingRow,
+} from '../services/social';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { getOrCreateDm } from '../services/chat/chatFirestore';
 import { ChatHeaderIconButton } from '../chat/components/ChatHeaderIconButton';
@@ -29,66 +32,76 @@ type Props = NativeStackScreenProps<ChatStackParamList, 'NewChat'>;
 export function NewChatScreen({ navigation, route }: Props) {
   const { colors } = useTheme();
   const styles = useThemedStyles((colors) => ({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  shareBanner: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 12,
-    backgroundColor: colors.cardTint,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    gap: 2,
-  },
-  shareLabel: { fontSize: 12, fontWeight: '900', color: colors.muted, letterSpacing: 0.4 },
-  shareTxt: { fontSize: 14, fontWeight: '900', color: colors.text },
-  search: {
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    fontWeight: '600',
-    backgroundColor: colors.card,
-  },
-  searchAfterShare: {
-    marginTop: 10,
-  },
-  list: { paddingHorizontal: 16, paddingBottom: 40, gap: 8, paddingTop: 2 },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  rowPressed: { opacity: 0.88 },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: colors.cardTint,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  avatarImg: { width: 40, height: 40 },
-  avatarTxt: { fontSize: 15, fontWeight: '900', color: colors.moss },
-  nameCol: { flex: 1, minWidth: 0 },
-  name: { fontSize: 15, fontWeight: '800' },
-  empty: { padding: 24, textAlign: 'center', color: colors.muted, fontWeight: '600' },
-}));
+    screen: { flex: 1, backgroundColor: colors.bg },
+    shareBanner: {
+      paddingHorizontal: 16,
+      paddingTop: 10,
+      paddingBottom: 12,
+      backgroundColor: colors.cardTint,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      gap: 2,
+    },
+    shareLabel: { fontSize: 12, fontWeight: '900', color: colors.muted, letterSpacing: 0.4 },
+    shareTxt: { fontSize: 14, fontWeight: '900', color: colors.text },
+    hint: {
+      marginHorizontal: 16,
+      marginTop: 10,
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.muted,
+      lineHeight: 18,
+    },
+    search: {
+      marginHorizontal: 16,
+      marginTop: 8,
+      marginBottom: 10,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      fontSize: 16,
+      fontWeight: '600',
+      backgroundColor: colors.card,
+      color: colors.text,
+    },
+    searchAfterShare: {
+      marginTop: 10,
+    },
+    list: { paddingHorizontal: 16, paddingBottom: 40, gap: 8, paddingTop: 2 },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: 14,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    rowPressed: { opacity: 0.88 },
+    avatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      backgroundColor: colors.cardTint,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: 'hidden',
+    },
+    avatarImg: { width: 40, height: 40 },
+    avatarTxt: { fontSize: 15, fontWeight: '900', color: colors.moss },
+    nameCol: { flex: 1, minWidth: 0 },
+    name: { fontSize: 15, fontWeight: '800' },
+    empty: { padding: 24, textAlign: 'center', color: colors.muted, fontWeight: '600', lineHeight: 22 },
+  }));
   const { user } = useAuth();
   const [rows, setRows] = React.useState<FollowingRow[]>([]);
+  const [loading, setLoading] = React.useState(true);
   const [q, setQ] = React.useState('');
   const [busy, setBusy] = React.useState<string | null>(null);
   const sharePost = route.params?.sharePost;
@@ -117,8 +130,16 @@ export function NewChatScreen({ navigation, route }: Props) {
   }, [navigation, sharePost, cancelShare]);
 
   React.useEffect(() => {
-    if (!isFirebaseConfigured() || !user?.uid) return;
-    return subscribeFollowing(user.uid, setRows);
+    if (!isFirebaseConfigured() || !user?.uid) {
+      setRows([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    return subscribeMutualFollows(user.uid, (next) => {
+      setRows(next);
+      setLoading(false);
+    });
   }, [user?.uid]);
 
   useFocusEffect(
@@ -129,9 +150,9 @@ export function NewChatScreen({ navigation, route }: Props) {
   );
 
   const filtered = React.useMemo(() => {
-    const s = q.trim().toLowerCase();
+    const s = q.trim().toLowerCase().replace(/^@+/u, '');
     if (!s) return rows;
-    return rows.filter((r) => r.targetUsername.toLowerCase().includes(s));
+    return rows.filter((r) => r.targetUsername.toLowerCase().replace(/^@+/u, '').includes(s));
   }, [rows, q]);
 
   const openDm = async (otherUid: string, username: string) => {
@@ -155,6 +176,12 @@ export function NewChatScreen({ navigation, route }: Props) {
     }
   };
 
+  const emptyCopy = loading
+    ? 'Loading people…'
+    : q.trim()
+      ? 'No mutual follows match that name.'
+      : 'Chat people you follow who follow you back. Follow someone and wait for them to follow back, then they’ll show up here.';
+
   return (
     <Screen style={styles.screen} dismissKeyboardOnTap edges={['bottom', 'left', 'right']}>
       {sharePost ? (
@@ -165,56 +192,65 @@ export function NewChatScreen({ navigation, route }: Props) {
           </Text>
         </View>
       ) : null}
+      <Text style={styles.hint}>People you follow who follow you back</Text>
       <TextInput
         style={[styles.search, sharePost ? styles.searchAfterShare : undefined]}
-        placeholder="Search people you follow"
+        placeholder="Search by username"
         placeholderTextColor={colors.muted2}
         value={q}
         onChangeText={setQ}
         autoCapitalize="none"
+        autoCorrect={false}
+        clearButtonMode="while-editing"
       />
-      <FlatList
-        data={filtered}
-        keyExtractor={(r) => r.targetUid}
-        extraData={rows.map((r) => `${r.targetUid}:${r.targetPhotoUrl ?? ''}`).join('|')}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={<Text style={styles.empty}>Follow people first, then message them here.</Text>}
-        renderItem={({ item }) => {
-          const photo = (item.targetPhotoUrl ?? '').trim();
-          const isBusy = busy === item.targetUid;
-          return (
-            <Pressable
-              style={({ pressed }) => [styles.row, pressed && !isBusy && styles.rowPressed]}
-              onPress={() => void openDm(item.targetUid, item.targetUsername)}
-              disabled={isBusy}
-              accessibilityRole="button"
-              accessibilityLabel={`Message ${item.targetUsername}`}
-            >
-              <View style={styles.avatar}>
-                {photo ? (
-                  <Image
-                    key={`newchat-${item.targetUid}`}
-                    recyclingKey={item.targetUid}
-                    source={{ uri: photo }}
-                    style={styles.avatarImg}
-                    contentFit="cover"
-                  />
+      {loading && rows.length === 0 ? (
+        <ActivityIndicator color={colors.moss} style={{ marginTop: 28 }} />
+      ) : (
+        <FlatList
+          data={filtered}
+          keyExtractor={(r) => r.targetUid}
+          keyboardShouldPersistTaps="handled"
+          extraData={rows.map((r) => `${r.targetUid}:${r.targetPhotoUrl ?? ''}`).join('|')}
+          contentContainerStyle={styles.list}
+          ListEmptyComponent={<Text style={styles.empty}>{emptyCopy}</Text>}
+          renderItem={({ item }) => {
+            const photo = (item.targetPhotoUrl ?? '').trim();
+            const isBusy = busy === item.targetUid;
+            const label = item.targetUsername.replace(/^@+/u, '') || 'user';
+            return (
+              <Pressable
+                style={({ pressed }) => [styles.row, pressed && !isBusy && styles.rowPressed]}
+                onPress={() => void openDm(item.targetUid, label)}
+                disabled={isBusy}
+                accessibilityRole="button"
+                accessibilityLabel={`Message ${label}`}
+              >
+                <View style={styles.avatar}>
+                  {photo ? (
+                    <Image
+                      key={`newchat-${item.targetUid}`}
+                      recyclingKey={item.targetUid}
+                      source={{ uri: photo }}
+                      style={styles.avatarImg}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <Text style={styles.avatarTxt}>{label.slice(0, 1).toUpperCase()}</Text>
+                  )}
+                </View>
+                <View style={styles.nameCol}>
+                  <UsernameLink uid={item.targetUid} username={label} style={styles.name} />
+                </View>
+                {isBusy ? (
+                  <ActivityIndicator color={colors.moss} size="small" />
                 ) : (
-                  <Text style={styles.avatarTxt}>{item.targetUsername.slice(0, 1).toUpperCase()}</Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.muted2} />
                 )}
-              </View>
-              <View style={styles.nameCol}>
-                <UsernameLink uid={item.targetUid} username={item.targetUsername} style={styles.name} />
-              </View>
-              {isBusy ? (
-                <ActivityIndicator color={colors.moss} size="small" />
-              ) : (
-                <Ionicons name="chevron-forward" size={16} color={colors.muted2} />
-              )}
-            </Pressable>
-          );
-        }}
-      />
+              </Pressable>
+            );
+          }}
+        />
+      )}
     </Screen>
   );
 }
