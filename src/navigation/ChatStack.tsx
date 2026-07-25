@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Platform } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
@@ -33,13 +34,20 @@ export function ChatStackNavigator() {
   const themedHeader = useThemedStackScreenOptions();
 
   return (
-    <Stack.Navigator screenOptions={{ ...themedHeader, headerShown: tabFocused }}>
+    <Stack.Navigator
+      screenOptions={{
+        ...themedHeader,
+        headerShown: tabFocused,
+        ...(Platform.OS === 'ios' ? { headerBackTitle: '' } : {}),
+      }}
+    >
       <Stack.Screen name="ChatInbox" component={ChatInboxScreen} options={{ title: 'Chats' }} />
       <Stack.Screen
         name="Conversation"
         component={ConversationScreen}
         options={{
           title: 'Chat',
+          headerBackVisible: false,
           gestureEnabled: true,
           /** Leave edge-swipe room so the tab pager can move off Chat; back still works from the bar. */
           fullScreenGestureEnabled: false,
@@ -49,7 +57,11 @@ export function ChatStackNavigator() {
       <Stack.Screen name="NewChat" component={NewChatScreen} options={{ title: 'New message' }} />
       <Stack.Screen name="NewGroup" component={NewGroupScreen} options={{ title: 'New group' }} />
       <Stack.Screen name="MemberPicker" component={MemberPickerScreen} options={{ title: 'Add people' }} />
-      <Stack.Screen name="ChatSearch" component={ChatSearchScreen} options={{ title: 'Search' }} />
+      <Stack.Screen
+        name="ChatSearch"
+        component={ChatSearchScreen}
+        options={{ title: 'Search', headerBackVisible: false }}
+      />
     </Stack.Navigator>
   );
 }

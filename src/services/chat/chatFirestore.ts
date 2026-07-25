@@ -536,7 +536,6 @@ export function subscribeMessagesPage(
   const q = query(messagesCol(convId), orderBy('createdAt', 'desc'), limit(pageSize));
   return onSnapshot(
     q,
-    { includeMetadataChanges: true },
     (snap) => {
       const docs = snap.docs;
       const items = docs.map((d) => mapMessageDoc(d.id, d.data() as Record<string, unknown>)).reverse();

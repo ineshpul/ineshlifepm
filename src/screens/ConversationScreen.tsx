@@ -13,12 +13,11 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { HeaderBackButton, useHeaderHeight } from '@react-navigation/elements';
+import { useHeaderHeight } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -51,10 +50,13 @@ import {
   subscribeTyping,
 } from '../services/chat/chatFirestore';
 import { BlockReportModal } from '../chat/components/BlockReportModal';
+import { ChatHeaderBack } from '../chat/components/ChatHeaderBack';
+import { ChatHeaderIconButton } from '../chat/components/ChatHeaderIconButton';
+import { ChatComposer } from '../chat/components/ChatComposer';
+import { MessageBubble } from '../chat/components/MessageBubble';
 import { setForegroundChatConversationId } from '../chat/activeConversationRef';
 import { showError, showInfo } from '../utils/ui';
 import { navigateToUserProfile } from '../navigation/navigationHelpers';
-import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 
 type Props = NativeStackScreenProps<ChatStackParamList, 'Conversation'>;
 
@@ -112,107 +114,11 @@ export function ConversationScreen({ navigation, route }: Props) {
   rowMsgCluster: { marginTop: -2 },
   rowMine: { alignSelf: 'flex-end' },
   rowTheirs: { alignSelf: 'flex-start' },
-  bubble: {
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.cardTint,
-  },
-  bubbleMine: { backgroundColor: 'rgba(76, 175, 80, 0.22)', borderColor: 'rgba(76, 175, 80, 0.35)' },
-  bubbleTheirs: { backgroundColor: colors.card, borderColor: colors.border2 },
-  bubbleTxt: { fontSize: 16, fontWeight: '600', color: colors.text },
-  bubbleTxtMine: { color: colors.text },
-  edited: { marginTop: 4, fontSize: 11, fontWeight: '700', color: colors.muted2 },
-  replyPreview: { marginBottom: 4, padding: 6, borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.04)' },
-  replyPrevTxt: { fontSize: 12, fontWeight: '600', color: colors.muted },
-  shareTag: { fontSize: 11, fontWeight: '900', color: colors.moss, letterSpacing: 0.6 },
-  shareTitle: { fontSize: 15, fontWeight: '800', marginBottom: 6 },
-  shareVideo: { width: 220, height: 280, borderRadius: 12, backgroundColor: colors.black },
-  thumb: { width: 220, height: 140, borderRadius: 12, backgroundColor: colors.black },
-  thumbPh: { alignItems: 'center', justifyContent: 'center' },
-  dur: { marginTop: 4, fontSize: 12, fontWeight: '800', color: colors.muted },
-  reactionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
-  reactionRowMine: { justifyContent: 'flex-end' },
-  reactionChipBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.06)',
-  },
-  reactionChip: { fontSize: 13, fontWeight: '700' },
-  dateSep: { alignItems: 'center', marginTop: 10, marginBottom: 6 },
-  dateSepTxt: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.muted2,
-    overflow: 'hidden',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-  },
   swipeReply: { justifyContent: 'center', paddingHorizontal: 12 },
   composerAvoid: {
     backgroundColor: colors.card,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 6,
-      },
-      android: { elevation: 10 },
-    }),
-  },
-  composerDock: {
-    backgroundColor: colors.card,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    overflow: 'hidden',
-  },
-  replyBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border2,
-    gap: 8,
-  },
-  replyBarTxt: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.muted },
-  uploadBar: { padding: 8, backgroundColor: colors.cardTint },
-  uploadTxt: { fontWeight: '700', color: colors.text },
-  composer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: 10,
-    paddingTop: 10,
-    gap: 8,
-    backgroundColor: colors.card,
-  },
-  input: {
-    flex: 1,
-    minHeight: 42,
-    maxHeight: 120,
-    borderRadius: 22,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 16,
-    fontWeight: '500',
-    color: colors.text,
-    backgroundColor: colors.bg,
-  },
-  sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.moss,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border2,
   },
   reactionBackdrop: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },
   reactionTray: {
@@ -235,7 +141,6 @@ export function ConversationScreen({ navigation, route }: Props) {
 }));
   const { conversationId, threadTitle, pendingShare } = route.params;
   const insets = useSafeAreaInsets();
-  const tabBarClearance = floatingTabContentClearance(insets.bottom);
   const headerHeight = useHeaderHeight();
   const { user } = useAuth();
   const { conversation, members, myMember } = useConversation(conversationId, user?.uid);
@@ -319,19 +224,10 @@ export function ConversationScreen({ navigation, route }: Props) {
     );
   }, [dmPeer?.memberUid]);
 
-  const headerBack = React.useCallback(
-    (props: React.ComponentProps<typeof HeaderBackButton>) => (
-      <HeaderBackButton
-        {...props}
-        tintColor={colors.text}
-        onPress={() => {
-          if (navigation.canGoBack()) navigation.goBack();
-          else navigation.navigate('ChatInbox');
-        }}
-      />
-    ),
-    [colors.text, navigation]
-  );
+  const goBack = React.useCallback(() => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.navigate('ChatInbox');
+  }, [navigation]);
 
   React.useLayoutEffect(() => {
     // `conversation.name` is often stale or defaulted to "Chat" on older DM docs; `myMember.convTitle`
@@ -369,6 +265,8 @@ export function ConversationScreen({ navigation, route }: Props) {
       (conversation?.avatarUrl && String(conversation.avatarUrl).trim()) ||
       '';
 
+    const headerLeft = () => <ChatHeaderBack onPress={goBack} accessibilityLabel="Back to Chats" />;
+
     if (conversation?.type === 'dm' && dmPeer) {
       const handle =
         (dmPeerUser?.username && dmPeerUser.username.trim()) ||
@@ -377,75 +275,74 @@ export function ConversationScreen({ navigation, route }: Props) {
       const showAt = handle.startsWith('@') ? handle : `@${handle.replace(/^@+/u, '')}`;
       navigation.setOptions({
         title: undefined,
-        headerBackVisible: true,
-        headerLeft: headerBack,
-        headerTitleAlign: 'center',
+        headerBackVisible: false,
+        headerLeft,
+        headerTitleAlign: 'left',
         headerTitle: () => (
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', minHeight: 40 }}>
-            <Pressable
-              onPress={openDmProfile}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: 280 }}
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${showAt} profile`}
+          <Pressable
+            onPress={openDmProfile}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: 260 }}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${showAt} profile`}
+          >
+            <View
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 16,
+                backgroundColor: colors.cardTint,
+                overflow: 'hidden',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             >
-              <View
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 9,
-                  backgroundColor: colors.cardTint,
-                  overflow: 'hidden',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                {dmAvatarUri ? (
-                  <Image
-                    key={`dm-av-${dmPeer.memberUid}-${dmAvatarUri}`}
-                    recyclingKey={`${dmPeer.memberUid}|${dmAvatarUri}`}
-                    source={{ uri: dmAvatarUri }}
-                    style={{ width: 28, height: 28 }}
-                    contentFit="cover"
-                    transition={120}
-                  />
-                ) : (
-                  <Text style={{ fontSize: 12, fontWeight: '900', color: colors.text }}>
-                    {showAt.replace(/^@/u, '').slice(0, 1).toUpperCase()}
-                  </Text>
-                )}
-              </View>
-              <Text style={{ fontSize: 17, fontWeight: '800', color: colors.text }} numberOfLines={1}>
-                {showAt}
-              </Text>
-            </Pressable>
-          </View>
+              {dmAvatarUri ? (
+                <Image
+                  key={`dm-av-${dmPeer.memberUid}-${dmAvatarUri}`}
+                  recyclingKey={`${dmPeer.memberUid}|${dmAvatarUri}`}
+                  source={{ uri: dmAvatarUri }}
+                  style={{ width: 32, height: 32 }}
+                  contentFit="cover"
+                  transition={120}
+                />
+              ) : (
+                <Text style={{ fontSize: 13, fontWeight: '900', color: colors.text }}>
+                  {showAt.replace(/^@/u, '').slice(0, 1).toUpperCase()}
+                </Text>
+              )}
+            </View>
+            <Text style={{ fontSize: 17, fontWeight: '800', color: colors.text }} numberOfLines={1}>
+              {showAt}
+            </Text>
+          </Pressable>
         ),
         headerRight: undefined,
       });
     } else {
       navigation.setOptions({
         title,
-        headerBackVisible: true,
-        headerLeft: headerBack,
+        headerBackVisible: false,
+        headerLeft,
         headerTitleAlign: undefined,
         headerTitle: undefined,
         headerRight:
           conversation?.type === 'group'
             ? () => (
-                <TouchableOpacity
-                  style={{ paddingHorizontal: 8, marginRight: 4 }}
+                <ChatHeaderIconButton
+                  name="information-circle-outline"
+                  size={24}
                   onPress={() => navigation.navigate('GroupInfo', { conversationId })}
-                >
-                  <Ionicons name="information-circle-outline" size={24} color={colors.text} />
-                </TouchableOpacity>
+                  accessibilityLabel="Group info"
+                />
               )
             : undefined,
       });
     }
   }, [
     navigation,
-    headerBack,
+    goBack,
     colors.text,
+    colors.cardTint,
     conversation?.name,
     conversation?.type,
     conversation?.avatarUrl,
@@ -624,145 +521,6 @@ export function ConversationScreen({ navigation, route }: Props) {
       (item.deletedForSelfUids && user?.uid && item.deletedForSelfUids.includes(user.uid));
     if (hidden) return <View />;
 
-    const bubble = (
-      <Pressable
-        onLongPress={() => {
-          Alert.alert('Message', undefined, [
-            { text: 'Reply', onPress: () => setReplyTo({ messageId: item.id, textSnippet: item.text ?? '', senderId: item.senderId }) },
-            {
-              text: 'React',
-              onPress: () => setReactionMsg(item),
-            },
-            ...(mine
-              ? [
-                  {
-                    text: 'Edit',
-                    onPress: () => {
-                      if (Platform.OS === 'ios') {
-                        Alert.prompt('Edit message', '', async (t) => {
-                          if (!t || !user?.uid) return;
-                          try {
-                            await editMessage(conversationId, item.id, user.uid, t);
-                          } catch (e) {
-                            showError('Edit failed', e);
-                          }
-                        });
-                      } else {
-                        showInfo('Edit', 'Inline edit is available on iOS for now; long-press again on iPhone or re-send.');
-                      }
-                    },
-                  } as const,
-                  {
-                    text: 'Delete for me',
-                    style: 'destructive' as const,
-                    onPress: () => {
-                      if (!user?.uid) return;
-                      void softDeleteForSelf(conversationId, item.id, user.uid);
-                    },
-                  },
-                ]
-              : []),
-            {
-              text: 'Report',
-              style: 'destructive' as const,
-              onPress: () => setReportTarget(item),
-            },
-            { text: 'Cancel', style: 'cancel' as const },
-          ]);
-        }}
-      >
-        {item.replyTo ? (
-          <View style={styles.replyPreview}>
-            <Text style={styles.replyPrevTxt} numberOfLines={2}>
-              Replying to {item.replyTo.senderId === user?.uid ? 'you' : 'message'}: {item.replyTo.textSnippet}
-            </Text>
-          </View>
-        ) : null}
-        {item.sharePost ? (
-          <TouchableOpacity
-            style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}
-            onPress={() => item.sharePost?.videoUrl && setVideoOpen(item.sharePost.videoUrl)}
-          >
-            <Text style={styles.shareTag}>Shared leap</Text>
-            <Text style={styles.shareTitle}>{item.sharePost.title || 'Video'}</Text>
-            {item.sharePost.videoUrl ? (
-              <Video
-                source={{ uri: item.sharePost.videoUrl }}
-                style={styles.shareVideo}
-                resizeMode={ResizeMode.COVER}
-                shouldPlay={false}
-                useNativeControls
-              />
-            ) : null}
-          </TouchableOpacity>
-        ) : null}
-        {item.attachments?.map((a) =>
-          a.kind === 'video' ? (
-            <TouchableOpacity
-              key={a.id}
-              style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}
-              onPress={() => setVideoOpen(a.downloadUrl)}
-            >
-              {a.thumbnailUrl ? (
-                <Image source={{ uri: a.thumbnailUrl }} style={styles.thumb} contentFit="cover" />
-              ) : (
-                <View style={[styles.thumb, styles.thumbPh]}>
-                  <Ionicons name="play-circle" size={40} color={colors.white} />
-                </View>
-              )}
-              <Text style={styles.dur}>{a.durationSec ? `${a.durationSec}s` : 'Video'}</Text>
-            </TouchableOpacity>
-          ) : a.kind === 'image' ? (
-            <TouchableOpacity
-              key={a.id}
-              style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}
-              activeOpacity={0.85}
-              onPress={() => setImageOpen(a.downloadUrl)}
-              accessibilityRole="image"
-              accessibilityLabel="View photo full screen"
-            >
-              <Image source={{ uri: a.downloadUrl }} style={styles.thumb} contentFit="cover" />
-            </TouchableOpacity>
-          ) : null
-        )}
-        {item.text ? (
-          <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
-            <Text style={[styles.bubbleTxt, mine && styles.bubbleTxtMine]}>{item.text}</Text>
-            {item.editedAt ? <Text style={styles.edited}>Edited</Text> : null}
-          </View>
-        ) : null}
-        {reactionMap[item.id]?.length ? (
-          <View style={[styles.reactionRow, mine && styles.reactionRowMine]}>
-            {reactionMap[item.id]!.map((r) => (
-              <TouchableOpacity
-                key={r.emoji}
-                style={styles.reactionChipBtn}
-                activeOpacity={0.75}
-                onPress={() => {
-                  if (!user?.uid) return;
-                  void (async () => {
-                    try {
-                      if (r.mine) {
-                        await removeReaction(conversationId, item.id, user.uid, r.emoji);
-                      } else {
-                        await addReaction(conversationId, item.id, user.uid, r.emoji);
-                      }
-                    } catch (e) {
-                      showError('Reaction failed', e);
-                    }
-                  })();
-                }}
-              >
-                <Text style={styles.reactionChip}>
-                  {r.emoji} {r.count}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        ) : null}
-      </Pressable>
-    );
-
     return (
       <View>
         {showDate && item.createdAt ? <DateSep d={item.createdAt.toDate()} /> : null}
@@ -790,7 +548,80 @@ export function ConversationScreen({ navigation, route }: Props) {
               sameSenderCluster && styles.rowMsgCluster,
             ]}
           >
-            {bubble}
+            <MessageBubble
+              message={item}
+              mine={mine}
+              myUid={user?.uid}
+              reactions={reactionMap[item.id]}
+              onLongPress={() => {
+                Alert.alert('Message', undefined, [
+                  {
+                    text: 'Reply',
+                    onPress: () =>
+                      setReplyTo({
+                        messageId: item.id,
+                        textSnippet: item.text ?? '',
+                        senderId: item.senderId,
+                      }),
+                  },
+                  { text: 'React', onPress: () => setReactionMsg(item) },
+                  ...(mine
+                    ? [
+                        {
+                          text: 'Edit',
+                          onPress: () => {
+                            if (Platform.OS === 'ios') {
+                              Alert.prompt('Edit message', '', async (t) => {
+                                if (!t || !user?.uid) return;
+                                try {
+                                  await editMessage(conversationId, item.id, user.uid, t);
+                                } catch (e) {
+                                  showError('Edit failed', e);
+                                }
+                              });
+                            } else {
+                              showInfo(
+                                'Edit',
+                                'Inline edit is available on iOS for now; long-press again on iPhone or re-send.'
+                              );
+                            }
+                          },
+                        } as const,
+                        {
+                          text: 'Delete for me',
+                          style: 'destructive' as const,
+                          onPress: () => {
+                            if (!user?.uid) return;
+                            void softDeleteForSelf(conversationId, item.id, user.uid);
+                          },
+                        },
+                      ]
+                    : []),
+                  {
+                    text: 'Report',
+                    style: 'destructive' as const,
+                    onPress: () => setReportTarget(item),
+                  },
+                  { text: 'Cancel', style: 'cancel' as const },
+                ]);
+              }}
+              onOpenVideo={setVideoOpen}
+              onOpenImage={setImageOpen}
+              onToggleReaction={(emoji, isMine) => {
+                if (!user?.uid) return;
+                void (async () => {
+                  try {
+                    if (isMine) {
+                      await removeReaction(conversationId, item.id, user.uid, emoji);
+                    } else {
+                      await addReaction(conversationId, item.id, user.uid, emoji);
+                    }
+                  } catch (e) {
+                    showError('Reaction failed', e);
+                  }
+                })();
+              }}
+            />
           </View>
         </Swipeable>
       </View>
@@ -816,73 +647,47 @@ export function ConversationScreen({ navigation, route }: Props) {
   }, [loading, messages.length]);
 
   const composerDock = (
-    <View style={styles.composerDock}>
-      {replyTo ? (
-        <View style={styles.replyBar}>
-          <Text style={styles.replyBarTxt} numberOfLines={2}>
-            Replying to: {replyTo.textSnippet}
-          </Text>
-          <TouchableOpacity onPress={() => setReplyTo(null)}>
-            <Ionicons name="close" size={22} color={colors.muted} />
-          </TouchableOpacity>
-        </View>
-      ) : null}
-      {busy ? (
-        <View style={styles.uploadBar}>
-          <Text style={styles.uploadTxt}>Uploading… {uploadProgress}%</Text>
-        </View>
-      ) : null}
-      <View style={[styles.composer, { paddingBottom: tabBarClearance }]}>
-        <TouchableOpacity
-          onPress={async () => {
-            try {
-              const att = await pickAndUploadImage();
-              if (att) await send({ attachments: [att], replyTo: replyTo ?? undefined });
-            } catch (e) {
-              showError('Upload failed', e);
-            }
-          }}
-        >
-          <Ionicons name="image-outline" size={24} color={colors.moss} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={async () => {
-            try {
-              const att = await pickAndUploadVideo();
-              if (att) await send({ attachments: [att], replyTo: replyTo ?? undefined });
-            } catch (e) {
-              showError('Video failed', e);
-            }
-          }}
-        >
-          <Ionicons name="videocam-outline" size={24} color={colors.moss} />
-        </TouchableOpacity>
-        <TextInput
-          style={styles.input}
-          placeholder="Message…"
-          placeholderTextColor={colors.muted2}
-          value={draft}
-          onChangeText={(t) => {
-            setDraft(t);
-            onTyping();
-          }}
-          onFocus={() => {
-            composerFocusedRef.current = true;
-            requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }));
-          }}
-          onBlur={() => {
-            composerFocusedRef.current = false;
-            if (user?.uid) void setTyping(conversationId, user.uid, false);
-          }}
-          multiline
-          scrollEnabled
-          textAlignVertical="top"
-        />
-        <TouchableOpacity style={styles.sendBtn} onPress={onSend}>
-          <Ionicons name="send" size={20} color={colors.white} />
-        </TouchableOpacity>
-      </View>
-    </View>
+    <ChatComposer
+      draft={draft}
+      onChangeDraft={(t) => {
+        setDraft(t);
+        onTyping();
+      }}
+      replyTo={replyTo}
+      onClearReply={() => setReplyTo(null)}
+      onSend={onSend}
+      onPickImage={() => {
+        void (async () => {
+          try {
+            const att = await pickAndUploadImage();
+            if (att) await send({ attachments: [att], replyTo: replyTo ?? undefined });
+          } catch (e) {
+            showError('Upload failed', e);
+          }
+        })();
+      }}
+      onPickVideo={() => {
+        void (async () => {
+          try {
+            const att = await pickAndUploadVideo();
+            if (att) await send({ attachments: [att], replyTo: replyTo ?? undefined });
+          } catch (e) {
+            showError('Video failed', e);
+          }
+        })();
+      }}
+      onFocus={() => {
+        composerFocusedRef.current = true;
+        requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }));
+      }}
+      onBlur={() => {
+        composerFocusedRef.current = false;
+        if (user?.uid) void setTyping(conversationId, user.uid, false);
+      }}
+      uploadBusy={busy}
+      uploadProgress={uploadProgress}
+      bottomPad={Math.max(insets.bottom, 10)}
+    />
   );
 
   const listContentStyle = React.useMemo(
@@ -894,7 +699,7 @@ export function ConversationScreen({ navigation, route }: Props) {
   );
 
   return (
-    <Screen style={styles.screen} edges={['bottom', 'left', 'right']}>
+    <Screen style={styles.screen} edges={['left', 'right']}>
       <KeyboardAvoidingView
         style={styles.flex}
         enabled

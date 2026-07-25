@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { startTransition } from 'react';
 import type { DocumentSnapshot } from 'firebase/firestore';
+import { Timestamp } from 'firebase/firestore';
 
 import { isFirebaseConfigured } from '../../firebase/firebase';
 import type { ChatMessage, MessageAttachment, ReplyRef, SharePostPayload } from '../types';
@@ -12,16 +13,48 @@ import {
   subscribeMessagesPage,
 } from '../../services/chat/chatFirestore';
 
+type SendPayload = {
+  text?: string;
+  replyTo?: ReplyRef;
+  attachments?: MessageAttachment[];
+  sharePost?: SharePostPayload;
+  clientTempId: string;
+};
+
 type SendJob = {
-  payload: {
-    text?: string;
-    replyTo?: ReplyRef;
-    attachments?: MessageAttachment[];
-    sharePost?: SharePostPayload;
-  };
+  payload: SendPayload;
   resolve: () => void;
   reject: (e: unknown) => void;
 };
+
+function newTempId() {
+  return `tmp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Merge live newest-page snapshot with paginated history + optimistic sends. */
+function mergeLivePage(prev: ChatMessage[], page: ChatMessage[]): ChatMessage[] {
+  const liveIds = new Set(page.map((m) => m.id));
+  const serverTempIds = new Set(
+    page.map((m) => m.clientTempId).filter((id): id is string => Boolean(id))
+  );
+
+  const older: ChatMessage[] = [];
+  const pending: ChatMessage[] = [];
+
+  for (const m of prev) {
+    if (liveIds.has(m.id)) continue;
+    if (m.deliveryState === 'optimistic' || m.deliveryState === 'failed') {
+      const temp = m.clientTempId ?? m.id;
+      if (serverTempIds.has(temp) || liveIds.has(temp)) continue;
+      pending.push(m);
+      continue;
+    }
+    // Keep scrolled-in history (and any message that fell off the live window).
+    older.push(m);
+  }
+
+  return [...older, ...page, ...pending];
+}
 
 export function useMessages(conversationId: string | undefined, myUid: string | undefined) {
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
@@ -29,6 +62,7 @@ export function useMessages(conversationId: string | undefined, myUid: string | 
   const [loadingOlder, setLoadingOlder] = React.useState(false);
   const [hasMore, setHasMore] = React.useState(true);
   const oldestSnapRef = React.useRef<DocumentSnapshot | null>(null);
+  const hasOlderHistoryRef = React.useRef(false);
   const lastMessageIdRef = React.useRef<string | null>(null);
   const sendQueueRef = React.useRef<SendJob[]>([]);
   const pumpRunningRef = React.useRef(false);
@@ -40,18 +74,23 @@ export function useMessages(conversationId: string | undefined, myUid: string | 
       return;
     }
     setLoading(true);
+    hasOlderHistoryRef.current = false;
+    oldestSnapRef.current = null;
     const unsub = subscribeMessagesPage(
       conversationId,
       CHAT_MESSAGES_INITIAL_PAGE,
       (page, docs) => {
-        const oldest = docs.length ? docs[docs.length - 1] : null;
         const lastId = page.length ? page[page.length - 1]!.id : null;
-        const more = docs.length >= CHAT_MESSAGES_INITIAL_PAGE;
         startTransition(() => {
-          setMessages(page);
-          oldestSnapRef.current = oldest;
-          lastMessageIdRef.current = lastId;
-          setHasMore(more);
+          setMessages((prev) => {
+            const next = mergeLivePage(prev, page);
+            if (!hasOlderHistoryRef.current) {
+              oldestSnapRef.current = docs.length ? docs[docs.length - 1]! : null;
+              setHasMore(docs.length >= CHAT_MESSAGES_INITIAL_PAGE);
+            }
+            lastMessageIdRef.current = lastId;
+            return next;
+          });
           setLoading(false);
         });
       },
@@ -62,6 +101,8 @@ export function useMessages(conversationId: string | undefined, myUid: string | 
 
   const markRead = React.useCallback(async () => {
     if (!conversationId || !myUid || !lastMessageIdRef.current) return;
+    // Don't mark-read against an optimistic temp id.
+    if (lastMessageIdRef.current.startsWith('tmp_')) return;
     await markConversationRead(conversationId, myUid, lastMessageIdRef.current);
   }, [conversationId, myUid]);
 
@@ -79,8 +120,13 @@ export function useMessages(conversationId: string | undefined, myUid: string | 
         return;
       }
       oldestSnapRef.current = lastDoc;
+      hasOlderHistoryRef.current = true;
       startTransition(() => {
-        setMessages((prev) => [...older, ...prev]);
+        setMessages((prev) => {
+          const existing = new Set(prev.map((m) => m.id));
+          const uniqueOlder = older.filter((m) => !existing.has(m.id));
+          return [...uniqueOlder, ...prev];
+        });
       });
       if (older.length < CHAT_MESSAGES_PAGE_SIZE) setHasMore(false);
     } finally {
@@ -103,9 +149,17 @@ export function useMessages(conversationId: string | undefined, myUid: string | 
             replyTo: job.payload.replyTo,
             attachments: job.payload.attachments,
             sharePost: job.payload.sharePost,
+            clientTempId: job.payload.clientTempId,
           });
           job.resolve();
         } catch (e) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === job.payload.clientTempId || m.clientTempId === job.payload.clientTempId
+                ? { ...m, deliveryState: 'failed' as const }
+                : m
+            )
+          );
           job.reject(e);
         }
       }
@@ -127,7 +181,27 @@ export function useMessages(conversationId: string | undefined, myUid: string | 
           resolve();
           return;
         }
-        sendQueueRef.current.push({ payload: args, resolve, reject });
+        const clientTempId = newTempId();
+        const optimistic: ChatMessage = {
+          id: clientTempId,
+          senderId: myUid,
+          text: args.text,
+          kind: args.sharePost ? 'share_post' : 'text',
+          sharePost: args.sharePost,
+          createdAt: Timestamp.now(),
+          replyTo: args.replyTo,
+          deliveryState: 'optimistic',
+          clientTempId,
+          attachments: args.attachments,
+        };
+        setMessages((prev) => [...prev, optimistic]);
+        lastMessageIdRef.current = clientTempId;
+
+        sendQueueRef.current.push({
+          payload: { ...args, clientTempId },
+          resolve,
+          reject,
+        });
         void pumpSendQueue();
       }),
     [conversationId, myUid, pumpSendQueue]
