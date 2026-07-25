@@ -187,8 +187,11 @@ export function ChatSearchScreen({ navigation }: Props) {
     if (!s) return [];
     return rows
       .filter((r) => {
+        // Inbox already hides never-messaged DMs; keep the same rule here.
+        const previewRaw = (r.member.lastMessagePreview || '').trim();
+        if (!previewRaw && r.member.convType !== 'group') return false;
         const title = (r.member.convTitle || r.member.displayNameSnap || '').toLowerCase();
-        const preview = (r.member.lastMessagePreview || '').toLowerCase();
+        const preview = previewRaw.toLowerCase();
         return title.includes(s) || preview.includes(s);
       })
       .slice(0, 20);
@@ -350,7 +353,9 @@ export function ChatSearchScreen({ navigation }: Props) {
                 ? item.preview || ' '
                 : item.type === 'message'
                   ? item.message.text || ' '
-                  : 'Message';
+                  : item.type === 'person' && openingUid === item.uid
+                    ? 'Opening chat…'
+                    : 'Tap to message';
             const time =
               item.type === 'message' ? formatTime(item.message.createdAt) : '';
             const title =
@@ -367,6 +372,9 @@ export function ChatSearchScreen({ navigation }: Props) {
                   }
                   openConversation(item.conversationId, item.title);
                 }}
+                accessibilityLabel={
+                  item.type === 'person' ? `Message ${title}` : `Open ${title}`
+                }
               >
                 <View style={styles.avatar}>
                   {avatarUri ? (
@@ -390,9 +398,7 @@ export function ChatSearchScreen({ navigation }: Props) {
                     {time ? <Text style={styles.time}>{time}</Text> : null}
                   </View>
                   <Text style={styles.preview} numberOfLines={2}>
-                    {item.type === 'person' && openingUid === item.uid
-                      ? 'Opening…'
-                      : preview}
+                    {preview}
                   </Text>
                 </View>
               </TouchableOpacity>

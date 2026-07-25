@@ -111,6 +111,11 @@ export function ChatInboxScreen({ navigation }: Props) {
             accessibilityLabel="Search chats"
           />
           <ChatHeaderIconButton
+            name="people-outline"
+            onPress={() => navigation.navigate('NewGroup')}
+            accessibilityLabel="New group"
+          />
+          <ChatHeaderIconButton
             name="create-outline"
             onPress={() => navigation.navigate('NewChat')}
             accessibilityLabel="New chat"
@@ -135,7 +140,7 @@ export function ChatInboxScreen({ navigation }: Props) {
           <ActivityIndicator color={colors.moss} />
         </View>
       ) : rows.length === 0 ? (
-        <View style={styles.empty}>
+        <View style={[styles.empty, { paddingBottom: tabBarClearance }]}>
           <Text style={styles.emptyTitle}>Start something real</Text>
           <Text style={styles.emptySub}>
             Message friends, share today’s leap, and keep groups buzzing — chats stay pinned by recent activity.

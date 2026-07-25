@@ -25,7 +25,6 @@ import { isFirebaseConfigured } from '../firebase/firebase';
 import { getOrCreateDm } from '../services/chat/chatFirestore';
 import { ChatHeaderIconButton } from '../chat/components/ChatHeaderIconButton';
 import { showError } from '../utils/ui';
-import { UsernameLink } from '../components/UsernameLink';
 
 type Props = NativeStackScreenProps<ChatStackParamList, 'NewChat'>;
 
@@ -69,6 +68,33 @@ export function NewChatScreen({ navigation, route }: Props) {
     searchAfterShare: {
       marginTop: 10,
     },
+    groupEntry: {
+      marginHorizontal: 16,
+      marginTop: 10,
+      marginBottom: 4,
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 10,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: 14,
+      backgroundColor: colors.cardTint,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    groupEntryPressed: { opacity: 0.88 },
+    groupIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      backgroundColor: colors.card,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    groupTitle: { flex: 1, fontSize: 15, fontWeight: '800' as const, color: colors.text },
+    groupSub: { fontSize: 12, fontWeight: '600' as const, color: colors.muted, marginTop: 2 },
     list: { paddingHorizontal: 16, paddingBottom: 40, gap: 8, paddingTop: 2 },
     row: {
       flexDirection: 'row',
@@ -96,7 +122,7 @@ export function NewChatScreen({ navigation, route }: Props) {
     avatarImg: { width: 40, height: 40 },
     avatarTxt: { fontSize: 15, fontWeight: '900', color: colors.moss },
     nameCol: { flex: 1, minWidth: 0 },
-    name: { fontSize: 15, fontWeight: '800' },
+    name: { fontSize: 15, fontWeight: '800', color: colors.text },
     empty: { padding: 24, textAlign: 'center', color: colors.muted, fontWeight: '600', lineHeight: 22 },
   }));
   const { user } = useAuth();
@@ -192,6 +218,23 @@ export function NewChatScreen({ navigation, route }: Props) {
           </Text>
         </View>
       ) : null}
+      {!sharePost ? (
+        <Pressable
+          style={({ pressed }) => [styles.groupEntry, pressed && styles.groupEntryPressed]}
+          onPress={() => navigation.navigate('NewGroup')}
+          accessibilityRole="button"
+          accessibilityLabel="Create a group chat"
+        >
+          <View style={styles.groupIcon}>
+            <Ionicons name="people" size={20} color={colors.moss} />
+          </View>
+          <View style={styles.nameCol}>
+            <Text style={styles.groupTitle}>New group</Text>
+            <Text style={styles.groupSub}>Chat with multiple mutual follows</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.muted2} />
+        </Pressable>
+      ) : null}
       <Text style={styles.hint}>People you follow who follow you back</Text>
       <TextInput
         style={[styles.search, sharePost ? styles.searchAfterShare : undefined]}
@@ -239,7 +282,9 @@ export function NewChatScreen({ navigation, route }: Props) {
                   )}
                 </View>
                 <View style={styles.nameCol}>
-                  <UsernameLink uid={item.targetUid} username={label} style={styles.name} />
+                  <Text style={styles.name} numberOfLines={1}>
+                    @{label}
+                  </Text>
                 </View>
                 {isBusy ? (
                   <ActivityIndicator color={colors.moss} size="small" />

@@ -343,6 +343,7 @@ export async function getOrCreateDm(args: {
         convTitle: peerTitle,
         convAvatarUrl: peerPhoto,
         convType: 'dm',
+        displayNameSnap: peerTitle,
         role,
         joinedAt: now,
         muted: false,
@@ -355,19 +356,10 @@ export async function getOrCreateDm(args: {
       },
       { merge: true }
     );
-    batch.set(
-      inboxDoc(uid, id),
-      inboxMirrorBootstrap({
-        conversationId: id,
-        memberUid: uid,
-        convTitle: peerTitle,
-        convAvatarUrl: peerPhoto,
-        convType: 'dm',
-        role,
-        now,
-      }),
-      { merge: true }
-    );
+    /**
+     * Intentionally skip inbox mirrors here. Opening Message / New chat must not spam
+     * Recent chats — the inbox row is created on the first real send.
+     */
   }
   await batch.commit();
   return id;
@@ -400,6 +392,14 @@ export function subscribeMyInboxRows(
           };
         })
         .filter((r) => Boolean(r.conversationId))
+        // Hide never-messaged DMs left over from older eager create (empty preview).
+        // Groups always stay visible once created.
+        .filter((r) => {
+          const preview = (r.member.lastMessagePreview ?? '').trim();
+          if (preview) return true;
+          if (r.member.convType === 'group') return true;
+          return false;
+        })
         .sort((a, b) => {
           const am = a.member.lastActivityAt?.toMillis?.() ?? 0;
           const bm = b.member.lastActivityAt?.toMillis?.() ?? 0;
@@ -441,6 +441,14 @@ export async function ensureMyInboxRow(args: { myUid: string; conversationId: st
   if (conv.type === 'dm' && (member.convTitle !== resolvedTitle || prevAv !== nextAv)) {
     await updateDoc(mref, { convTitle: resolvedTitle, convAvatarUrl: nextAv });
   }
+
+  /**
+   * Never-messaged DMs stay out of Recent chats. Opening Message / compose refreshes
+   * member title/avatar above, but skips the inbox mirror until the first send.
+   */
+  const hasMessaged =
+    Boolean((member.lastMessagePreview ?? '').trim()) || Boolean(conv.lastMessage);
+  if (conv.type === 'dm' && !hasMessaged) return;
 
   await setDoc(
     inboxDoc(args.myUid, args.conversationId),
@@ -647,6 +655,9 @@ export async function sendChatMessage(args: {
       curUnread: number;
       convType: ConversationType;
       displayNameSnap?: string;
+      convTitle?: string;
+      convAvatarUrl?: string | null;
+      role: 'owner' | 'member';
     }[] = [];
     for (const uid of memberIds) {
       const mdoc = doc(membersCol(args.conversationId), uid);
@@ -654,11 +665,19 @@ export async function sendChatMessage(args: {
       const md = msnap.data() as Record<string, unknown> | undefined;
       const snapName =
         typeof md?.displayNameSnap === 'string' ? String(md.displayNameSnap).trim() : '';
+      const title = typeof md?.convTitle === 'string' ? String(md.convTitle).trim() : '';
+      const avatar =
+        md?.convAvatarUrl != null && String(md.convAvatarUrl).trim()
+          ? String(md.convAvatarUrl)
+          : null;
       memberUnread.push({
         uid,
         curUnread: Number(md?.unreadCount ?? 0),
         convType: (md?.convType as ConversationType) || convType,
         displayNameSnap: snapName || undefined,
+        convTitle: title || undefined,
+        convAvatarUrl: avatar,
+        role: md?.role === 'owner' ? 'owner' : 'member',
       });
     }
 
@@ -704,7 +723,8 @@ export async function sendChatMessage(args: {
       },
     });
 
-    for (const { uid, curUnread, convType: rowConvType } of memberUnread) {
+    for (const row of memberUnread) {
+      const { uid, curUnread, convType: rowConvType, convTitle, convAvatarUrl, role } = row;
       const mdoc = doc(membersCol(args.conversationId), uid);
       const nextUnread = uid === args.senderId ? 0 : curUnread + 1;
       tx.set(
@@ -717,22 +737,22 @@ export async function sendChatMessage(args: {
         { merge: true }
       );
       /**
-       * Do not write `convTitle` / `convAvatarUrl` here — they come from each user’s member row and were
-       * wrong on some legacy DMs; re-merging them on every message kept bad avatars stuck in the inbox mirror.
-       * Merge only activity fields; title/avatar stay as set by DM create / `ensureMyInboxRow`.
+       * First message is when a DM appears in Recent chats. Include title/avatar so the
+       * inbox mirror is complete even if create skipped writing it.
        */
-      tx.set(
-        inboxDoc(uid, args.conversationId),
-        {
-          conversationId: args.conversationId,
-          memberUid: uid,
-          convType: rowConvType,
-          lastActivityAt: now,
-          lastMessagePreview: preview,
-          unreadCount: nextUnread,
-        },
-        { merge: true }
-      );
+      const inboxPayload: Record<string, unknown> = {
+        conversationId: args.conversationId,
+        memberUid: uid,
+        convType: rowConvType,
+        role,
+        lastActivityAt: now,
+        lastMessagePreview: preview,
+        unreadCount: nextUnread,
+      };
+      if (convTitle) inboxPayload.convTitle = convTitle;
+      if (convAvatarUrl !== undefined) inboxPayload.convAvatarUrl = convAvatarUrl;
+      if (row.displayNameSnap) inboxPayload.displayNameSnap = row.displayNameSnap;
+      tx.set(inboxDoc(uid, args.conversationId), inboxPayload, { merge: true });
     }
     return mref.id;
   });
