@@ -792,6 +792,31 @@ export async function patchMemberRow(
   );
 }
 
+/** Rename a group and sync inbox / member titles for every member. */
+export async function renameGroupConversation(args: {
+  conversationId: string;
+  name: string;
+  memberUids: string[];
+}): Promise<string> {
+  const name = args.name.trim();
+  if (!name || name.length >= 200) throw new Error('Invalid group name.');
+  const now = serverTimestamp();
+  await updateDoc(convRef(args.conversationId), { name, updatedAt: now });
+  const uniq = Array.from(new Set(args.memberUids.filter(Boolean)));
+  // Firestore batches max 500; groups cap well below that.
+  const batch = writeBatch(firestore());
+  for (const uid of uniq) {
+    batch.set(doc(membersCol(args.conversationId), uid), { convTitle: name }, { merge: true });
+    batch.set(
+      inboxDoc(uid, args.conversationId),
+      { conversationId: args.conversationId, memberUid: uid, convTitle: name, convType: 'group' },
+      { merge: true }
+    );
+  }
+  await batch.commit();
+  return name;
+}
+
 export async function editMessage(conversationId: string, messageId: string, uid: string, nextText: string) {
   const t = nextText.trim();
   if (!t || t.length > CHAT_MAX_MESSAGE_CHARS) throw new Error('Invalid text.');

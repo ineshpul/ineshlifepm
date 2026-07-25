@@ -16,7 +16,7 @@ import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
 import { useChatInboxData } from '../chat/ChatUnreadContext';
-import { ChatHeaderBack } from '../chat/components/ChatHeaderBack';
+import { ChatScreenHeader } from '../chat/components/ChatScreenHeader';
 import {
   searchMessagesParallel,
   type MessageSearchHitGroup,
@@ -148,14 +148,14 @@ export function ChatSearchScreen({ navigation }: Props) {
 
   React.useLayoutEffect(() => {
     navigation.setOptions({
-      headerBackVisible: false,
-      headerLeft: () => (
-        <ChatHeaderBack
-          onPress={() => {
+      header: () => (
+        <ChatScreenHeader
+          title="Search"
+          onBack={() => {
             if (navigation.canGoBack()) navigation.goBack();
             else navigation.navigate('ChatInbox');
           }}
-          accessibilityLabel="Back to Chats"
+          backAccessibilityLabel="Back to Chats"
         />
       ),
     });

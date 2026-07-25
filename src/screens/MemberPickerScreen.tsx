@@ -3,6 +3,8 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   View,
@@ -17,7 +19,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
-import { ChatHeaderBack } from '../chat/components/ChatHeaderBack';
+import { ChatScreenHeader } from '../chat/components/ChatScreenHeader';
 import {
   subscribeMutualFollows,
   syncFollowingProfilePhotos,
@@ -30,14 +32,59 @@ type Props = NativeStackScreenProps<ChatStackParamList, 'MemberPicker'>;
 export function MemberPickerScreen({ navigation, route }: Props) {
   const { user } = useAuth();
   const { colors } = useTheme();
-  const styles = useThemedStyles((colors) => ({
-    screen: { flex: 1, backgroundColor: colors.bg },
+  const styles = useThemedStyles((c) => ({
+    screen: { flex: 1, backgroundColor: c.bg },
+    selectedStrip: {
+      paddingHorizontal: 16,
+      paddingTop: 10,
+      paddingBottom: 8,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.border2,
+      gap: 8,
+    },
+    selectedLabel: {
+      fontSize: 12,
+      fontWeight: '800' as const,
+      color: c.muted,
+      letterSpacing: 0.3,
+    },
+    chipScroll: { flexGrow: 0 },
+    chipRow: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 8,
+      paddingRight: 8,
+    },
+    chip: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 6,
+      paddingLeft: 4,
+      paddingRight: 8,
+      paddingVertical: 4,
+      borderRadius: 16,
+      backgroundColor: c.cardTint,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    chipAvatar: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      backgroundColor: c.card,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      overflow: 'hidden' as const,
+    },
+    chipAvatarImg: { width: 24, height: 24 },
+    chipAvatarTxt: { fontSize: 11, fontWeight: '800' as const, color: c.moss },
+    chipName: { fontSize: 13, fontWeight: '700' as const, color: c.text, maxWidth: 100 },
     hint: {
       marginHorizontal: 16,
-      marginTop: 8,
+      marginTop: 12,
       fontSize: 13,
-      fontWeight: '600',
-      color: colors.muted,
+      fontWeight: '600' as const,
+      color: c.muted,
       lineHeight: 18,
     },
     search: {
@@ -46,61 +93,51 @@ export function MemberPickerScreen({ navigation, route }: Props) {
       marginBottom: 10,
       borderRadius: 14,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: c.border,
       paddingHorizontal: 14,
       paddingVertical: 12,
       fontSize: 16,
-      fontWeight: '600',
-      backgroundColor: colors.card,
-      color: colors.text,
+      fontWeight: '600' as const,
+      backgroundColor: c.card,
+      color: c.text,
     },
-    list: { paddingHorizontal: 16, paddingBottom: 24, gap: 8 },
+    list: { paddingHorizontal: 16, paddingBottom: 24 },
     row: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      paddingVertical: 12,
-      paddingHorizontal: 14,
-      borderRadius: 14,
-      backgroundColor: colors.card,
-      borderWidth: 1,
-      borderColor: colors.border,
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 4,
     },
-    rowOn: {
-      borderColor: colors.moss,
-      backgroundColor: colors.cardTint,
-    },
-    rowPressed: { opacity: 0.88 },
+    rowPressed: { opacity: 0.75 },
     avatar: {
-      width: 40,
-      height: 40,
-      borderRadius: 12,
-      backgroundColor: colors.cardTint,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: colors.border,
-      overflow: 'hidden',
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: c.cardTint,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      overflow: 'hidden' as const,
     },
-    avatarImg: { width: 40, height: 40 },
-    avatarTxt: { fontSize: 15, fontWeight: '900', color: colors.moss },
+    avatarImg: { width: 44, height: 44 },
+    avatarTxt: { fontSize: 16, fontWeight: '800' as const, color: c.moss },
     nameCol: { flex: 1, minWidth: 0 },
-    name: { fontSize: 15, fontWeight: '800', color: colors.text },
+    name: { fontSize: 16, fontWeight: '700' as const, color: c.text },
     empty: {
-      padding: 24,
-      textAlign: 'center',
-      color: colors.muted,
-      fontWeight: '600',
+      padding: 28,
+      textAlign: 'center' as const,
+      color: c.muted,
+      fontWeight: '600' as const,
       lineHeight: 22,
     },
     footer: {
-      padding: 16,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
-      gap: 8,
-      backgroundColor: colors.bg,
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      paddingBottom: 16,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.border2,
+      backgroundColor: c.bg,
     },
-    selectedMeta: { fontSize: 13, fontWeight: '700', color: colors.muted, textAlign: 'center' },
   }));
 
   const existing = route.params.existingUids ?? [];
@@ -116,9 +153,12 @@ export function MemberPickerScreen({ navigation, route }: Props) {
 
   React.useLayoutEffect(() => {
     navigation.setOptions({
-      headerBackVisible: false,
-      headerLeft: () => (
-        <ChatHeaderBack onPress={goBack} accessibilityLabel="Back to New group" />
+      header: () => (
+        <ChatScreenHeader
+          title="Add people"
+          onBack={goBack}
+          backAccessibilityLabel="Back to New group"
+        />
       ),
     });
   }, [navigation, goBack]);
@@ -143,6 +183,21 @@ export function MemberPickerScreen({ navigation, route }: Props) {
     }, [user?.uid])
   );
 
+  const selectedPeople = React.useMemo(() => {
+    const byUid = new Map(rows.map((r) => [r.targetUid, r]));
+    return Array.from(sel)
+      .map((uid) => {
+        const row = byUid.get(uid);
+        const label = (row?.targetUsername ?? '').replace(/^@+/u, '') || 'member';
+        return {
+          uid,
+          label,
+          photo: (row?.targetPhotoUrl ?? '').trim(),
+        };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [sel, rows]);
+
   const filtered = React.useMemo(() => {
     const s = q.trim().toLowerCase().replace(/^@+/u, '');
     if (!s) return rows;
@@ -164,10 +219,45 @@ export function MemberPickerScreen({ navigation, route }: Props) {
       ? 'No mutual follows match that name.'
       : 'Only people you follow who follow you back can be added to a group.';
 
-  const selectedCount = sel.size;
-
   return (
     <Screen style={styles.screen} dismissKeyboardOnTap edges={['bottom', 'left', 'right']}>
+      {selectedPeople.length > 0 ? (
+        <View style={styles.selectedStrip}>
+          <Text style={styles.selectedLabel}>
+            {selectedPeople.length} selected — tap to remove
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.chipScroll}
+            contentContainerStyle={styles.chipRow}
+            keyboardShouldPersistTaps="handled"
+          >
+            {selectedPeople.map((p) => (
+              <Pressable
+                key={p.uid}
+                style={styles.chip}
+                onPress={() => toggle(p.uid)}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${p.label}`}
+              >
+                <View style={styles.chipAvatar}>
+                  {p.photo ? (
+                    <Image source={{ uri: p.photo }} style={styles.chipAvatarImg} contentFit="cover" />
+                  ) : (
+                    <Text style={styles.chipAvatarTxt}>{p.label.slice(0, 1).toUpperCase()}</Text>
+                  )}
+                </View>
+                <Text style={styles.chipName} numberOfLines={1}>
+                  {p.label}
+                </Text>
+                <Ionicons name="close" size={14} color={colors.muted} />
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
+
       <Text style={styles.hint}>People you follow who follow you back</Text>
       <TextInput
         style={styles.search}
@@ -194,11 +284,7 @@ export function MemberPickerScreen({ navigation, route }: Props) {
             const label = item.targetUsername.replace(/^@+/u, '') || 'user';
             return (
               <Pressable
-                style={({ pressed }) => [
-                  styles.row,
-                  on && styles.rowOn,
-                  pressed && styles.rowPressed,
-                ]}
+                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
                 onPress={() => toggle(item.targetUid)}
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: on }}
@@ -232,14 +318,10 @@ export function MemberPickerScreen({ navigation, route }: Props) {
         />
       )}
       <View style={styles.footer}>
-        <Text style={styles.selectedMeta}>
-          {selectedCount === 0
-            ? 'Select at least one person'
-            : `${selectedCount} selected`}
-        </Text>
         <PrimaryButton
-          title="Done"
+          title={sel.size === 0 ? 'Select people' : `Done · ${sel.size}`}
           variant="green"
+          disabled={sel.size === 0}
           onPress={() =>
             navigation.navigate({
               name: 'NewGroup',

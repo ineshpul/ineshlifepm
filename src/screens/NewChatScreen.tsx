@@ -23,8 +23,7 @@ import {
 } from '../services/social';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { getOrCreateDm } from '../services/chat/chatFirestore';
-import { ChatHeaderBack } from '../chat/components/ChatHeaderBack';
-import { ChatHeaderIconButton } from '../chat/components/ChatHeaderIconButton';
+import { ChatScreenHeader } from '../chat/components/ChatScreenHeader';
 import { showError } from '../utils/ui';
 
 type Props = NativeStackScreenProps<ChatStackParamList, 'NewChat'>;
@@ -142,27 +141,26 @@ export function NewChatScreen({ navigation, route }: Props) {
   }, [navigation]);
 
   React.useLayoutEffect(() => {
-    // Flat custom header controls — avoids iOS 26 circular bar-button chrome.
+    // Fully custom header — avoids iOS 26 circular bar-button chrome.
     if (sharePost) {
       navigation.setOptions({
-        title: 'Share',
-        headerBackVisible: false,
-        headerLeft: () => (
-          <ChatHeaderIconButton
-            name="close"
-            onPress={cancelShare}
-            accessibilityLabel="Cancel sharing"
-            size={22}
+        header: () => (
+          <ChatScreenHeader
+            title="Share"
+            onBack={cancelShare}
+            backAccessibilityLabel="Cancel sharing"
           />
         ),
       });
       return;
     }
     navigation.setOptions({
-      title: 'New message',
-      headerBackVisible: false,
-      headerLeft: () => (
-        <ChatHeaderBack onPress={goBack} accessibilityLabel="Back to Chats" />
+      header: () => (
+        <ChatScreenHeader
+          title="New message"
+          onBack={goBack}
+          backAccessibilityLabel="Back to Chats"
+        />
       ),
     });
   }, [navigation, sharePost, cancelShare, goBack]);

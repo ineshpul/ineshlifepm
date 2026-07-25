@@ -50,8 +50,8 @@ import {
   subscribeTyping,
 } from '../services/chat/chatFirestore';
 import { BlockReportModal } from '../chat/components/BlockReportModal';
-import { ChatHeaderBack } from '../chat/components/ChatHeaderBack';
 import { ChatHeaderIconButton } from '../chat/components/ChatHeaderIconButton';
+import { ChatScreenHeader } from '../chat/components/ChatScreenHeader';
 import { ChatComposer } from '../chat/components/ChatComposer';
 import { MessageBubble } from '../chat/components/MessageBubble';
 import { setForegroundChatConversationId } from '../chat/activeConversationRef';
@@ -331,8 +331,6 @@ export function ConversationScreen({ navigation, route }: Props) {
       (conversation?.avatarUrl && String(conversation.avatarUrl).trim()) ||
       '';
 
-    const headerLeft = () => <ChatHeaderBack onPress={goBack} accessibilityLabel="Back to Chats" />;
-
     if (conversation?.type === 'dm' && dmPeer) {
       const handle =
         (dmPeerUser?.username && dmPeerUser.username.trim()) ||
@@ -340,68 +338,72 @@ export function ConversationScreen({ navigation, route }: Props) {
         'Chat';
       const showAt = handle.startsWith('@') ? handle : `@${handle.replace(/^@+/u, '')}`;
       navigation.setOptions({
-        title: undefined,
-        headerBackVisible: false,
-        headerLeft,
-        headerTitleAlign: 'left',
-        headerTitle: () => (
-          <Pressable
-            onPress={openDmProfile}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: 260 }}
-            accessibilityRole="button"
-            accessibilityLabel={`Open ${showAt} profile`}
-          >
-            <View
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 16,
-                backgroundColor: colors.cardTint,
-                overflow: 'hidden',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              {dmAvatarUri ? (
-                <Image
-                  key={`dm-av-${dmPeer.memberUid}-${dmAvatarUri}`}
-                  recyclingKey={`${dmPeer.memberUid}|${dmAvatarUri}`}
-                  source={{ uri: dmAvatarUri }}
-                  style={{ width: 32, height: 32 }}
-                  contentFit="cover"
-                  transition={120}
-                />
-              ) : (
-                <Text style={{ fontSize: 13, fontWeight: '900', color: colors.text }}>
-                  {showAt.replace(/^@/u, '').slice(0, 1).toUpperCase()}
+        header: () => (
+          <ChatScreenHeader
+            title={showAt}
+            onBack={goBack}
+            backAccessibilityLabel="Back to Chats"
+            centerTitle={false}
+            titleNode={
+              <Pressable
+                onPress={openDmProfile}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: 240 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${showAt} profile`}
+              >
+                <View
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    backgroundColor: colors.cardTint,
+                    overflow: 'hidden',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {dmAvatarUri ? (
+                    <Image
+                      key={`dm-av-${dmPeer.memberUid}-${dmAvatarUri}`}
+                      recyclingKey={`${dmPeer.memberUid}|${dmAvatarUri}`}
+                      source={{ uri: dmAvatarUri }}
+                      style={{ width: 32, height: 32 }}
+                      contentFit="cover"
+                      transition={120}
+                    />
+                  ) : (
+                    <Text style={{ fontSize: 13, fontWeight: '900', color: colors.text }}>
+                      {showAt.replace(/^@/u, '').slice(0, 1).toUpperCase()}
+                    </Text>
+                  )}
+                </View>
+                <Text style={{ fontSize: 17, fontWeight: '800', color: colors.text }} numberOfLines={1}>
+                  {showAt}
                 </Text>
-              )}
-            </View>
-            <Text style={{ fontSize: 17, fontWeight: '800', color: colors.text }} numberOfLines={1}>
-              {showAt}
-            </Text>
-          </Pressable>
+              </Pressable>
+            }
+          />
         ),
-        headerRight: undefined,
       });
     } else {
       navigation.setOptions({
-        title,
-        headerBackVisible: false,
-        headerLeft,
-        headerTitleAlign: undefined,
-        headerTitle: undefined,
-        headerRight:
-          conversation?.type === 'group'
-            ? () => (
+        header: () => (
+          <ChatScreenHeader
+            title={title}
+            onBack={goBack}
+            backAccessibilityLabel="Back to Chats"
+            right={
+              conversation?.type === 'group' ? (
                 <ChatHeaderIconButton
                   name="information-circle-outline"
                   size={24}
                   onPress={() => navigation.navigate('GroupInfo', { conversationId })}
                   accessibilityLabel="Group info"
                 />
-              )
-            : undefined,
+              ) : undefined
+            }
+          />
+        ),
       });
     }
   }, [

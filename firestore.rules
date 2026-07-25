@@ -266,14 +266,24 @@ service cloud.firestore {
 
       allow update: if signedIn()
         && isConvMember(convId)
-        // Members may only update activity metadata; never membership or creator fields.
+        // Members may only update activity metadata / group name; never membership or creator fields.
         && request.resource.data.memberIds == resource.data.memberIds
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.type == resource.data.type
         && request.resource.data.dmPairKey == resource.data.dmPairKey
         && request.resource.data.memberCount == resource.data.memberCount
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['updatedAt', 'lastActivityAt', 'lastMessage']);
+        && (
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['updatedAt', 'lastActivityAt', 'lastMessage'])
+          || (
+            resource.data.type == 'group'
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['updatedAt', 'name'])
+            && request.resource.data.name is string
+            && request.resource.data.name.size() > 0
+            && request.resource.data.name.size() < 200
+          )
+        );
 
       allow delete: if false;
 
@@ -312,6 +322,13 @@ service cloud.firestore {
             .hasOnly(['convTitle', 'convAvatarUrl']);
         }
 
+        /** Any member may sync group display titles after a rename. */
+        function memberGroupTitleSyncDelta() {
+          return convDoc(convId).type == 'group'
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['convTitle']);
+        }
+
         function memberOwnSendRowDelta() {
           return request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['lastActivityAt', 'lastMessagePreview', 'unreadCount'])
@@ -338,6 +355,7 @@ service cloud.firestore {
               )
             )
             || memberPeerInboxBumpDelta()
+            || memberGroupTitleSyncDelta()
           );
 
         allow delete: if false;

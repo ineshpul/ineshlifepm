@@ -1,5 +1,14 @@
 import * as React from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Switch, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Image } from 'expo-image';
 import { doc, getDoc } from 'firebase/firestore';
@@ -9,9 +18,10 @@ import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
 import { useConversation } from '../chat/hooks/useConversation';
-import { patchMemberRow } from '../services/chat/chatFirestore';
+import { ChatScreenHeader } from '../chat/components/ChatScreenHeader';
+import { patchMemberRow, renameGroupConversation } from '../services/chat/chatFirestore';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
-import { UsernameLink } from '../components/UsernameLink';
+import { showError } from '../utils/ui';
 
 type Props = NativeStackScreenProps<ChatStackParamList, 'GroupInfo'>;
 
@@ -22,76 +32,104 @@ type MemberView = {
   photoUrl: string | null;
 };
 
-export function GroupInfoScreen({ route }: Props) {
+export function GroupInfoScreen({ navigation, route }: Props) {
   const { conversationId } = route.params;
   const { user } = useAuth();
   const { colors } = useTheme();
-  const styles = useThemedStyles((colors) => ({
-    screen: { flex: 1, backgroundColor: colors.bg, padding: 16 },
-    title: { fontSize: 22, fontWeight: '900', color: colors.text },
-    sub: { marginTop: 4, fontSize: 14, color: colors.muted, fontWeight: '600' },
-    card: {
-      marginTop: 20,
-      borderRadius: 16,
-      backgroundColor: colors.card,
-      borderWidth: 1,
-      borderColor: colors.border,
-      padding: 12,
+  const styles = useThemedStyles((c) => ({
+    screen: { flex: 1, backgroundColor: c.bg },
+    body: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
+    nameRow: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10 },
+    nameInput: {
+      flex: 1,
+      fontSize: 22,
+      fontWeight: '800' as const,
+      color: c.text,
+      paddingVertical: 4,
+      paddingHorizontal: 0,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.border2,
     },
-    row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    label: { fontSize: 16, fontWeight: '700', color: colors.text },
+    nameSave: {
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 10,
+      backgroundColor: c.moss,
+    },
+    nameSaveDisabled: { opacity: 0.45 },
+    nameSaveTxt: { fontSize: 13, fontWeight: '800' as const, color: c.white },
+    sub: { marginTop: 8, fontSize: 14, color: c.muted, fontWeight: '600' as const },
+    muteRow: {
+      marginTop: 22,
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      justifyContent: 'space-between' as const,
+      paddingVertical: 4,
+    },
+    label: { fontSize: 16, fontWeight: '700' as const, color: c.text },
     section: {
-      marginTop: 24,
-      marginBottom: 8,
+      marginTop: 28,
+      marginBottom: 10,
       fontSize: 13,
-      fontWeight: '900',
-      color: colors.muted,
-      letterSpacing: 0.5,
+      fontWeight: '800' as const,
+      color: c.muted,
+      letterSpacing: 0.4,
+      textTransform: 'uppercase' as const,
     },
     memberRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
       gap: 12,
-      paddingVertical: 12,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.border2,
+      paddingVertical: 11,
     },
     avatar: {
       width: 40,
       height: 40,
-      borderRadius: 12,
-      backgroundColor: colors.cardTint,
-      alignItems: 'center',
-      justifyContent: 'center',
-      overflow: 'hidden',
-      borderWidth: 1,
-      borderColor: colors.border,
+      borderRadius: 20,
+      backgroundColor: c.cardTint,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      overflow: 'hidden' as const,
     },
     avatarImg: { width: 40, height: 40 },
-    avatarTxt: { fontSize: 15, fontWeight: '900', color: colors.moss },
+    avatarTxt: { fontSize: 15, fontWeight: '800' as const, color: c.moss },
     memberBody: { flex: 1, minWidth: 0 },
-    memberName: { fontSize: 16, fontWeight: '700', color: colors.text },
-    role: { fontSize: 13, fontWeight: '700', color: colors.muted2, textTransform: 'capitalize' },
+    memberName: { fontSize: 16, fontWeight: '700' as const, color: c.text },
+    role: { fontSize: 12, fontWeight: '700' as const, color: c.muted2, textTransform: 'capitalize' as const },
+    emptyMembers: { paddingVertical: 20, color: c.muted, fontWeight: '600' as const },
   }));
 
   const { conversation, members } = useConversation(conversationId, user?.uid);
   const me = members.find((m) => m.memberUid === user?.uid);
+  const [draftName, setDraftName] = React.useState('');
+  const [savingName, setSavingName] = React.useState(false);
   const [memberViews, setMemberViews] = React.useState<MemberView[]>([]);
-  const [loadingMembers, setLoadingMembers] = React.useState(true);
+
+  React.useEffect(() => {
+    setDraftName((conversation?.name ?? '').trim());
+  }, [conversation?.name]);
 
   const membersKey = React.useMemo(
     () => members.map((m) => `${m.memberUid}:${m.displayNameSnap ?? ''}:${m.role}`).join('|'),
     [members]
   );
 
+  // Instant list from member snaps; enrich photos/usernames in the background.
   React.useEffect(() => {
-    if (!isFirebaseConfigured() || members.length === 0) {
+    if (members.length === 0) {
       setMemberViews([]);
-      setLoadingMembers(false);
       return;
     }
+    setMemberViews(
+      members.map((m) => ({
+        memberUid: m.memberUid,
+        role: m.role,
+        username: (m.displayNameSnap ?? '').replace(/^@+/u, '').trim() || 'Member',
+        photoUrl: null,
+      }))
+    );
+    if (!isFirebaseConfigured()) return;
     let cancelled = false;
-    setLoadingMembers(true);
     void (async () => {
       const rows = await Promise.all(
         members.map(async (m) => {
@@ -119,22 +157,88 @@ export function GroupInfoScreen({ route }: Props) {
           }
         })
       );
-      if (!cancelled) {
-        setMemberViews(rows);
-        setLoadingMembers(false);
-      }
+      if (!cancelled) setMemberViews(rows);
     })();
     return () => {
       cancelled = true;
     };
   }, [membersKey]);
 
+  const goBack = React.useCallback(() => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.navigate('Conversation', { conversationId });
+  }, [navigation, conversationId]);
+
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      header: () => (
+        <ChatScreenHeader
+          title="Group info"
+          onBack={goBack}
+          backAccessibilityLabel="Back to chat"
+        />
+      ),
+    });
+  }, [navigation, goBack]);
+
+  const nameDirty =
+    draftName.trim().length > 0 &&
+    draftName.trim() !== (conversation?.name ?? '').trim();
+
+  const saveName = async () => {
+    if (!nameDirty || savingName) return;
+    setSavingName(true);
+    try {
+      const next = await renameGroupConversation({
+        conversationId,
+        name: draftName,
+        memberUids: members.map((m) => m.memberUid),
+      });
+      setDraftName(next);
+    } catch (e) {
+      showError('Could not rename group', e);
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const count = conversation?.memberCount ?? members.length;
+
   return (
-    <Screen style={styles.screen}>
-      <Text style={styles.title}>{conversation?.name ?? 'Group'}</Text>
-      <Text style={styles.sub}>{conversation?.memberCount ?? members.length} members</Text>
-      <View style={styles.card}>
-        <View style={styles.row}>
+    <Screen style={styles.screen} edges={['bottom', 'left', 'right']}>
+      <View style={styles.body}>
+        <View style={styles.nameRow}>
+          <TextInput
+            style={styles.nameInput}
+            value={draftName}
+            onChangeText={setDraftName}
+            placeholder="Group name"
+            placeholderTextColor={colors.muted2}
+            autoCapitalize="sentences"
+            autoCorrect
+            maxLength={80}
+            returnKeyType="done"
+            onSubmitEditing={() => void saveName()}
+          />
+          <Pressable
+            style={[styles.nameSave, (!nameDirty || savingName) && styles.nameSaveDisabled]}
+            disabled={!nameDirty || savingName}
+            onPress={() => void saveName()}
+            accessibilityRole="button"
+            accessibilityLabel="Save group name"
+          >
+            {savingName ? (
+              <ActivityIndicator color={colors.white} size="small" />
+            ) : (
+              <Text style={styles.nameSaveTxt}>Save</Text>
+            )}
+          </Pressable>
+        </View>
+        <Text style={styles.sub}>
+          {count} {count === 1 ? 'member' : 'members'}
+        </Text>
+
+        <View style={styles.muteRow}>
           <Text style={styles.label}>Mute notifications</Text>
           <Switch
             value={Boolean(me?.muted)}
@@ -145,41 +249,41 @@ export function GroupInfoScreen({ route }: Props) {
             trackColor={{ false: colors.switchTrackOff, true: colors.moss }}
           />
         </View>
-      </View>
-      <Text style={styles.section}>Members</Text>
-      {loadingMembers && memberViews.length === 0 ? (
-        <ActivityIndicator color={colors.moss} style={{ marginTop: 16 }} />
-      ) : (
-        <FlatList
-          style={{ flex: 1 }}
-          data={memberViews}
-          keyExtractor={(m) => m.memberUid}
-          renderItem={({ item }) => {
-            const photo = (item.photoUrl ?? '').trim();
-            return (
-              <View style={styles.memberRow}>
-                <View style={styles.avatar}>
-                  {photo ? (
-                    <Image source={{ uri: photo }} style={styles.avatarImg} contentFit="cover" />
-                  ) : (
-                    <Text style={styles.avatarTxt}>
-                      {item.username.slice(0, 1).toUpperCase()}
+
+        <Text style={styles.section}>Members</Text>
+        {memberViews.length === 0 ? (
+          <Text style={styles.emptyMembers}>No members yet.</Text>
+        ) : (
+          <FlatList
+            data={memberViews}
+            keyExtractor={(m) => m.memberUid}
+            renderItem={({ item }) => {
+              const photo = (item.photoUrl ?? '').trim();
+              const isMe = item.memberUid === user?.uid;
+              return (
+                <View style={styles.memberRow}>
+                  <View style={styles.avatar}>
+                    {photo ? (
+                      <Image source={{ uri: photo }} style={styles.avatarImg} contentFit="cover" />
+                    ) : (
+                      <Text style={styles.avatarTxt}>
+                        {item.username.slice(0, 1).toUpperCase()}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.memberBody}>
+                    <Text style={styles.memberName} numberOfLines={1}>
+                      @{item.username}
+                      {isMe ? ' (you)' : ''}
                     </Text>
-                  )}
+                  </View>
+                  <Text style={styles.role}>{item.role}</Text>
                 </View>
-                <View style={styles.memberBody}>
-                  <UsernameLink
-                    uid={item.memberUid}
-                    username={item.username}
-                    style={styles.memberName}
-                  />
-                </View>
-                <Text style={styles.role}>{item.role}</Text>
-              </View>
-            );
-          }}
-        />
-      )}
+              );
+            }}
+          />
+        )}
+      </View>
     </Screen>
   );
 }

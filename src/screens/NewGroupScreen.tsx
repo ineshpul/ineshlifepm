@@ -1,6 +1,7 @@
 import * as React from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Screen } from '../components/Screen';
@@ -8,7 +9,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { useAuth } from '../state/auth';
 import type { ChatStackParamList } from '../navigation/ChatStack';
-import { ChatHeaderBack } from '../chat/components/ChatHeaderBack';
+import { ChatScreenHeader } from '../chat/components/ChatScreenHeader';
 import { createGroupConversation } from '../services/chat/chatFirestore';
 import { subscribeMutualFollows, type FollowingRow } from '../services/social';
 import { isFirebaseConfigured } from '../firebase/firebase';
@@ -19,52 +20,68 @@ type Props = NativeStackScreenProps<ChatStackParamList, 'NewGroup'>;
 export function NewGroupScreen({ navigation, route }: Props) {
   const { user } = useAuth();
   const { colors } = useTheme();
-  const styles = useThemedStyles((colors) => ({
+  const styles = useThemedStyles((c) => ({
     screen: {
       flex: 1,
-      backgroundColor: colors.bg,
+      backgroundColor: c.bg,
       paddingHorizontal: 20,
-      paddingTop: 12,
-      gap: 12,
+      paddingTop: 14,
+      gap: 14,
     },
-    label: { fontSize: 13, fontWeight: '900', color: colors.muted, letterSpacing: 0.4 },
+    label: {
+      fontSize: 12,
+      fontWeight: '800' as const,
+      color: c.muted,
+      letterSpacing: 0.4,
+      textTransform: 'uppercase' as const,
+    },
     input: {
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 14,
-      padding: 14,
-      fontSize: 16,
-      fontWeight: '700',
-      backgroundColor: colors.card,
-      color: colors.text,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.border2,
+      paddingVertical: 10,
+      fontSize: 20,
+      fontWeight: '700' as const,
+      color: c.text,
     },
     addRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
       gap: 10,
-      paddingVertical: 12,
-      paddingHorizontal: 14,
-      borderRadius: 14,
-      backgroundColor: colors.card,
-      borderWidth: 1,
-      borderColor: colors.border,
+      paddingVertical: 4,
     },
-    addRowPressed: { opacity: 0.88 },
-    addIcon: {
-      width: 36,
-      height: 36,
+    addRowPressed: { opacity: 0.75 },
+    addTitle: { flex: 1, fontSize: 16, fontWeight: '700' as const, color: c.moss },
+    chipRow: {
+      flexDirection: 'row' as const,
+      flexWrap: 'wrap' as const,
+      gap: 8,
+    },
+    chip: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 6,
+      paddingLeft: 4,
+      paddingRight: 8,
+      paddingVertical: 4,
+      borderRadius: 16,
+      backgroundColor: c.cardTint,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    chipAvatar: {
+      width: 24,
+      height: 24,
       borderRadius: 12,
-      backgroundColor: colors.cardTint,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: colors.border,
+      backgroundColor: c.card,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      overflow: 'hidden' as const,
     },
-    addBody: { flex: 1, minWidth: 0 },
-    addTitle: { fontSize: 15, fontWeight: '800', color: colors.text },
-    addSub: { marginTop: 2, fontSize: 12, fontWeight: '600', color: colors.muted },
-    meta: { fontSize: 14, color: colors.muted, fontWeight: '600', lineHeight: 20 },
-    people: { fontSize: 14, color: colors.text, fontWeight: '700', lineHeight: 20 },
+    chipAvatarImg: { width: 24, height: 24 },
+    chipAvatarTxt: { fontSize: 11, fontWeight: '800' as const, color: c.moss },
+    chipName: { fontSize: 13, fontWeight: '700' as const, color: c.text },
+    meta: { fontSize: 13, color: c.muted, fontWeight: '600' as const, lineHeight: 18 },
+    footerSpacer: { flex: 1 },
   }));
 
   const picked = route.params?.pickedUids ?? [];
@@ -84,9 +101,19 @@ export function NewGroupScreen({ navigation, route }: Props) {
       .map((uid) => {
         const row = byUid.get(uid);
         const label = (row?.targetUsername ?? '').replace(/^@+/u, '') || 'member';
-        return { uid, label };
+        return {
+          uid,
+          label,
+          photo: (row?.targetPhotoUrl ?? '').trim(),
+        };
       });
   }, [picked, mutual, user?.uid]);
+
+  const removePerson = (uid: string) => {
+    navigation.setParams({
+      pickedUids: picked.filter((id) => id !== uid),
+    });
+  };
 
   const goBack = React.useCallback(() => {
     if (navigation.canGoBack()) navigation.goBack();
@@ -95,10 +122,12 @@ export function NewGroupScreen({ navigation, route }: Props) {
 
   React.useLayoutEffect(() => {
     navigation.setOptions({
-      headerBackVisible: false,
-      headerRight: () => null,
-      headerLeft: () => (
-        <ChatHeaderBack onPress={goBack} accessibilityLabel="Back to Chats" />
+      header: () => (
+        <ChatScreenHeader
+          title="New group"
+          onBack={goBack}
+          backAccessibilityLabel="Back"
+        />
       ),
     });
   }, [navigation, goBack]);
@@ -142,37 +171,50 @@ export function NewGroupScreen({ navigation, route }: Props) {
         value={name}
         onChangeText={setName}
       />
+
       <Pressable
         style={({ pressed }) => [styles.addRow, pressed && styles.addRowPressed]}
         onPress={() => navigation.navigate('MemberPicker', { mode: 'group', existingUids: picked })}
         accessibilityRole="button"
         accessibilityLabel="Add people to group"
       >
-        <View style={styles.addIcon}>
-          <Ionicons name="person-add-outline" size={18} color={colors.moss} />
-        </View>
-        <View style={styles.addBody}>
-          <Text style={styles.addTitle}>
-            {pickedPeople.length > 0 ? 'Edit people' : 'Add people'}
-          </Text>
-          <Text style={styles.addSub}>
-            {pickedPeople.length > 0
-              ? `${pickedPeople.length} selected`
-              : 'Pick people you follow who follow you back'}
-          </Text>
-        </View>
+        <Ionicons name="person-add-outline" size={18} color={colors.moss} />
+        <Text style={styles.addTitle}>
+          {pickedPeople.length > 0 ? 'Edit people' : 'Add people'}
+        </Text>
         <Ionicons name="chevron-forward" size={16} color={colors.muted2} />
       </Pressable>
-      <Text style={styles.meta}>{peopleLabel}</Text>
+
       {pickedPeople.length > 0 ? (
-        <Text style={styles.people} numberOfLines={4}>
-          You, {pickedPeople.map((p) => `@${p.label}`).join(', ')}
-        </Text>
+        <View style={styles.chipRow}>
+          {pickedPeople.map((p) => (
+            <Pressable
+              key={p.uid}
+              style={styles.chip}
+              onPress={() => removePerson(p.uid)}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${p.label}`}
+            >
+              <View style={styles.chipAvatar}>
+                {p.photo ? (
+                  <Image source={{ uri: p.photo }} style={styles.chipAvatarImg} contentFit="cover" />
+                ) : (
+                  <Text style={styles.chipAvatarTxt}>{p.label.slice(0, 1).toUpperCase()}</Text>
+                )}
+              </View>
+              <Text style={styles.chipName}>@{p.label}</Text>
+              <Ionicons name="close" size={14} color={colors.muted} />
+            </Pressable>
+          ))}
+        </View>
       ) : null}
+
+      <Text style={styles.meta}>{peopleLabel}</Text>
+      <View style={styles.footerSpacer} />
       <PrimaryButton
         title={creating ? 'Creating…' : 'Create group'}
         variant="green"
-        disabled={creating}
+        disabled={creating || pickedPeople.length === 0}
         onPress={() => void onCreate()}
       />
     </Screen>
