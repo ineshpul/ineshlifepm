@@ -77,9 +77,9 @@ function LoggedInStack() {
         name="Leaperboard"
         component={TopScreen}
         options={{
-          headerShown: true,
-          title: 'Leaperboard',
-          headerBackTitle: 'Feed',
+          headerShown: false,
+          animation: 'slide_from_right',
+          gestureEnabled: true,
         }}
       />
       <MainStack.Screen

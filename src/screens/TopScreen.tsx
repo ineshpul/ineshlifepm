@@ -8,7 +8,8 @@ import {
   View,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   collection,
@@ -110,11 +111,22 @@ export function TopScreen() {
   const { colors, isDark } = useTheme();
   const styles = useThemedStyles((colors) => ({
   screen: { paddingHorizontal: 18, flex: 1 },
-  header: { paddingTop: 12, paddingBottom: 8 },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  header: { paddingTop: 4, paddingBottom: 6 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 },
   headerText: { flex: 1, minWidth: 0 },
   title: { fontSize: 22, fontWeight: '900', color: colors.text, lineHeight: 28 },
-  sub: { marginTop: 4, fontSize: 12, fontWeight: '600', color: colors.muted },
+  sub: { marginTop: 2, fontSize: 12, fontWeight: '600', color: colors.muted },
   segment: {
     flexDirection: 'row',
     gap: 4,
@@ -249,8 +261,13 @@ export function TopScreen() {
   },
 }));
   const nav = useNavigation<any>();
+  const route = useRoute();
   const insets = useSafeAreaInsets();
-  const tabBarClearance = floatingTabContentClearance(insets.bottom);
+  /** Opened from Daily Leaps as a stack screen (not a bottom tab). */
+  const asStackScreen = route.name === 'Leaperboard';
+  const bottomClearance = asStackScreen
+    ? Math.max(insets.bottom, 12) + 20
+    : floatingTabContentClearance(insets.bottom);
   const { user } = useAuth();
   const isStaffUser = Boolean(user?.isAdmin || user?.isModerator);
   const showUsernameSearch = showUsernameSearchOnLeaderboard(isStaffUser);
@@ -548,13 +565,26 @@ export function TopScreen() {
     timeframe === 'daily' ? 'daily' : timeframe === 'weekly' ? 'weekly' : 'all-time';
 
   return (
-    <Screen style={styles.screen} dismissKeyboardOnTap>
+    <Screen style={styles.screen} dismissKeyboardOnTap edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Brandmark size={36} />
-          <View style={styles.headerText}>
-            <Text style={styles.title}>How high can you jump?</Text>
-            <Text style={styles.sub}>Leaperboard · {timeframeSubtitle}</Text>
+        <View style={styles.headerRow}>
+          {asStackScreen ? (
+            <Pressable
+              style={styles.backBtn}
+              onPress={() => nav.goBack()}
+              accessibilityRole="button"
+              accessibilityLabel="Back to feed"
+              hitSlop={8}
+            >
+              <Ionicons name="chevron-back" size={22} color={colors.text} />
+            </Pressable>
+          ) : null}
+          <View style={styles.headerLeft}>
+            <Brandmark size={36} />
+            <View style={styles.headerText}>
+              <Text style={styles.title}>How high can you jump?</Text>
+              <Text style={styles.sub}>Leaperboard · {timeframeSubtitle}</Text>
+            </View>
           </View>
         </View>
       </View>
@@ -610,7 +640,7 @@ export function TopScreen() {
         data={rows}
         keyExtractor={(x) => x.userId}
         extraData={{ timeframe, weekKey }}
-        contentContainerStyle={[styles.list, { paddingBottom: tabBarClearance }]}
+        contentContainerStyle={[styles.list, { paddingBottom: bottomClearance }]}
         ListEmptyComponent={
           !leaderboardHydrated ? (
             <View style={styles.emptyLoading}>
