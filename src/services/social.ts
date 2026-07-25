@@ -36,6 +36,7 @@ export type InAppNotification = {
   fromUid: string;
   fromUsername: string;
   videoId?: string;
+  bestPartId?: string;
   snippet?: string;
   read: boolean;
   createdAtMs: number;
@@ -48,16 +49,18 @@ export async function createInAppNotification(args: {
   fromUid: string;
   fromUsername: string;
   videoId?: string;
+  bestPartId?: string;
   snippet?: string;
 }) {
   if (!isFirebaseConfigured()) return;
-  const { recipientUid, type, fromUid, fromUsername, videoId, snippet } = args;
+  const { recipientUid, type, fromUid, fromUsername, videoId, bestPartId, snippet } = args;
   if (!recipientUid || recipientUid === fromUid) return;
   await addDoc(collection(firestore(), 'users', recipientUid, 'notifications'), {
     type,
     fromUid,
     fromUsername,
     videoId: videoId ?? null,
+    bestPartId: bestPartId ?? null,
     snippet: snippet ?? null,
     read: false,
     createdAt: serverTimestamp(),
@@ -133,6 +136,7 @@ export function subscribeNotifications(
             fromUid: String(data?.fromUid ?? ''),
             fromUsername: String(data?.fromUsername ?? 'user'),
             videoId: data?.videoId != null ? String(data.videoId) : undefined,
+            bestPartId: data?.bestPartId != null ? String(data.bestPartId) : undefined,
             snippet: data?.snippet != null ? String(data.snippet) : undefined,
             read: data?.read === true,
             createdAtMs,

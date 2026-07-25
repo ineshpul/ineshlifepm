@@ -917,7 +917,7 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow create: if signedIn()
           && request.resource.data.fromUid == request.auth.uid
-          && request.resource.data.type in ['like', 'comment', 'follow']
+          && request.resource.data.type in ['like', 'comment', 'follow', 'mention']
           && request.resource.data.fromUsername is string
           && request.resource.data.read == false
           && request.auth.uid != userId;
@@ -1138,6 +1138,57 @@ service cloud.firestore {
         && request.resource.data.commentsCount == resource.data.commentsCount;
 
       allow delete: if false;
+
+      function canEngageBestPart() {
+        return signedIn()
+          && exists(/databases/$(database)/documents/bestParts/$(bestPartId))
+          && get(/databases/$(database)/documents/bestParts/$(bestPartId)).data.deleted != true
+          && (
+            isStaff()
+            || get(/databases/$(database)/documents/bestParts/$(bestPartId)).data.uid == request.auth.uid
+            || get(/databases/$(database)/documents/bestParts/$(bestPartId)).data.isPrivate != true
+          );
+      }
+
+      match /likes/{likerId} {
+        allow read: if canEngageBestPart();
+        allow create: if canEngageBestPart() && request.auth.uid == likerId;
+        allow delete: if signedIn()
+          && (
+            request.auth.uid == likerId
+            || (
+              exists(/databases/$(database)/documents/bestParts/$(bestPartId))
+              && get(/databases/$(database)/documents/bestParts/$(bestPartId)).data.uid == request.auth.uid
+            )
+            || isStaff()
+          );
+        allow update: if false;
+      }
+
+      match /comments/{commentId} {
+        allow read: if canEngageBestPart();
+        allow create: if canEngageBestPart()
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.username is string
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() < 500;
+        allow delete: if signedIn()
+          && exists(/databases/$(database)/documents/bestParts/$(bestPartId))
+          && (
+            isStaff()
+            || get(/databases/$(database)/documents/bestParts/$(bestPartId)).data.uid == request.auth.uid
+            || resource.data.uid == request.auth.uid
+          );
+        allow update: if false;
+
+        match /likes/{likerId} {
+          allow read: if canEngageBestPart();
+          allow create: if canEngageBestPart() && request.auth.uid == likerId;
+          allow delete: if signedIn() && request.auth.uid == likerId;
+          allow update: if false;
+        }
+      }
     }
   }
 }

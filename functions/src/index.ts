@@ -43,16 +43,25 @@ import {
 import { staffAnnounceAppReviewCallable } from './announceAppReview';
 import { bootstrapUserOnAuthCreate } from './bootstrapUserOnAuthCreate';
 import { toggleVideoLikeCallable } from './toggleVideoLikeCallable';
+import { toggleBestPartLikeCallable } from './toggleBestPartLikeCallable';
+import {
+  onBestPartCommentWrite,
+  onBestPartLikeCreated,
+  onBestPartLikeDeleted,
+} from './bestPartEngagement';
 import { getWebsiteMarketing } from './getWebsiteMarketing';
 
 admin.initializeApp();
 
 export { sendLoginOtp, verifyLoginOtp };
-export { bootstrapUserOnAuthCreate, toggleVideoLikeCallable };
+export { bootstrapUserOnAuthCreate, toggleVideoLikeCallable, toggleBestPartLikeCallable };
 export {
   onVerticalScoreCommentWrite,
   onVideoLikeCreated,
   onVideoLikeDeleted,
+  onBestPartLikeCreated,
+  onBestPartLikeDeleted,
+  onBestPartCommentWrite,
   onVerticalScoreVideoApprovedLeaper,
   onVerticalScoreVideoCreated,
   onVerticalScoreVideoDeleted,

@@ -24,7 +24,9 @@ function bodyFor(n: InAppNotification) {
   if (n.type === 'moderation_rejected') {
     return n.snippet ? String(n.snippet) : 'Your leap was not approved. You can post again today.';
   }
-  if (n.type === 'like') return 'liked your leap';
+  if (n.type === 'like') {
+    return n.bestPartId ? 'liked your moment' : 'liked your leap';
+  }
   if (n.type === 'mention') {
     return n.snippet ? `mentioned you: ${n.snippet}` : 'mentioned you in a comment';
   }
@@ -40,6 +42,9 @@ function bodyFor(n: InAppNotification) {
   }
   if (n.type === 'app_review_request') {
     return n.snippet ?? 'Enjoying Leap? Leave us a quick App Store review.';
+  }
+  if (n.bestPartId) {
+    return n.snippet ? `commented: ${n.snippet}` : 'commented on your moment';
   }
   return n.snippet ? `commented: ${n.snippet}` : 'commented on your leap';
 }
@@ -163,6 +168,10 @@ export function NotificationsScreen() {
     }
     if (n.type === 'follow') {
       navigateToUserProfile(nav, { uid: n.fromUid, username: n.fromUsername });
+      return;
+    }
+    if ((n.type === 'like' || n.type === 'comment' || n.type === 'mention') && n.bestPartId) {
+      nav.navigate('BestPartPost', { bestPartId: n.bestPartId });
       return;
     }
     if ((n.type === 'like' || n.type === 'comment' || n.type === 'mention') && n.videoId) {

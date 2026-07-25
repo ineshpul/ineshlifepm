@@ -12,6 +12,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RecordScreen } from '../screens/RecordScreen';
 import { BestPartCaptureScreen } from '../screens/BestPartCaptureScreen';
 import { BestPartWeekRecapScreen } from '../screens/BestPartWeekRecapScreen';
+import { BestPartPostScreen } from '../screens/BestPartPostScreen';
 import { useAuth } from '../state/auth';
 import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
 import { SignInScreen } from '../screens/SignInScreen';
@@ -178,6 +179,11 @@ function LoggedInStack() {
         name="VideoPost"
         component={VideoPostScreen}
         options={{ headerShown: true, title: 'Highest Leap' }}
+      />
+      <MainStack.Screen
+        name="BestPartPost"
+        component={BestPartPostScreen}
+        options={{ headerShown: true, title: 'Moment' }}
       />
       <MainStack.Screen
         name="AdminVideoModeration"

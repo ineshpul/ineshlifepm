@@ -3,7 +3,9 @@ import { Image, Pressable, Text, View } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 
+import { BestPartEngagement } from './BestPartEngagement';
 import { UsernameLink } from './UsernameLink';
+import { useAuth } from '../state/auth';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import type { BestPartPost } from '../types/bestPart';
 import { formatNyDateKeyShort, nyDateKey } from '../utils/nyTime';
@@ -41,6 +43,7 @@ type Props = {
 
 export function BestPartCard({ post, showOwner = true }: Props) {
   const { colors } = useTheme();
+  const { user } = useAuth();
   const [playing, setPlaying] = React.useState(false);
   const styles = useThemedStyles((c) => ({
     card: {
@@ -171,6 +174,15 @@ export function BestPartCard({ post, showOwner = true }: Props) {
             <View />
           )}
         </View>
+
+        <BestPartEngagement
+          bestPartId={post.id}
+          ownerUid={post.uid}
+          viewerUid={user?.uid}
+          viewerUsername={user?.username ?? 'user'}
+          initialLikesCount={post.likesCount}
+          initialCommentsCount={post.commentsCount}
+        />
       </View>
     </View>
   );

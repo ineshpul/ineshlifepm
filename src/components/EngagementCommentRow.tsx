@@ -11,11 +11,15 @@ import { formatCommentTime } from '../utils/formatCommentTime';
 import { THREAD_INDENT } from '../utils/commentThread';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { toggleCommentLike } from '../services/videoLikes';
+import { toggleBestPartCommentLike } from '../services/bestPartLikes';
 
 export type ReplyTargetPayload = { id: string; uid: string; username: string; textSnippet: string };
 
 type Props = {
-  videoId: string;
+  /** Leap video id (legacy). Prefer `postId` + `engagementCollection`. */
+  videoId?: string;
+  postId?: string;
+  engagementCollection?: 'videos' | 'bestParts';
   comment: VideoComment;
   layout: 'inline' | 'modal';
   /** Nesting level when shown under a parent thread (0 = top-level). */
@@ -33,6 +37,8 @@ function canDelete(c: VideoComment, viewerUid: string | undefined, videoOwnerUid
 
 export const EngagementCommentRow = React.memo(function EngagementCommentRow({
   videoId,
+  postId,
+  engagementCollection = 'videos',
   comment: c,
   layout,
   threadDepth = 0,
@@ -42,6 +48,8 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
   onReply,
   onRequestDelete,
 }: Props) {
+  const resolvedPostId = postId ?? videoId ?? '';
+  const collection = engagementCollection;
   const { colors } = useTheme();
   const styles = useThemedStyles((colors) => ({
     commentRowOuter: {
@@ -193,12 +201,20 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
   }, [viewerUid, onReply, c.id, c.uid, c.username, c.text]);
 
   React.useEffect(() => {
-    if (!viewerUid || !videoId || !c.id || !isFirebaseConfigured()) {
+    if (!viewerUid || !resolvedPostId || !c.id || !isFirebaseConfigured()) {
       setLiked(false);
       return;
     }
     let alive = true;
-    const ref = doc(firestore(), 'videos', videoId, 'comments', c.id, 'likes', viewerUid);
+    const ref = doc(
+      firestore(),
+      collection,
+      resolvedPostId,
+      'comments',
+      c.id,
+      'likes',
+      viewerUid
+    );
     void getDoc(ref)
       .then((snap) => {
         if (!alive) return;
@@ -211,7 +227,7 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
     return () => {
       alive = false;
     };
-  }, [viewerUid, videoId, c.id]);
+  }, [viewerUid, resolvedPostId, collection, c.id]);
 
   const deleteColumnPadTop = showTopReplyMeta
     ? isModal
@@ -287,7 +303,19 @@ export const EngagementCommentRow = React.memo(function EngagementCommentRow({
                 onPress={() => {
                   if (likeBusy) return;
                   setLikeBusy(true);
-                  void toggleCommentLike({ videoId, commentId: c.id, viewerUid })
+                  const run =
+                    collection === 'bestParts'
+                      ? toggleBestPartCommentLike({
+                          bestPartId: resolvedPostId,
+                          commentId: c.id,
+                          viewerUid,
+                        })
+                      : toggleCommentLike({
+                          videoId: resolvedPostId,
+                          commentId: c.id,
+                          viewerUid,
+                        });
+                  void run
                     .then((res) => setLiked(res === 'liked'))
                     .catch(() => {})
                     .finally(() => setLikeBusy(false));

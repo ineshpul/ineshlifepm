@@ -39,6 +39,8 @@ export type RootStackParamList = {
   TakeTheLeapForLeaps: { uid: string; username?: string };
   /** Opens a single leap by Firestore `videos/{videoId}` (e.g. profile “best vertical gain” post). */
   VideoPost: { videoId: string };
+  /** Opens a single best-part moment (notification deep link). */
+  BestPartPost: { bestPartId: string };
   AdminVideoModeration: undefined;
   /** Replay the first-run onboarding carousel (Settings). */
   OnboardingIntro: undefined;
