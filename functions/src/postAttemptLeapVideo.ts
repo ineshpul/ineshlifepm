@@ -33,3 +33,17 @@ export function videoBlocksLeapRepost(
 export function coLeapCreditVideoDocId(uid: string, challengeDate: string): string {
   return `${uid}_${challengeDate}_coleap`;
 }
+
+export function leapSoloVideoHasCommittedMedia(data: DocumentData | undefined): boolean {
+  if (!data) return false;
+  const url = String(data.url ?? '').trim();
+  const storagePath = String(data.storagePath ?? '').trim();
+  return url.length > 0 || storagePath.length > 0;
+}
+
+/** Active solo doc with no uploaded media — not a real post; safe to remove when healing. */
+export function isOrphanLeapSoloVideoDoc(data: DocumentData | undefined, ownerUid: string): boolean {
+  if (!isActiveLeapVideoDoc(data, ownerUid)) return false;
+  if (isCoLeapCreditDoc(data)) return false;
+  return !leapSoloVideoHasCommittedMedia(data);
+}

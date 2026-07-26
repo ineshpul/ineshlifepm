@@ -10,8 +10,9 @@ import {
 import { deleteObject, ref } from 'firebase/storage';
 
 import { firestore, storage } from '../firebase/firebase';
-import { isActiveLeapVideoDoc } from '../lib/leapVideoDoc';
+import { isOrphanLeapSoloVideoDoc } from '../lib/leapVideoDoc';
 import { cancelActiveBackgroundPost } from '../state/backgroundPostUploadControl';
+import { clearPendingPostUpload } from '../state/pendingPostUpload';
 import { resetRecordingAttemptsAfterVideoDelete } from '../state/postAttempts';
 import { withRetries } from '../utils/retry';
 import { syncApprovedPostCountForLeapDay } from './dailyChallengeStats';
@@ -49,6 +50,7 @@ export async function deleteOwnedVideo(args: { videoId: string; viewerUid: strin
   const { videoId, viewerUid } = args;
   // Stop in-flight uploads first so commitPostedVideo cannot recreate the doc after delete.
   cancelActiveBackgroundPost();
+  await clearPendingPostUpload();
 
   const vref = doc(firestore(), 'videos', videoId);
   const snap = await getDoc(vref);
@@ -78,6 +80,7 @@ export async function deleteOwnedVideo(args: { videoId: string; viewerUid: strin
 export async function deleteStaffVideo(args: { videoId: string }) {
   const { videoId } = args;
   cancelActiveBackgroundPost();
+  await clearPendingPostUpload();
 
   const vref = doc(firestore(), 'videos', videoId);
   const snap = await getDoc(vref);
@@ -93,9 +96,7 @@ export async function deleteStaffVideo(args: { videoId: string }) {
 }
 
 /**
- * Orphan video doc with no recording attempts consumed — stale row from a partial failure.
- * Normal posts always consume at least one attempt before upload, so `used === 0` is the ghost signal.
- *
+ * Orphan video doc with no uploaded media — stale row from a partial failure or delete/upload race.
  * Never deletes a doc that already has a real media URL/path (that is a live post, not a ghost).
  */
 export async function removeGhostLeapVideoIfOpenLedger(args: {
@@ -109,18 +110,9 @@ export async function removeGhostLeapVideoIfOpenLedger(args: {
   if (!snap.exists()) return false;
 
   const data = snap.data() as Record<string, unknown>;
-  if (!isActiveLeapVideoDoc(data, uid)) return false;
+  if (!isOrphanLeapSoloVideoDoc(data, uid)) return false;
 
-  const hasMedia =
-    (typeof data.url === 'string' && data.url.trim().length > 0) ||
-    (typeof data.storagePath === 'string' && data.storagePath.trim().length > 0);
-  if (hasMedia) return false;
-
-  const attemptSnap = await getDoc(doc(firestore(), 'postAttempts', videoId));
-  const used = Number(attemptSnap.data()?.used ?? 0);
-  if (used > 0) return false;
-
-  await deleteVideoByRef(vref, data, uid, { skipAttemptLedgerReset: true });
+  await deleteVideoByRef(vref, data, uid);
   return true;
 }
 

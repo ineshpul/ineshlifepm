@@ -446,55 +446,38 @@ export function RecordScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
-      if (!user?.uid || !isFirebaseConfigured() || isStaffUser || postedForRecordingDay) {
+      if (!user?.uid || !isFirebaseConfigured() || isStaffUser) {
         return;
       }
-      if (attemptsRemaining > 0) return;
-      void resetRecordingAttemptsAfterVideoDelete({
-        uid: user.uid,
-        challengeDate: recordingChallengeDateKey,
-      }).catch((e) => {
-        if (__DEV__) console.log('[Record] heal attempts after delete failed:', e);
-      });
+      if (!postedForRecordingDay && attemptsRemaining > 0) return;
+
+      if (!postedForRecordingDay && attemptsRemaining <= 0) {
+        void resetRecordingAttemptsAfterVideoDelete({
+          uid: user.uid,
+          challengeDate: recordingChallengeDateKey,
+        }).catch((e) => {
+          if (__DEV__) console.log('[Record] heal attempts after delete failed:', e);
+        });
+        return;
+      }
+
+      if (recordingBlocked) {
+        void removeGhostLeapVideoIfOpenLedger({
+          uid: user.uid,
+          challengeDate: recordingChallengeDateKey,
+        }).catch((e) => {
+          if (__DEV__) console.log('[Record] ghost leap heal failed:', e);
+        });
+      }
     }, [
       user?.uid,
       isStaffUser,
       postedForRecordingDay,
       attemptsRemaining,
+      recordingBlocked,
       recordingChallengeDateKey,
     ])
   );
-
-  const healGhostLeapRef = React.useRef(false);
-  React.useEffect(() => {
-    if (!user?.uid || !isFirebaseConfigured() || isStaffUser) {
-      healGhostLeapRef.current = false;
-      return;
-    }
-    if (!postedForRecordingDay || attemptsRemaining <= 0 || backgroundUploadActive) {
-      healGhostLeapRef.current = false;
-      return;
-    }
-    if (healGhostLeapRef.current) return;
-    healGhostLeapRef.current = true;
-    void removeGhostLeapVideoIfOpenLedger({
-      uid: user.uid,
-      challengeDate: recordingChallengeDateKey,
-    })
-      .catch((e) => {
-        if (__DEV__) console.log('[Record] ghost leap heal failed:', e);
-      })
-      .finally(() => {
-        healGhostLeapRef.current = false;
-      });
-  }, [
-    user?.uid,
-    isStaffUser,
-    postedForRecordingDay,
-    attemptsRemaining,
-    backgroundUploadActive,
-    recordingChallengeDateKey,
-  ]);
 
   React.useEffect(() => {
     if (!user?.uid || !isFirebaseConfigured()) {

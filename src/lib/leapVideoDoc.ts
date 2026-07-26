@@ -34,3 +34,36 @@ export function blocksSoloLeapRepost(
 export function coLeapCreditVideoDocId(uid: string, challengeDate: string): string {
   return `${uid}_${challengeDate}_coleap`;
 }
+
+/** True when the leap doc has a real upload (not a placeholder row from a failed/partial post). */
+export function leapSoloVideoHasCommittedMedia(
+  data: { url?: string; storagePath?: string } | undefined
+): boolean {
+  if (!data) return false;
+  const url = String(data.url ?? '').trim();
+  const storagePath = String(data.storagePath ?? '').trim();
+  return url.length > 0 || storagePath.length > 0;
+}
+
+/**
+ * Active solo doc with no media — blocks recording but is not a real post.
+ * Common after failed uploads or delete/upload races.
+ */
+export function isOrphanLeapSoloVideoDoc(
+  data:
+    | {
+        deleted?: boolean;
+        moderationStatus?: string;
+        uid?: string;
+        isCoLeapCredit?: boolean;
+        source?: string;
+        url?: string;
+        storagePath?: string;
+      }
+    | undefined,
+  ownerUid: string
+): boolean {
+  if (!isActiveLeapVideoDoc(data, ownerUid)) return false;
+  if (isCoLeapCreditDoc(data)) return false;
+  return !leapSoloVideoHasCommittedMedia(data);
+}

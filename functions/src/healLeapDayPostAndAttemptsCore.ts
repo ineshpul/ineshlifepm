@@ -4,6 +4,7 @@ import {
   defaultLeapChallengeDateForReset,
   runResetRecordingAttemptsForLeapDayPage,
 } from './resetRecordingAttemptsForLeapDayCore';
+import { isOrphanLeapSoloVideoDoc } from './postAttemptLeapVideo';
 
 export type HealLeapDayResult = {
   challengeDate: string;
@@ -52,15 +53,12 @@ export async function removeGhostVideosWithOpenLedger(
     if (snap.empty) break;
 
     for (const attempt of snap.docs) {
-      const used = Number(attempt.data().used ?? 0);
-      if (used > 0) continue;
-
       const videoSnap = await db.doc(`videos/${attempt.id}`).get();
       if (!videoSnap.exists) continue;
 
-      const vd = videoSnap.data() as { deleted?: boolean; moderationStatus?: string };
-      const status = String(vd.moderationStatus ?? '');
-      if (vd.deleted === true || status === 'rejected' || status === 'nulled') continue;
+      const vd = videoSnap.data() as Record<string, unknown>;
+      const owner = String(attempt.data().uid ?? attempt.id.split('_')[0] ?? '').trim();
+      if (!isOrphanLeapSoloVideoDoc(vd, owner)) continue;
 
       if (!dryRun) {
         const likes = await videoSnap.ref.collection('likes').limit(500).get();
