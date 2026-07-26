@@ -25,6 +25,7 @@ export function videoBlocksLeapRepost(
 ): boolean {
   if (!snap.exists) return false;
   const data = snap.data();
+  if (isOrphanLeapSoloVideoDoc(data, ownerUid)) return false;
   if (!isActiveLeapVideoDoc(data, ownerUid)) return false;
   if (isCoLeapCreditDoc(data)) return false;
   return true;

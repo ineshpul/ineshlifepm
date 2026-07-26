@@ -22,9 +22,10 @@ export function isCoLeapCreditDoc(
  * Co-Leap credit docs do NOT block; invitees can still post their own.
  */
 export function blocksSoloLeapRepost(
-  data: { deleted?: boolean; moderationStatus?: string; uid?: string; isCoLeapCredit?: boolean; source?: string } | undefined,
+  data: { deleted?: boolean; moderationStatus?: string; uid?: string; isCoLeapCredit?: boolean; source?: string; url?: string; storagePath?: string } | undefined,
   ownerUid: string
 ): boolean {
+  if (isOrphanLeapSoloVideoDoc(data, ownerUid)) return false;
   if (!isActiveLeapVideoDoc(data, ownerUid)) return false;
   if (isCoLeapCreditDoc(data)) return false;
   return true;

@@ -47,7 +47,7 @@ export function useHasPostedToday(uid: string | undefined, dateKey: string) {
         setSoloActive(false);
         return;
       }
-      setSoloActive(isActiveLeapVideoDoc(snap.data() as LeapDocSlice, uid));
+      setSoloActive(blocksSoloLeapRepost(snap.data() as LeapDocSlice, uid));
     });
     const unsubCredit = onSnapshot(creditRef, (snap) => {
       if (!snap.exists()) {
