@@ -43,6 +43,12 @@ function bodyFor(n: InAppNotification) {
   if (n.type === 'app_review_request') {
     return n.snippet ?? 'Enjoying Leap? Leave us a quick App Store review.';
   }
+  if (n.type === 'co_leap_invite') {
+    return 'Leaped with you today — tap to confirm';
+  }
+  if (n.type === 'co_leap_confirmed') {
+    return 'confirmed your Co-Leap';
+  }
   if (n.bestPartId) {
     return n.snippet ? `commented: ${n.snippet}` : 'commented on your moment';
   }
@@ -164,6 +170,14 @@ export function NotificationsScreen() {
     }
     if (n.type === 'moderation_rejected') {
       nav.navigate('Tabs', { screen: 'Today' });
+      return;
+    }
+    if (n.type === 'co_leap_invite' && n.videoId) {
+      nav.navigate('ConfirmCoLeap', { videoId: n.videoId });
+      return;
+    }
+    if (n.type === 'co_leap_confirmed' && n.videoId) {
+      nav.navigate('VideoPost', { videoId: n.videoId });
       return;
     }
     if (n.type === 'follow') {

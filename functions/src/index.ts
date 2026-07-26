@@ -49,12 +49,22 @@ import {
   onBestPartLikeCreated,
   onBestPartLikeDeleted,
 } from './bestPartEngagement';
+import {
+  onBestPartScoreCreated,
+  onBestPartScoreDeleted,
+  onBestPartScoreWritten,
+} from './bestPartScore';
 import { getWebsiteMarketing } from './getWebsiteMarketing';
+import { createLeapUploadUrlsCallable } from './createLeapUploadUrlsCallable';
+import { createBestPartUploadUrlsCallable } from './createBestPartUploadUrlsCallable';
+import { confirmCoLeapCallable, onCoLeapInvitesCreated } from './coLeap';
 
 admin.initializeApp();
 
 export { sendLoginOtp, verifyLoginOtp };
 export { bootstrapUserOnAuthCreate, toggleVideoLikeCallable, toggleBestPartLikeCallable };
+export { createLeapUploadUrlsCallable, createBestPartUploadUrlsCallable };
+export { confirmCoLeapCallable, onCoLeapInvitesCreated };
 export {
   onVerticalScoreCommentWrite,
   onVideoLikeCreated,
@@ -62,6 +72,9 @@ export {
   onBestPartLikeCreated,
   onBestPartLikeDeleted,
   onBestPartCommentWrite,
+  onBestPartScoreCreated,
+  onBestPartScoreWritten,
+  onBestPartScoreDeleted,
   onVerticalScoreVideoApprovedLeaper,
   onVerticalScoreVideoCreated,
   onVerticalScoreVideoDeleted,
@@ -118,6 +131,12 @@ function buildBody(data: NotifPayload): string {
     return `@${u} mentioned you${snip}`;
   }
   if (data.type === 'follow') return `@${u} started following you`;
+  if (data.type === 'co_leap_invite') {
+    return `You + @${u} Leaped today — tap to confirm.`;
+  }
+  if (data.type === 'co_leap_confirmed') {
+    return `@${u} confirmed your Co-Leap`;
+  }
   if (data.type === 'mod_queue') {
     return data.snippet ? String(data.snippet) : 'A leap is waiting for moderation';
   }
@@ -187,7 +206,9 @@ export const onInboxNotificationCreated = onDocumentCreated(
             ? 'mod_queue'
             : data.type === 'moderation_rejected'
               ? 'moderation_rejected'
-              : 'social',
+              : data.type === 'co_leap_invite' || data.type === 'co_leap_confirmed'
+                ? 'co_leap'
+                : 'social',
         type: String(data.type ?? ''),
         fromUid: String(data.fromUid ?? ''),
         fromUsername: String(data.fromUsername ?? ''),
@@ -362,4 +383,9 @@ export const onVideoReportCreated = onDocumentCreated(
 );
 
 export { onLeapVideoUploadedModerate } from './videoUploadModeration';
+export {
+  onLeapVideoUploadedFaststart,
+  onLeapVideoCreatedAttachFaststart,
+  onBestPartCreatedAttachFeedEncode,
+} from './faststartVideoOnFinalize';
 export { onModerationJobCreated, pollVideoModerationJobs } from './videoModerationPoll';

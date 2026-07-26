@@ -22,7 +22,7 @@ async function cleanupTempFile(uri: string | undefined): Promise<void> {
 /** Burns the Leap watermark PNG onto a local copy for camera-roll export only. */
 export async function applyChallengeWatermarkToVideo(
   videoUri: string,
-  challenge: Pick<ChallengeWatermarkInfo, 'title' | 'username'>
+  challenge: Pick<ChallengeWatermarkInfo, 'title' | 'username' | 'variant'>
 ): Promise<string> {
   const sourcePath = stripFileScheme(videoUri);
   const { width, height } = await getVideoRenderSize(videoUri);
@@ -30,6 +30,7 @@ export async function applyChallengeWatermarkToVideo(
     await captureChallengeWatermarkPng({
       title: challenge.title,
       username: challenge.username,
+      variant: challenge.variant ?? 'leap',
       width,
       height,
     })

@@ -2,12 +2,12 @@ import { calendarWeekDateKeys, getCurrentWeekKeyFromMs } from './getCurrentWeekK
 import type { BestPartPost } from '../types/bestPart';
 import { formatNyDateKeyShort } from '../utils/nyTime';
 
-/** NY calendar weekday: Sunday = 0 … Saturday = 6. */
+/** NY calendar weekday: Sunday = 0 … Saturday = 6. Returns -1 if unknown. */
 export function nyWeekdaySun0(ms = Date.now()): number {
   const label =
     new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' })
       .formatToParts(new Date(ms))
-      .find((p) => p.type === 'weekday')?.value ?? 'Sun';
+      .find((p) => p.type === 'weekday')?.value ?? '';
   const s = label.replace(/\./g, '').toLowerCase();
   if (s.startsWith('sun')) return 0;
   if (s.startsWith('mon')) return 1;
@@ -16,9 +16,11 @@ export function nyWeekdaySun0(ms = Date.now()): number {
   if (s.startsWith('thu')) return 4;
   if (s.startsWith('fri')) return 5;
   if (s.startsWith('sat')) return 6;
-  return 0;
+  // Fail closed — never treat an unknown weekday as Sunday (week recap gate).
+  return -1;
 }
 
+/** Week recap entry is Sunday-only (America/New_York). */
 export function isNySunday(ms = Date.now()): boolean {
   return nyWeekdaySun0(ms) === 0;
 }

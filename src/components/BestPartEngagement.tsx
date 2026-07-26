@@ -6,10 +6,12 @@ import {
   Keyboard,
   Modal,
   Pressable,
+  Share,
   Text,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   addDoc,
@@ -23,6 +25,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 
+import { BlockReportModal } from '../chat/components/BlockReportModal';
 import { EngagementCommentComposer } from './EngagementCommentComposer';
 import {
   EngagementCommentRow,
@@ -30,10 +33,19 @@ import {
 } from './EngagementCommentRow';
 import { EngagementThreadCollapseRow } from './EngagementThreadCollapseRow';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { navigateToChatSharePost } from '../navigation/navigationHelpers';
 import { toggleBestPartLike } from '../services/bestPartLikes';
+import { blockUser } from '../services/chat/chatFirestore';
+import { reportBestPart } from '../services/contentReports';
 import { resolveMentionUsernames } from '../services/mentionLookup';
+import {
+  saveRemotePhotoToCameraRoll,
+  saveRemoteVideoToCameraRoll,
+} from '../services/saveVideoToCameraRoll';
 import { createInAppNotification } from '../services/social';
+import { useSettingsPreferences } from '../state/settingsPreferences';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import type { BestPartMediaType } from '../types/bestPart';
 import type { VideoComment } from '../types/videoComment';
 import { parseMentionUsernames } from '../utils/commentMentions';
 import {
@@ -41,15 +53,22 @@ import {
   flattenCommentsForThread,
   type ThreadDisplayRow,
 } from '../utils/commentThread';
-import { showError } from '../utils/ui';
+import { showError, showInfo } from '../utils/ui';
 
 type Props = {
   bestPartId: string;
   ownerUid: string;
+  ownerUsername: string;
+  mediaUrl: string;
+  mediaType: BestPartMediaType;
+  shareTitle: string;
   viewerUid?: string;
   viewerUsername: string;
   initialLikesCount?: number;
   initialCommentsCount?: number;
+  /** Owner can delete from Mine or Community. */
+  onDeleteOwn?: () => void;
+  deleteBusy?: boolean;
 };
 
 function mapCommentDoc(id: string, data: Record<string, unknown>): VideoComment {
@@ -91,13 +110,21 @@ function mapCommentDoc(id: string, data: Record<string, unknown>): VideoComment 
 export function BestPartEngagement({
   bestPartId,
   ownerUid,
+  ownerUsername,
+  mediaUrl,
+  mediaType,
+  shareTitle,
   viewerUid,
   viewerUsername,
   initialLikesCount = 0,
   initialCommentsCount = 0,
+  onDeleteOwn,
+  deleteBusy = false,
 }: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
+  const { preferences, patch } = useSettingsPreferences();
   const [liked, setLiked] = React.useState(false);
   const [likeBusy, setLikeBusy] = React.useState(false);
   const [likesCount, setLikesCount] = React.useState(initialLikesCount);
@@ -111,7 +138,11 @@ export function BestPartEngagement({
   const [sending, setSending] = React.useState(false);
   const [deletingCommentId, setDeletingCommentId] = React.useState<string | null>(null);
   const [expandedThreads, setExpandedThreads] = React.useState<Record<string, boolean>>({});
+  const [savingToRoll, setSavingToRoll] = React.useState(false);
+  const [reportOpen, setReportOpen] = React.useState(false);
+  const [blockOpen, setBlockOpen] = React.useState(false);
   const postInFlightRef = React.useRef(false);
+  const isOwn = Boolean(viewerUid && viewerUid === ownerUid);
 
   const styles = useThemedStyles((c) => ({
     row: {
@@ -125,7 +156,12 @@ export function BestPartEngagement({
       alignItems: 'center' as const,
       gap: 6,
     },
+    actionIconOnly: {
+      paddingVertical: 2,
+      paddingHorizontal: 2,
+    },
     count: { fontSize: 14, fontWeight: '800' as const, color: c.text },
+    spacer: { flex: 1 },
     sheet: {
       flex: 1,
       justifyContent: 'flex-end' as const,
@@ -159,8 +195,8 @@ export function BestPartEngagement({
   }));
 
   React.useEffect(() => {
-    setLikesCount(initialLikesCount);
-    setCommentsCount(initialCommentsCount);
+    setLikesCount(Math.max(0, initialLikesCount));
+    setCommentsCount(Math.max(0, initialCommentsCount));
   }, [bestPartId, initialLikesCount, initialCommentsCount]);
 
   React.useEffect(() => {
@@ -179,8 +215,8 @@ export function BestPartEngagement({
             const d = snap.data() as Record<string, unknown>;
             const lc = Number(d.likesCount ?? 0);
             const cc = Number(d.commentsCount ?? 0);
-            setLikesCount(Number.isFinite(lc) ? lc : 0);
-            setCommentsCount(Number.isFinite(cc) ? cc : 0);
+            setLikesCount(Math.max(0, Number.isFinite(lc) ? lc : 0));
+            setCommentsCount(Math.max(0, Number.isFinite(cc) ? cc : 0));
           },
           () => undefined
         );
@@ -260,11 +296,25 @@ export function BestPartEngagement({
       setLikesCount(Math.max(0, res.likesCount));
     } catch (e) {
       setLiked(prevLiked);
-      setLikesCount(prevCount);
+      setLikesCount(Math.max(0, prevCount));
       showError('Like failed', e);
     } finally {
       setLikeBusy(false);
     }
+  };
+
+  const shareInLeap = () => {
+    if (!viewerUid) {
+      showError('Sign in required', new Error('Log in to send moments in Leap.'));
+      return;
+    }
+    navigateToChatSharePost(navigation as never, {
+      videoId: bestPartId,
+      videoUrl: mediaUrl,
+      title: shareTitle,
+      ownerUid,
+      ownerUsername,
+    });
   };
 
   const notifyCommentRecipients = async (
@@ -396,6 +446,84 @@ export function BestPartEngagement({
 
   const displayComments = Math.max(comments.length, commentsCount);
 
+  const shareLink = async () => {
+    try {
+      const message = `${shareTitle}\n${mediaUrl}`;
+      const isHttp = /^https?:\/\//i.test(mediaUrl.trim());
+      await Share.share(
+        isHttp
+          ? { title: shareTitle, message }
+          : { title: shareTitle, message, url: mediaUrl }
+      );
+    } catch {
+      /* user dismissed */
+    }
+  };
+
+  const saveToCameraRoll = async () => {
+    if (savingToRoll) return;
+    setSavingToRoll(true);
+    try {
+      if (mediaType === 'photo') {
+        await saveRemotePhotoToCameraRoll(mediaUrl);
+        showInfo('Saved', 'Photo saved to camera roll.');
+      } else {
+        await saveRemoteVideoToCameraRoll(mediaUrl, {
+          title: shareTitle,
+          username: ownerUsername.trim() || 'user',
+          variant: 'bestPart',
+        });
+        showInfo('Saved', 'Video saved to camera roll.');
+      }
+    } catch (e) {
+      showError('Could not save', e);
+    } finally {
+      setSavingToRoll(false);
+    }
+  };
+
+  const onShare = () => {
+    Alert.alert('Share', shareTitle, [
+      { text: 'Share link', onPress: () => void shareLink() },
+      {
+        text: savingToRoll ? 'Saving…' : 'Save to camera roll',
+        onPress: () => void saveToCameraRoll(),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const openMore = () => {
+    if (!viewerUid) {
+      showError('Sign in required', new Error('Log in to use this.'));
+      return;
+    }
+    if (isOwn) {
+      Alert.alert('Your moment', shareTitle, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Save to camera roll',
+          onPress: () => void saveToCameraRoll(),
+        },
+        ...(onDeleteOwn
+          ? [
+              {
+                text: deleteBusy ? 'Deleting…' : 'Delete',
+                style: 'destructive' as const,
+                onPress: onDeleteOwn,
+              },
+            ]
+          : []),
+      ]);
+      return;
+    }
+    Alert.alert('Safety', 'Keep Leap safe.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Report post', style: 'destructive', onPress: () => setReportOpen(true) },
+      { text: 'Block user', style: 'destructive', onPress: () => setBlockOpen(true) },
+    ]);
+  };
+
   return (
     <>
       <View style={styles.row}>
@@ -420,6 +548,35 @@ export function BestPartEngagement({
         >
           <Ionicons name="chatbubble-outline" size={21} color={colors.text} />
           <Text style={styles.count}>{displayComments}</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.action, styles.actionIconOnly]}
+          onPress={shareInLeap}
+          accessibilityRole="button"
+          accessibilityLabel="Send this moment to someone in Leap"
+        >
+          <Ionicons name="paper-plane-outline" size={21} color={colors.text} />
+        </Pressable>
+        <Pressable
+          style={[styles.action, styles.actionIconOnly]}
+          onPress={onShare}
+          accessibilityRole="button"
+          accessibilityLabel="Share"
+        >
+          <Ionicons name="share-outline" size={21} color={colors.text} />
+        </Pressable>
+        <View style={styles.spacer} />
+        <Pressable
+          style={[styles.action, styles.actionIconOnly]}
+          onPress={openMore}
+          accessibilityRole="button"
+          accessibilityLabel={isOwn ? 'More options' : 'Report or block'}
+        >
+          <Ionicons
+            name={isOwn ? 'ellipsis-horizontal' : 'flag-outline'}
+            size={20}
+            color={colors.text}
+          />
         </Pressable>
       </View>
 
@@ -480,6 +637,51 @@ export function BestPartEngagement({
           </View>
         </View>
       </Modal>
+
+      <BlockReportModal
+        visible={reportOpen}
+        mode="report"
+        titleOverride="Report moment"
+        subtitleOverride="Tell us what’s wrong. Reports are reviewed within 24 hours."
+        reasonPlaceholder="Reason (required)"
+        onClose={() => setReportOpen(false)}
+        onConfirm={(reason) => {
+          if (!viewerUid) return;
+          const r = reason.trim() || 'unspecified';
+          const nextHidden = Array.from(new Set([...(preferences.hiddenVideoIds ?? []), bestPartId]));
+          patch({ hiddenVideoIds: nextHidden });
+          void reportBestPart({
+            reporterUid: viewerUid,
+            bestPartId,
+            bestPartOwnerUid: ownerUid,
+            bestPartOwnerUsername: ownerUsername,
+            reason: r,
+          });
+          setReportOpen(false);
+          showInfo('Reported', 'Thanks — we’ll review this soon.');
+        }}
+      />
+
+      <BlockReportModal
+        visible={blockOpen}
+        mode="block"
+        titleOverride="Block user?"
+        subtitleOverride="You won’t see their moments, and they won’t be able to chat with you."
+        onClose={() => setBlockOpen(false)}
+        onConfirm={() => {
+          if (!viewerUid) return;
+          const uname = String(ownerUsername ?? '').trim();
+          if (uname) {
+            const nextBlocked = Array.from(new Set([...(preferences.blockedUsernames ?? []), uname]));
+            patch({ blockedUsernames: nextBlocked });
+          }
+          const nextHidden = Array.from(new Set([...(preferences.hiddenVideoIds ?? []), bestPartId]));
+          patch({ hiddenVideoIds: nextHidden });
+          void blockUser(viewerUid, ownerUid);
+          setBlockOpen(false);
+          showInfo('Blocked', `@${uname || 'user'} won’t show up for you.`);
+        }}
+      />
     </>
   );
 }

@@ -28,7 +28,9 @@ export type NotificationType =
   | 'referral_activation'
   | 'referral_override'
   | 'referral_launch'
-  | 'app_review_request';
+  | 'app_review_request'
+  | 'co_leap_invite'
+  | 'co_leap_confirmed';
 
 export type InAppNotification = {
   id: string;

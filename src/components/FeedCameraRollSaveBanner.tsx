@@ -1,5 +1,12 @@
 import * as React from 'react';
-import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Text,
+  TouchableOpacity,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
@@ -11,9 +18,10 @@ type Props = {
   clipUri: string;
   challenge: ChallengeWatermarkInfo;
   onDismiss: () => void;
+  style?: StyleProp<ViewStyle>;
 };
 
-export function FeedCameraRollSaveBanner({ clipUri, challenge, onDismiss }: Props) {
+export function FeedCameraRollSaveBanner({ clipUri, challenge, onDismiss, style }: Props) {
   const { colors } = useTheme();
   const styles = useThemedStyles((colors) => ({
     wrap: {
@@ -79,13 +87,17 @@ export function FeedCameraRollSaveBanner({ clipUri, challenge, onDismiss }: Prop
   };
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, style]}>
       <View style={styles.iconWrap}>
         <Ionicons name="images-outline" size={20} color={colors.moss} />
       </View>
       <View style={styles.body}>
         <Text style={styles.title}>Save to camera roll?</Text>
-        <Text style={styles.sub}>Includes today&apos;s leap as a watermark.</Text>
+        <Text style={styles.sub}>
+          {challenge.variant === 'bestPart'
+            ? 'Includes the Leap logo, date, and @username as a watermark.'
+            : "Includes today's leap as a watermark."}
+        </Text>
         <View style={styles.actions}>
           <TouchableOpacity
             accessibilityRole="button"

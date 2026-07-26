@@ -13,7 +13,10 @@ export type DualClipPlaybackStatus = {
 type Props = {
   primaryUrl: string;
   secondaryUrl: string;
-  /** When true, audio was captured on the PIP (secondary) clip. */
+  /**
+   * When true, the front camera was full-screen at capture. Audio still lives on
+   * the back-camera file (secondaryUrl after capture remap).
+   */
   dualFrontIsPrimary?: boolean;
   shouldPlay: boolean;
   isMuted: boolean;
@@ -21,9 +24,7 @@ type Props = {
   primaryContentFit?: VideoContentFit;
   primaryStyle?: ViewStyle;
   pipStyle?: ViewStyle;
-  /** How often to re-align the PIP to the primary clock (ms). */
   syncIntervalMs?: number;
-  /** When true, both clips restart from zero after the primary reaches the end. */
   replayOnEnd?: boolean;
   onPlaybackStatus?: (status: DualClipPlaybackStatus) => void;
 };
@@ -42,9 +43,9 @@ const DEFAULT_PIP: ViewStyle = {
 };
 
 /**
- * Frame-locked dual-camera playback via expo-video. Both decoders share one
- * timeline so the selfie PIP stays glued to the main clip during preview,
- * feed reels, and post detail.
+ * Dual-camera feed playback.
+ * Critical: waitsToMinimizeStalling MUST be false for progressive Storage MP4s —
+ * otherwise iOS can hold for tens of seconds before the first audible frame.
  */
 export function DualClipPlayback({
   primaryUrl,
@@ -56,55 +57,58 @@ export function DualClipPlayback({
   primaryContentFit = 'contain',
   primaryStyle,
   pipStyle,
-  syncIntervalMs = 100,
+  syncIntervalMs = 350,
   replayOnEnd = false,
   onPlaybackStatus,
 }: Props) {
-  const audioOnSecondary = dualFrontIsPrimary;
-  const primaryMuted = isMuted || audioOnSecondary;
-  const secondaryMuted = isMuted || !audioOnSecondary;
+  const audioUrl = dualFrontIsPrimary ? secondaryUrl : primaryUrl;
+  const silentUrl = dualFrontIsPrimary ? primaryUrl : secondaryUrl;
 
   const onStatusRef = React.useRef(onPlaybackStatus);
   onStatusRef.current = onPlaybackStatus;
+  const shouldPlayRef = React.useRef(shouldPlay);
+  shouldPlayRef.current = shouldPlay;
+  const readyRef = React.useRef(false);
 
-  const primaryPlayer = useVideoPlayer({ uri: primaryUrl }, (p) => {
+  const audioPlayer = useVideoPlayer(audioUrl, (p) => {
     p.loop = false;
-    p.muted = primaryMuted;
-    p.volume = primaryMuted ? 0 : 1;
-    p.timeUpdateEventInterval = Math.max(0.05, syncIntervalMs / 1000);
+    p.muted = true;
+    p.volume = 0;
+    p.timeUpdateEventInterval = 0.5;
+    p.bufferOptions = {
+      preferredForwardBufferDuration: 1,
+      waitsToMinimizeStalling: false,
+      minBufferForPlayback: 0.5,
+    };
   });
-  const secondaryPlayer = useVideoPlayer({ uri: secondaryUrl }, (p) => {
+  const silentPlayer = useVideoPlayer(silentUrl, (p) => {
     p.loop = false;
-    p.muted = secondaryMuted;
-    p.volume = secondaryMuted ? 0 : 1;
+    p.muted = true;
+    p.volume = 0;
+    p.timeUpdateEventInterval = 0;
+    p.bufferOptions = {
+      preferredForwardBufferDuration: 1,
+      waitsToMinimizeStalling: false,
+      minBufferForPlayback: 0.5,
+    };
   });
 
-  React.useEffect(() => {
-    try {
-      primaryPlayer.muted = primaryMuted;
-      primaryPlayer.volume = primaryMuted ? 0 : 1;
-    } catch {
-      // ignore
-    }
-  }, [primaryPlayer, primaryMuted]);
-
-  React.useEffect(() => {
-    try {
-      secondaryPlayer.muted = secondaryMuted;
-      secondaryPlayer.volume = secondaryMuted ? 0 : 1;
-    } catch {
-      // ignore
-    }
-  }, [secondaryPlayer, secondaryMuted]);
+  const timelinePlayer = dualFrontIsPrimary ? silentPlayer : audioPlayer;
+  const followPlayer = dualFrontIsPrimary ? audioPlayer : silentPlayer;
 
   const emitStatus = React.useCallback(
     (didJustFinish = false) => {
       try {
-        const durationSec = primaryPlayer.duration ?? 0;
-        const positionSec = primaryPlayer.currentTime ?? 0;
+        const durationSec = timelinePlayer.duration ?? 0;
+        const positionSec = timelinePlayer.currentTime ?? 0;
+        const ready =
+          readyRef.current ||
+          timelinePlayer.status === 'readyToPlay' ||
+          durationSec > 0 ||
+          positionSec > 0;
         onStatusRef.current?.({
-          isLoaded: durationSec > 0 || positionSec > 0,
-          isPlaying: primaryPlayer.playing,
+          isLoaded: ready,
+          isPlaying: timelinePlayer.playing,
           positionMillis: Math.round(positionSec * 1000),
           durationMillis: Math.round(durationSec * 1000),
           didJustFinish,
@@ -113,105 +117,176 @@ export function DualClipPlayback({
         // ignore
       }
     },
-    [primaryPlayer]
+    [timelinePlayer]
   );
 
-  const syncPipToPrimary = React.useCallback(() => {
+  const applyMute = React.useCallback(() => {
     try {
-      const primaryTime = primaryPlayer.currentTime ?? 0;
-      const primaryPlaying = primaryPlayer.playing;
-      if (primaryPlaying) {
-        if (Math.abs((secondaryPlayer.currentTime ?? 0) - primaryTime) > 0.08) {
-          secondaryPlayer.currentTime = primaryTime;
-        }
-        if (!secondaryPlayer.playing) {
-          secondaryPlayer.play();
-        }
-      } else if (secondaryPlayer.playing) {
-        secondaryPlayer.pause();
-      }
+      const muted = isMuted || !shouldPlayRef.current;
+      audioPlayer.muted = muted;
+      audioPlayer.volume = muted ? 0 : 1;
+      silentPlayer.muted = true;
+      silentPlayer.volume = 0;
     } catch {
       // ignore
     }
-  }, [primaryPlayer, secondaryPlayer]);
+  }, [audioPlayer, silentPlayer, isMuted]);
+
+  const syncFollow = React.useCallback(() => {
+    if (!shouldPlayRef.current) return;
+    try {
+      const t = timelinePlayer.currentTime ?? 0;
+      if (Math.abs((followPlayer.currentTime ?? 0) - t) > 0.2) {
+        followPlayer.currentTime = t;
+      }
+      if (timelinePlayer.playing && !followPlayer.playing) followPlayer.play();
+      if (!timelinePlayer.playing && followPlayer.playing) followPlayer.pause();
+    } catch {
+      // ignore
+    }
+  }, [timelinePlayer, followPlayer]);
+
+  const startIfNeeded = React.useCallback(() => {
+    if (!shouldPlayRef.current) return;
+    try {
+      applyMute();
+      timelinePlayer.play();
+      // Start companion after timeline is moving — don't block first paint on 2nd download.
+      requestAnimationFrame(() => {
+        try {
+          followPlayer.play();
+          syncFollow();
+        } catch {
+          // ignore
+        }
+      });
+      emitStatus();
+    } catch {
+      // ignore
+    }
+  }, [timelinePlayer, followPlayer, applyMute, syncFollow, emitStatus]);
 
   React.useEffect(() => {
-    const playSub = primaryPlayer.addListener('playingChange', () => {
-      syncPipToPrimary();
-      emitStatus();
-    });
-    const timeSub = primaryPlayer.addListener('timeUpdate', () => {
-      syncPipToPrimary();
-      emitStatus();
-    });
-    const endSub = primaryPlayer.addListener('playToEnd', () => {
+    applyMute();
+    if (shouldPlay) {
+      // If already ready, play immediately; otherwise statusChange will kick it.
+      if (timelinePlayer.status === 'readyToPlay' || readyRef.current) {
+        startIfNeeded();
+      }
+    } else {
       try {
-        if (replayOnEnd && shouldPlay) {
-          primaryPlayer.currentTime = 0;
-          secondaryPlayer.currentTime = 0;
-          primaryPlayer.play();
-          secondaryPlayer.play();
+        timelinePlayer.pause();
+        followPlayer.pause();
+      } catch {
+        // ignore
+      }
+      emitStatus();
+    }
+  }, [shouldPlay, timelinePlayer, followPlayer, applyMute, startIfNeeded, emitStatus]);
+
+  React.useEffect(() => {
+    const statusSub = timelinePlayer.addListener('statusChange', ({ status }) => {
+      if (status === 'readyToPlay') {
+        readyRef.current = true;
+        emitStatus();
+        startIfNeeded();
+      } else if (status === 'loading' || status === 'idle') {
+        emitStatus();
+      }
+    });
+    const playSub = timelinePlayer.addListener('playingChange', () => {
+      syncFollow();
+      emitStatus();
+    });
+    const timeSub = timelinePlayer.addListener('timeUpdate', () => {
+      if (!shouldPlayRef.current) return;
+      syncFollow();
+      emitStatus();
+    });
+    const endSub = timelinePlayer.addListener('playToEnd', () => {
+      try {
+        if (replayOnEnd && shouldPlayRef.current) {
+          timelinePlayer.currentTime = 0;
+          followPlayer.currentTime = 0;
+          timelinePlayer.play();
+          followPlayer.play();
         } else {
-          secondaryPlayer.pause();
-          secondaryPlayer.currentTime = 0;
+          followPlayer.pause();
         }
       } catch {
         // ignore
       }
       emitStatus(true);
     });
-    const interval = setInterval(() => {
-      syncPipToPrimary();
-      emitStatus();
-    }, syncIntervalMs);
+
+    // Kick if already ready on mount.
+    if (timelinePlayer.status === 'readyToPlay') {
+      readyRef.current = true;
+      startIfNeeded();
+    }
+    emitStatus();
 
     return () => {
+      statusSub.remove();
       playSub.remove();
       timeSub.remove();
       endSub.remove();
-      clearInterval(interval);
     };
-  }, [
-    primaryPlayer,
-    secondaryPlayer,
-    syncIntervalMs,
-    replayOnEnd,
-    shouldPlay,
-    syncPipToPrimary,
-    emitStatus,
-  ]);
+  }, [timelinePlayer, followPlayer, replayOnEnd, syncFollow, startIfNeeded, emitStatus]);
 
+  // Soft resync while playing — low frequency, never while offscreen.
   React.useEffect(() => {
-    try {
-      if (shouldPlay) {
-        primaryPlayer.play();
-        syncPipToPrimary();
-      } else {
-        primaryPlayer.pause();
-        secondaryPlayer.pause();
-      }
-    } catch {
-      // ignore
-    }
-  }, [shouldPlay, primaryPlayer, secondaryPlayer, syncPipToPrimary]);
+    if (!shouldPlay) return;
+    const id = setInterval(syncFollow, Math.max(300, syncIntervalMs));
+    return () => clearInterval(id);
+  }, [shouldPlay, syncIntervalMs, syncFollow]);
+
+  const fillStyle = primaryStyle ?? StyleSheet.absoluteFillObject;
+  const tileStyle = pipStyle ?? DEFAULT_PIP;
+  const audioViewStyle = dualFrontIsPrimary ? tileStyle : fillStyle;
+  const silentViewStyle = dualFrontIsPrimary ? fillStyle : tileStyle;
+  const audioContentFit: VideoContentFit = dualFrontIsPrimary ? 'cover' : primaryContentFit;
+  const silentContentFit: VideoContentFit = dualFrontIsPrimary ? primaryContentFit : 'cover';
 
   return (
     <View style={StyleSheet.absoluteFill}>
-      <VideoView
-        style={primaryStyle ?? StyleSheet.absoluteFillObject}
-        player={primaryPlayer}
-        nativeControls={nativeControls}
-        contentFit={primaryContentFit}
-        allowsFullscreen={nativeControls}
-      />
-      <View style={pipStyle ?? DEFAULT_PIP} pointerEvents="none">
-        <VideoView
-          style={StyleSheet.absoluteFillObject}
-          player={secondaryPlayer}
-          nativeControls={false}
-          contentFit="cover"
-        />
-      </View>
+      {dualFrontIsPrimary ? (
+        <>
+          <VideoView
+            style={silentViewStyle}
+            player={silentPlayer}
+            nativeControls={nativeControls}
+            contentFit={silentContentFit}
+            allowsFullscreen={nativeControls}
+          />
+          <View style={audioViewStyle} pointerEvents="none">
+            <VideoView
+              style={StyleSheet.absoluteFillObject}
+              player={audioPlayer}
+              nativeControls={false}
+              contentFit={audioContentFit}
+            />
+          </View>
+        </>
+      ) : (
+        <>
+          <VideoView
+            style={audioViewStyle}
+            player={audioPlayer}
+            nativeControls={nativeControls}
+            contentFit={audioContentFit}
+            allowsFullscreen={nativeControls}
+          />
+          <View style={silentViewStyle} pointerEvents="none">
+            <VideoView
+              style={StyleSheet.absoluteFillObject}
+              player={silentPlayer}
+              nativeControls={false}
+              contentFit={silentContentFit}
+            />
+          </View>
+        </>
+      )}
     </View>
   );
 }

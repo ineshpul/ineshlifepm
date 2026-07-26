@@ -1,14 +1,18 @@
 diff --git a/node_modules/@stefanmartin/expo-video-watermark/android/src/main/java/expo/modules/videowatermark/ExpoVideoWatermarkModule.kt b/node_modules/@stefanmartin/expo-video-watermark/android/src/main/java/expo/modules/videowatermark/ExpoVideoWatermarkModule.kt
-index 30a0587..47cfc37 100644
+index 30a0587..3de8208 100644
 --- a/node_modules/@stefanmartin/expo-video-watermark/android/src/main/java/expo/modules/videowatermark/ExpoVideoWatermarkModule.kt
 +++ b/node_modules/@stefanmartin/expo-video-watermark/android/src/main/java/expo/modules/videowatermark/ExpoVideoWatermarkModule.kt
-@@ -137,6 +137,43 @@ class ExpoVideoWatermarkModule : Module() {
+@@ -137,6 +137,121 @@ class ExpoVideoWatermarkModule : Module() {
      AsyncFunction("watermarkVideo") { videoPath: String, imagePath: String, outputPath: String, promise: Promise ->
        processWatermark(videoPath, imagePath, outputPath, promise)
      }
 +
 +    AsyncFunction("getVideoRenderSize") { videoPath: String, promise: Promise ->
 +      resolveVideoRenderSize(videoPath, promise)
++    }
++
++    AsyncFunction("concatVideos") { videoPaths: List<String>, outputPath: String, promise: Promise ->
++      concatVideos(videoPaths, outputPath, promise)
 +    }
 +  }
 +
@@ -43,10 +47,84 @@ index 30a0587..47cfc37 100644
 +    } finally {
 +      retriever.release()
 +    }
++  }
++
++  @OptIn(UnstableApi::class)
++  private fun concatVideos(
++    videoPaths: List<String>,
++    outputPath: String,
++    promise: Promise
++  ) {
++    val cleanPaths = videoPaths.map { it.removePrefix("file://") }
++    val cleanOutputPath = outputPath.removePrefix("file://")
++
++    if (cleanPaths.isEmpty()) {
++      promise.reject("NO_SEGMENTS", "No video segments to concatenate", null)
++      return
++    }
++
++    for (path in cleanPaths) {
++      if (!File(path).exists()) {
++        promise.reject("VIDEO_NOT_FOUND", "Video file not found at path: $path", null)
++        return
++      }
++    }
++
++    val outputFile = File(cleanOutputPath)
++    outputFile.parentFile?.mkdirs()
++    if (outputFile.exists()) {
++      outputFile.delete()
++    }
++
++    if (cleanPaths.size == 1) {
++      try {
++        File(cleanPaths[0]).copyTo(outputFile, overwrite = true)
++        promise.resolve(outputPath)
++      } catch (e: Exception) {
++        promise.reject("COPY_FAILED", "Failed to copy segment: ${e.message}", e)
++      }
++      return
++    }
++
++    try {
++      val editedItems = cleanPaths.map { path ->
++        EditedMediaItem.Builder(MediaItem.fromUri(android.net.Uri.fromFile(File(path)))).build()
++      }
++      val sequence = EditedMediaItemSequence.Builder(editedItems).build()
++      val composition = Composition.Builder(sequence).build()
++
++      val mainHandler = Handler(Looper.getMainLooper())
++      mainHandler.post {
++        val transformer = Transformer.Builder(context)
++          .addListener(
++            object : Transformer.Listener {
++              override fun onCompleted(composition: Composition, result: ExportResult) {
++                promise.resolve(outputPath)
++              }
++
++              override fun onError(
++                composition: Composition,
++                result: ExportResult,
++                exception: ExportException
++              ) {
++                promise.reject(
++                  "EXPORT_FAILED",
++                  "Video concat failed: ${exception.message}",
++                  exception
++                )
++              }
++            }
++          )
++          .build()
++        transformer.start(composition, cleanOutputPath)
++      }
++    } catch (e: Exception) {
++      promise.reject("CONCAT_ERROR", "Failed to concatenate videos: ${e.message}", e)
++    }
    }
  
    @OptIn(UnstableApi::class)
-@@ -258,16 +295,16 @@ class ExpoVideoWatermarkModule : Module() {
+@@ -258,16 +373,16 @@ class ExpoVideoWatermarkModule : Module() {
        rawVideoWidth to rawVideoHeight
      }
  
@@ -68,7 +146,7 @@ index 30a0587..47cfc37 100644
        watermarkBitmap
      } else {
        Log.d(TAG, "[Step 8] Pre-scaling watermark: ${originalWidth}x${originalHeight} -> ${targetWidth}x${targetHeight} (scale: $scale)")
-@@ -285,13 +322,11 @@ class ExpoVideoWatermarkModule : Module() {
+@@ -285,13 +400,11 @@ class ExpoVideoWatermarkModule : Module() {
        }
      }
  
@@ -86,10 +164,10 @@ index 30a0587..47cfc37 100644
      } catch (e: Exception) {
        scaledWatermark.recycle()
 diff --git a/node_modules/@stefanmartin/expo-video-watermark/ios/ExpoVideoWatermarkModule.swift b/node_modules/@stefanmartin/expo-video-watermark/ios/ExpoVideoWatermarkModule.swift
-index 527145a..745f579 100644
+index 527145a..763174e 100644
 --- a/node_modules/@stefanmartin/expo-video-watermark/ios/ExpoVideoWatermarkModule.swift
 +++ b/node_modules/@stefanmartin/expo-video-watermark/ios/ExpoVideoWatermarkModule.swift
-@@ -11,6 +11,12 @@ public class ExpoVideoWatermarkModule: Module {
+@@ -11,6 +11,18 @@ public class ExpoVideoWatermarkModule: Module {
          self.processWatermark(videoPath: videoPath, imagePath: imagePath, outputPath: outputPath, promise: promise)
        }
      }
@@ -99,10 +177,16 @@ index 527145a..745f579 100644
 +        self.resolveVideoRenderSize(videoPath: videoPath, promise: promise)
 +      }
 +    }
++
++    AsyncFunction("concatVideos") { (videoPaths: [String], outputPath: String, promise: Promise) in
++      DispatchQueue.global(qos: .userInitiated).async {
++        self.concatVideos(videoPaths: videoPaths, outputPath: outputPath, promise: promise)
++      }
++    }
    }
  
    private func processWatermark(videoPath: String, imagePath: String, outputPath: String, promise: Promise) {
-@@ -80,8 +86,10 @@ public class ExpoVideoWatermarkModule: Module {
+@@ -80,8 +92,10 @@ public class ExpoVideoWatermarkModule: Module {
        return
      }
  
@@ -115,7 +199,7 @@ index 527145a..745f579 100644
  
      // Create layer hierarchy for watermark overlay
      let parentLayer = CALayer()
-@@ -91,22 +99,10 @@ public class ExpoVideoWatermarkModule: Module {
+@@ -91,22 +105,10 @@ public class ExpoVideoWatermarkModule: Module {
      videoLayer.frame = CGRect(origin: .zero, size: videoSize)
      parentLayer.addSublayer(videoLayer)
  
@@ -140,7 +224,7 @@ index 527145a..745f579 100644
      watermarkLayer.opacity = 1.0
      parentLayer.addSublayer(watermarkLayer)
  
-@@ -125,8 +121,6 @@ public class ExpoVideoWatermarkModule: Module {
+@@ -125,8 +127,6 @@ public class ExpoVideoWatermarkModule: Module {
  
      let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compositionVideoTrack)
  
@@ -149,7 +233,7 @@ index 527145a..745f579 100644
      layerInstruction.setTransform(transform, at: .zero)
  
      instruction.layerInstructions = [layerInstruction]
-@@ -169,37 +163,44 @@ public class ExpoVideoWatermarkModule: Module {
+@@ -169,37 +169,169 @@ public class ExpoVideoWatermarkModule: Module {
      }
    }
  
@@ -157,29 +241,28 @@ index 527145a..745f579 100644
 -  private func naturalSizeForTrack(_ track: AVAssetTrack) -> CGSize {
 -    let size = track.naturalSize
 -    let transform = track.preferredTransform
-+  private func resolveVideoRenderSize(videoPath: String, promise: Promise) {
-+    let cleanVideoPath = videoPath.hasPrefix("file://") ? String(videoPath.dropFirst(7)) : videoPath
-+    guard FileManager.default.fileExists(atPath: cleanVideoPath) else {
-+      promise.reject("VIDEO_NOT_FOUND", "Video file not found at path: \(cleanVideoPath)")
-+      return
++  private func concatVideos(videoPaths: [String], outputPath: String, promise: Promise) {
++    let cleanPaths = videoPaths.map { path -> String in
++      path.hasPrefix("file://") ? String(path.dropFirst(7)) : path
 +    }
++    let cleanOutputPath = outputPath.hasPrefix("file://") ? String(outputPath.dropFirst(7)) : outputPath
  
 -    // Check if video is rotated 90 or 270 degrees
 -    if abs(transform.a) == 0 && abs(transform.d) == 0 {
 -      return CGSize(width: size.height, height: size.width)
-+    let asset = AVURLAsset(url: URL(fileURLWithPath: cleanVideoPath))
-+    guard let videoTrack = asset.tracks(withMediaType: .video).first else {
-+      promise.reject("INVALID_VIDEO", "No video track found in file: \(videoPath)")
++    guard !cleanPaths.isEmpty else {
++      promise.reject("NO_SEGMENTS", "No video segments to concatenate")
 +      return
++    }
++
++    for path in cleanPaths {
++      guard FileManager.default.fileExists(atPath: path) else {
++        promise.reject("VIDEO_NOT_FOUND", "Video file not found at path: \(path)")
++        return
++      }
      }
 -    return size
-+
-+    let (renderSize, _) = self.videoCompositionProperties(for: videoTrack)
-+    promise.resolve([
-+      "width": renderSize.width,
-+      "height": renderSize.height,
-+    ])
-   }
+-  }
  
 -  // Get the transform needed to render the video correctly
 -  private func transformForTrack(_ track: AVAssetTrack) -> CGAffineTransform {
@@ -194,10 +277,136 @@ index 527145a..745f579 100644
 -      } else if transform.b == -1.0 && transform.c == 1.0 {
 -        // 270 degrees rotation
 -        return CGAffineTransform(translationX: 0, y: size.width).rotated(by: -.pi / 2)
--      }
++    if cleanPaths.count == 1 {
++      let source = URL(fileURLWithPath: cleanPaths[0])
++      let dest = URL(fileURLWithPath: cleanOutputPath)
++      try? FileManager.default.removeItem(at: dest)
++      let parentDir = dest.deletingLastPathComponent()
++      try? FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
++      do {
++        try FileManager.default.copyItem(at: source, to: dest)
++        promise.resolve(outputPath)
++      } catch {
++        promise.reject("COPY_FAILED", "Failed to copy segment: \(error.localizedDescription)")
+       }
 -    } else if transform.a == -1.0 && transform.d == -1.0 {
 -      // 180 degrees rotation
 -      return CGAffineTransform(translationX: size.width, y: size.height).rotated(by: .pi)
++      return
++    }
++
++    let composition = AVMutableComposition()
++    guard
++      let compositionVideoTrack = composition.addMutableTrack(
++        withMediaType: .video,
++        preferredTrackID: kCMPersistentTrackID_Invalid
++      )
++    else {
++      promise.reject("COMPOSITION_ERROR", "Failed to create video composition track")
++      return
++    }
++
++    var compositionAudioTrack: AVMutableCompositionTrack?
++    var cursor = CMTime.zero
++
++    do {
++      for path in cleanPaths {
++        let asset = AVURLAsset(url: URL(fileURLWithPath: path))
++        let duration = asset.duration
++        guard duration.isNumeric, duration.seconds > 0 else { continue }
++
++        guard let videoTrack = asset.tracks(withMediaType: .video).first else {
++          promise.reject("INVALID_VIDEO", "No video track found in file: \(path)")
++          return
++        }
++
++        try compositionVideoTrack.insertTimeRange(
++          CMTimeRange(start: .zero, duration: duration),
++          of: videoTrack,
++          at: cursor
++        )
++        // Preserve each segment's orientation (front/back may differ).
++        compositionVideoTrack.preferredTransform = videoTrack.preferredTransform
++
++        if let audioTrack = asset.tracks(withMediaType: .audio).first {
++          if compositionAudioTrack == nil {
++            compositionAudioTrack = composition.addMutableTrack(
++              withMediaType: .audio,
++              preferredTrackID: kCMPersistentTrackID_Invalid
++            )
++          }
++          if let compositionAudioTrack {
++            try compositionAudioTrack.insertTimeRange(
++              CMTimeRange(start: .zero, duration: duration),
++              of: audioTrack,
++              at: cursor
++            )
++          }
++        }
++
++        cursor = CMTimeAdd(cursor, duration)
++      }
++    } catch {
++      promise.reject("COMPOSITION_ERROR", "Failed to insert tracks: \(error.localizedDescription)")
++      return
++    }
++
++    guard cursor.seconds > 0 else {
++      promise.reject("EMPTY_COMPOSITION", "Concatenated composition has zero duration")
++      return
++    }
++
++    let outputURL = URL(fileURLWithPath: cleanOutputPath)
++    try? FileManager.default.removeItem(at: outputURL)
++    let parentDir = outputURL.deletingLastPathComponent()
++    try? FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
++
++    guard let exportSession = AVAssetExportSession(
++      asset: composition,
++      presetName: AVAssetExportPresetHighestQuality
++    ) else {
++      promise.reject("EXPORT_ERROR", "Could not create export session")
++      return
++    }
++
++    exportSession.outputURL = outputURL
++    exportSession.outputFileType = .mp4
++
++    exportSession.exportAsynchronously {
++      switch exportSession.status {
++      case .completed:
++        promise.resolve(outputPath)
++      case .failed:
++        let errorMessage = exportSession.error?.localizedDescription ?? "Unknown error"
++        promise.reject("EXPORT_FAILED", "Video export failed: \(errorMessage)")
++      case .cancelled:
++        promise.reject("EXPORT_CANCELLED", "Video export was cancelled")
++      default:
++        promise.reject("EXPORT_ERROR", "Export ended with status: \(exportSession.status.rawValue)")
++      }
++    }
++  }
++
++  private func resolveVideoRenderSize(videoPath: String, promise: Promise) {
++    let cleanVideoPath = videoPath.hasPrefix("file://") ? String(videoPath.dropFirst(7)) : videoPath
++    guard FileManager.default.fileExists(atPath: cleanVideoPath) else {
++      promise.reject("VIDEO_NOT_FOUND", "Video file not found at path: \(cleanVideoPath)")
++      return
++    }
++
++    let asset = AVURLAsset(url: URL(fileURLWithPath: cleanVideoPath))
++    guard let videoTrack = asset.tracks(withMediaType: .video).first else {
++      promise.reject("INVALID_VIDEO", "No video track found in file: \(videoPath)")
++      return
++    }
++
++    let (renderSize, _) = self.videoCompositionProperties(for: videoTrack)
++    promise.resolve([
++      "width": renderSize.width,
++      "height": renderSize.height,
++    ])
++  }
++
 +  /// Maps a track's stored pixel buffer into upright render-space coordinates.
 +  private func videoCompositionProperties(
 +    for track: AVAssetTrack
@@ -221,16 +430,19 @@ index 527145a..745f579 100644
    }
  }
 diff --git a/node_modules/@stefanmartin/expo-video-watermark/src/ExpoVideoWatermarkModule.ts b/node_modules/@stefanmartin/expo-video-watermark/src/ExpoVideoWatermarkModule.ts
-index 09cc59f..b87d805 100644
+index 09cc59f..abe732b 100644
 --- a/node_modules/@stefanmartin/expo-video-watermark/src/ExpoVideoWatermarkModule.ts
 +++ b/node_modules/@stefanmartin/expo-video-watermark/src/ExpoVideoWatermarkModule.ts
-@@ -9,6 +9,9 @@ declare class ExpoVideoWatermarkModule extends NativeModule {
+@@ -9,6 +9,12 @@ declare class ExpoVideoWatermarkModule extends NativeModule {
     * @returns A promise that resolves with the output path on success.
     */
    watermarkVideo(videoPath: string, imagePath: string, outputPath: string): Promise<string>;
 +
 +  /** Upright render dimensions for a local video file (rotation-aware). */
 +  getVideoRenderSize(videoPath: string): Promise<{ width: number; height: number }>;
++
++  /** Stitch local MP4 segments end-to-end (mid-record camera flips). */
++  concatVideos(videoPaths: string[], outputPath: string): Promise<string>;
  }
  
  // This call loads the native module object from the JSI.

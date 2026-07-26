@@ -8,9 +8,12 @@ import { Outfit_600SemiBold, Outfit_700Bold } from '@expo-google-fonts/outfit';
 import {
   VideoWatermarkOverlay,
   type VideoWatermarkOverlayProps,
+  type VideoWatermarkVariant,
 } from '../components/VideoWatermarkOverlay';
 
-export type ChallengeWatermarkInfo = Pick<VideoWatermarkOverlayProps, 'title' | 'username'>;
+export type ChallengeWatermarkInfo = Pick<VideoWatermarkOverlayProps, 'title' | 'username'> & {
+  variant?: VideoWatermarkVariant;
+};
 
 type ChallengeWatermarkCaptureRequest = ChallengeWatermarkInfo &
   Pick<VideoWatermarkOverlayProps, 'width' | 'height'>;
@@ -132,7 +135,7 @@ export function ChallengeWatermarkCaptureHost() {
     );
   }
 
-  const { title, username, width, height } = pending.info;
+  const { title, username, width, height, variant } = pending.info;
 
   return (
     <View style={styles.offscreen} pointerEvents="none" collapsable={false}>
@@ -145,6 +148,7 @@ export function ChallengeWatermarkCaptureHost() {
           username={username}
           width={width}
           height={height}
+          variant={variant ?? 'leap'}
           onLogoSettled={handleLogoSettled}
         />
       </ViewShot>

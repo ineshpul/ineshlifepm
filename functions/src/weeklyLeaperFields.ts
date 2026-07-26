@@ -40,7 +40,15 @@ async function sumApprovedLeapInchesForOwner(
     if (snap.size < PAGE) break;
     last = snap.docs[snap.docs.length - 1];
   }
-  return Math.round(total * 10) / 10;
+
+  const { sumBestPartInchesForOwnerWeek } = await import('./bestPartScore');
+  const bestPartTotal = await sumBestPartInchesForOwnerWeek(
+    db,
+    ownerId,
+    weekKey,
+    challengeDateBelongsToWeek
+  );
+  return Math.round((total + bestPartTotal) * 10) / 10;
 }
 
 export type WeeklyLeaperFieldsPatch = {

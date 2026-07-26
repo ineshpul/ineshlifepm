@@ -22,3 +22,23 @@ export async function reportVideo(args: VideoReportArgs) {
   });
 }
 
+export type BestPartReportArgs = {
+  reporterUid: string;
+  bestPartId: string;
+  bestPartOwnerUid: string;
+  bestPartOwnerUsername: string;
+  reason: string;
+};
+
+export async function reportBestPart(args: BestPartReportArgs) {
+  if (!isFirebaseConfigured()) return;
+  await addDoc(collection(firestore(), 'bestPartReports'), {
+    reporterUid: args.reporterUid,
+    bestPartId: args.bestPartId,
+    bestPartOwnerUid: args.bestPartOwnerUid,
+    bestPartOwnerUsername: args.bestPartOwnerUsername,
+    reason: String(args.reason ?? '').slice(0, 500) || 'unspecified',
+    createdAt: serverTimestamp(),
+  });
+}
+

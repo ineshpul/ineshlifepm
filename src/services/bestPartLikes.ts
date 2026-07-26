@@ -43,7 +43,28 @@ export async function toggleBestPartLike(args: {
     viewerUsername,
     ...(liked === true || liked === false ? { liked } : {}),
   });
-  return res.data ?? { ok: false, liked: false, likesCount: 0 };
+  const data = res.data ?? { ok: false, liked: false, likesCount: 0 };
+  return {
+    ...data,
+    likesCount: Math.max(0, Number(data.likesCount ?? 0)),
+  };
+}
+
+/** Double-tap path — only likes, never unlikes. */
+export async function ensureBestPartLiked(args: {
+  bestPartId: string;
+  viewerUid: string;
+  viewerUsername: string;
+}): Promise<boolean> {
+  const { bestPartId, viewerUid, viewerUsername } = args;
+  if (!bestPartId || !viewerUid) return false;
+  const res = await toggleBestPartLike({
+    bestPartId,
+    viewerUid,
+    viewerUsername,
+    liked: true,
+  });
+  return res.ok && res.liked;
 }
 
 export async function toggleBestPartCommentLike(args: {

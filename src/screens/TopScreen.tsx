@@ -561,9 +561,6 @@ export function TopScreen() {
     return formatLeapInchesDisplay(item.score);
   };
 
-  const timeframeSubtitle =
-    timeframe === 'daily' ? 'daily' : timeframe === 'weekly' ? 'weekly' : 'all-time';
-
   return (
     <Screen style={styles.screen} dismissKeyboardOnTap edges={['top', 'left', 'right']}>
       <View style={styles.header}>
@@ -582,8 +579,8 @@ export function TopScreen() {
           <View style={styles.headerLeft}>
             <Brandmark size={36} />
             <View style={styles.headerText}>
-              <Text style={styles.title}>How high can you jump?</Text>
-              <Text style={styles.sub}>Leaperboard · {timeframeSubtitle}</Text>
+              <Text style={styles.title}>The Leaperboard</Text>
+              <Text style={styles.sub}>how high can you jump</Text>
             </View>
           </View>
         </View>

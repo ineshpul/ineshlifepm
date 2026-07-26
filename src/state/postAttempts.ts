@@ -11,13 +11,14 @@ import {
 } from 'firebase/firestore';
 
 import { firestore } from '../firebase/firebase';
-import { isActiveLeapVideoDoc } from '../lib/leapVideoDoc';
+import { blocksSoloLeapRepost, isActiveLeapVideoDoc } from '../lib/leapVideoDoc';
 import { BONUS_ATTEMPT_BASE_REDUCTION_INCHES } from '../lib/verticalScore';
 import { withRetries } from '../utils/retry';
 import {
   DEFAULT_MAX_RECORDING_ATTEMPTS,
   normalizeMaxRecordingAttempts,
 } from './challenge';
+import type { CoLeapInvitee } from '../types/coLeap';
 
 async function maxAttemptsForChallengeDate(tx: Transaction, challengeDate: string) {
   const challengeRef = doc(firestore(), 'challenges', challengeDate);
@@ -37,6 +38,8 @@ export type PostedVideoPayload = {
   /** Matches the day’s task length (seconds). */
   maxDurationSeconds: number;
   source: string;
+  /** Defaults to video when omitted (legacy posts). */
+  mediaType?: 'video' | 'photo';
   url: string;
   storagePath: string;
   /**
@@ -52,6 +55,8 @@ export type PostedVideoPayload = {
    */
   dualFrontIsPrimary?: boolean;
   moderationStatus: 'pending' | 'approved' | 'rejected';
+  /** Optional Co-Leap invitees (max 3). Confirm is server-side. */
+  coLeapInvitees?: CoLeapInvitee[];
 };
 
 export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
@@ -72,15 +77,17 @@ export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
         uid?: string;
         moderationStatus?: string;
       } | undefined;
-      if (isActiveLeapVideoDoc(existing, payload.uid)) {
+      if (blocksSoloLeapRepost(existing, payload.uid)) {
         throw new Error('You already posted today.');
       }
       // Soft-deleted or stale row — remove so create rules apply to the new post.
       tx.delete(videoRef);
     }
 
-    tx.set(videoRef, {
-      ...payload,
+    const { coLeapInvitees, ...restPayload } = payload;
+    const invitees = Array.isArray(coLeapInvitees) ? coLeapInvitees : [];
+    const videoDoc: Record<string, unknown> = {
+      ...restPayload,
       createdAt: serverTimestamp(),
       viewCount: 0,
       likesCount: 0,
@@ -90,7 +97,18 @@ export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
       reportCount: 0,
       deleted: false,
       challengeCompleted: true,
-    });
+    };
+    if (invitees.length > 0) {
+      videoDoc.coLeapInvitees = invitees.map((inv) => ({
+        uid: inv.uid,
+        username: inv.username,
+        ...(inv.photoUrl ? { photoUrl: inv.photoUrl } : {}),
+        status: 'pending' as const,
+      }));
+      videoDoc.coLeapInviteeUids = invitees.map((inv) => inv.uid);
+    }
+
+    tx.set(videoRef, videoDoc);
 
     const used = Number(attemptSnap.data()?.used ?? 0);
     if (used < max) {
@@ -216,7 +234,7 @@ export async function refundRecordingAttemptIfNoPostedVideo(args: { uid: string;
 
   await runTransaction(firestore(), async (tx) => {
     const videoSnap = await tx.get(videoRef);
-    if (videoSnap.exists() && isActiveLeapVideoDoc(videoSnap.data(), uid)) {
+    if (videoSnap.exists() && blocksSoloLeapRepost(videoSnap.data(), uid)) {
       return;
     }
     if (videoSnap.exists()) {

@@ -122,6 +122,7 @@ export function ChallengeAdminScreen() {
   const [title, setTitle] = React.useState('');
   const [durationInput, setDurationInput] = React.useState('60');
   const [attemptsInput, setAttemptsInput] = React.useState(String(DEFAULT_MAX_RECORDING_ATTEMPTS));
+  const [allowLibraryAttach, setAllowLibraryAttach] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
 
   const durationParsed = normalizeTaskDurationSeconds(durationInput);
@@ -150,6 +151,7 @@ export function ChallengeAdminScreen() {
         setDurationInput(String(d));
         const a = normalizeMaxRecordingAttempts(data?.maxRecordingAttempts);
         setAttemptsInput(String(a));
+        setAllowLibraryAttach(data?.allowLibraryAttach === true);
       } catch {
         // leave fields as-is
       }
@@ -184,6 +186,7 @@ export function ChallengeAdminScreen() {
           subtitle: deleteField(),
           maxDurationSeconds: duration,
           maxRecordingAttempts: attempts,
+          allowLibraryAttach,
           updatedAt: serverTimestamp(),
           publishedAt: serverTimestamp(),
         },
@@ -274,6 +277,36 @@ export function ChallengeAdminScreen() {
             placeholder="3"
           />
           <Text style={styles.durationHint}>Each try counts when they start recording for the day’s leap.</Text>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>PROOF MODE (CAMERA ROLL)</Text>
+          <View style={styles.durationRow}>
+            <Pressable
+              onPress={() => setAllowLibraryAttach(false)}
+              style={[styles.durationChip, !allowLibraryAttach && styles.durationChipActive]}
+            >
+              <Text
+                style={[styles.durationChipText, !allowLibraryAttach && styles.durationChipTextActive]}
+              >
+                Off
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setAllowLibraryAttach(true)}
+              style={[styles.durationChip, allowLibraryAttach && styles.durationChipActive]}
+            >
+              <Text
+                style={[styles.durationChipText, allowLibraryAttach && styles.durationChipTextActive]}
+              >
+                On
+              </Text>
+            </Pressable>
+          </View>
+          <Text style={styles.durationHint}>
+            When on, players can attach a photo or video from their camera roll for today’s leap
+            instead of recording in-app.
+          </Text>
         </View>
 
         <PrimaryButton title={busy ? 'PUBLISHING…' : 'PUBLISH'} variant="green" onPress={onPublish} disabled={busy} />

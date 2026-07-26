@@ -27,6 +27,7 @@ import { LegalDocumentScreen } from '../screens/LegalDocumentScreen';
 import { UserProfileScreen } from '../screens/UserProfileScreen';
 import { FollowingListScreen } from '../screens/FollowingListScreen';
 import { VideoPostScreen } from '../screens/VideoPostScreen';
+import { ConfirmCoLeapScreen } from '../screens/ConfirmCoLeapScreen';
 import { AdminVideoModerationScreen } from '../screens/AdminVideoModerationScreen';
 import { YourLeapsScreen } from '../screens/YourLeapsScreen';
 import { UserLeapsScreen } from '../screens/UserLeapsScreen';
@@ -189,6 +190,11 @@ function LoggedInStack() {
         name="VideoPost"
         component={VideoPostScreen}
         options={{ headerShown: true, title: 'Highest Leap' }}
+      />
+      <MainStack.Screen
+        name="ConfirmCoLeap"
+        component={ConfirmCoLeapScreen}
+        options={{ headerShown: true, title: 'Confirm Co-Leap' }}
       />
       <MainStack.Screen
         name="BestPartPost"

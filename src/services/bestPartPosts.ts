@@ -22,7 +22,23 @@ import {
   type BestPartMediaType,
   type BestPartPost,
 } from '../types/bestPart';
+import { parseCaptionHashtags } from '../utils/captionHashtags';
 import { nyDateKey } from '../utils/nyTime';
+
+function mapHashtags(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const tag = item.trim().replace(/^#+/u, '').toLowerCase();
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    out.push(tag);
+    if (out.length >= 12) break;
+  }
+  return out.length ? out : undefined;
+}
 
 function mapDoc(id: string, data: Record<string, unknown>): BestPartPost | null {
   const uid = typeof data.uid === 'string' ? data.uid : '';
@@ -40,12 +56,23 @@ function mapDoc(id: string, data: Record<string, unknown>): BestPartPost | null 
     photoUrl: typeof data.photoUrl === 'string' ? data.photoUrl : undefined,
     dateKey,
     caption,
+    hashtags: mapHashtags(data.hashtags) ?? parseCaptionHashtags(caption),
     mediaType,
     url,
     storagePath,
+    feedUrl: typeof data.feedUrl === 'string' ? data.feedUrl : undefined,
+    feedStoragePath: typeof data.feedStoragePath === 'string' ? data.feedStoragePath : undefined,
     secondaryUrl: typeof data.secondaryUrl === 'string' ? data.secondaryUrl : undefined,
     secondaryStoragePath:
       typeof data.secondaryStoragePath === 'string' ? data.secondaryStoragePath : undefined,
+    feedSecondaryUrl:
+      typeof data.feedSecondaryUrl === 'string' ? data.feedSecondaryUrl : undefined,
+    feedSecondaryStoragePath:
+      typeof data.feedSecondaryStoragePath === 'string'
+        ? data.feedSecondaryStoragePath
+        : undefined,
+    feedEncodeVersion:
+      typeof data.feedEncodeVersion === 'string' ? data.feedEncodeVersion : undefined,
     dualFrontIsPrimary: data.dualFrontIsPrimary === true,
     durationSeconds: typeof data.durationSeconds === 'number' ? data.durationSeconds : undefined,
     isPrivate: data.isPrivate === true,
@@ -86,12 +113,15 @@ export async function commitBestPartPost(args: {
   const existing = await getDoc(doc(firestore(), BEST_PART_COLLECTION, id));
   const prev = existing.exists() ? (existing.data() as Partial<BestPartDoc>) : null;
 
+  const hashtags = parseCaptionHashtags(caption);
+
   const payload: Record<string, unknown> = {
     uid: args.uid,
     username: args.username.trim() || 'user',
     ...(photoUrl ? { photoUrl } : {}),
     dateKey,
     caption,
+    hashtags,
     mediaType: args.mediaType,
     url: args.url,
     storagePath: args.storagePath,
@@ -112,6 +142,24 @@ export async function commitBestPartPost(args: {
     payload.secondaryUrl = deleteField();
     payload.secondaryStoragePath = deleteField();
     payload.dualFrontIsPrimary = deleteField();
+  }
+
+  // Retake / replace media: drop stale feed derivatives so encode re-runs.
+  if (existing.exists()) {
+    const prevUrl = typeof prev?.url === 'string' ? prev.url : '';
+    const prevPath = typeof prev?.storagePath === 'string' ? prev.storagePath : '';
+    const mediaChanged = prevUrl !== args.url || prevPath !== args.storagePath;
+    if (mediaChanged || prev?.deleted === true) {
+      payload.feedUrl = deleteField();
+      payload.feedStoragePath = deleteField();
+      payload.feedSecondaryUrl = deleteField();
+      payload.feedSecondaryStoragePath = deleteField();
+      payload.feedEncodeVersion = deleteField();
+      payload.faststartReady = deleteField();
+      payload.faststartUpdatedAt = deleteField();
+      payload.posterUrl = deleteField();
+      payload.posterStoragePath = deleteField();
+    }
   }
 
   await setDoc(doc(firestore(), BEST_PART_COLLECTION, id), payload, { merge: true });
@@ -145,15 +193,18 @@ export function subscribeMyBestParts(
 }
 
 export function subscribeCommunityBestParts(
+  dateKey: string,
   onData: (posts: BestPartPost[]) => void,
   onError?: (err: Error) => void
 ): Unsubscribe {
+  const day = dateKey.trim() || nyDateKey();
   const q = query(
     collection(firestore(), BEST_PART_COLLECTION),
     where('isPrivate', '==', false),
     where('deleted', '==', false),
+    where('dateKey', '==', day),
     orderBy('createdAt', 'desc'),
-    limit(40)
+    limit(60)
   );
   return onSnapshot(
     q,

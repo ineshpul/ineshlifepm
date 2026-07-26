@@ -1,10 +1,10 @@
 import * as React from 'react';
-import { ActivityIndicator, Animated, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Image, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import { DualClipPlayback, type DualClipPlaybackStatus } from './DualClipPlayback';
+import { ReelSinglePlayback, type ReelSinglePlaybackStatus } from './ReelSinglePlayback';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { recordVideoView } from '../services/recordVideoView';
 import { ensureVideoLiked } from '../services/videoLikes';
@@ -18,36 +18,17 @@ function formatTimeLeft(totalSeconds: number) {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
-/** Pause a reel neighbor so the next swipe can resume instantly (keep the native buffer). */
-async function pauseVideoPlayer(player: Video | null, resetPosition: boolean) {
-  if (!player) return;
-  try {
-    await player.pauseAsync();
-    await player.setIsMutedAsync(true);
-    await player.setVolumeAsync(0);
-    if (resetPosition) await player.setPositionAsync(0);
-  } catch {
-    // native race
-  }
-}
-
-/** Full teardown when the player unmounts (e.g. leaving the feed tab). */
-async function unloadVideoPlayer(player: Video | null) {
-  if (!player) return;
-  try {
-    await player.pauseAsync();
-    await player.setIsMutedAsync(true);
-    await player.setVolumeAsync(0);
-    await player.unloadAsync();
-  } catch {
-    // native race
-  }
-}
-
 /** Empty reel slot — same footprint as the player, without holding a native decoder. */
-export function ReelVideoPlaceholder() {
+export function ReelVideoPlaceholder({ posterUrl }: { posterUrl?: string | null }) {
   const styles = useFeedPostVideoStyles();
-  return <View style={styles.videoStageReel} />;
+  const uri = String(posterUrl ?? '').trim();
+  return (
+    <View style={styles.videoStageReel}>
+      {uri ? (
+        <Image source={{ uri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+      ) : null}
+    </View>
+  );
 }
 
 function useFeedPostVideoStyles() {
@@ -168,6 +149,8 @@ function FeedPostVideoInner(props: {
    * was the big view at capture time, audio lives on the PIP clip instead.
    */
   dualFrontIsPrimary?: boolean;
+  /** Proof / camera-roll leaps may be still photos. */
+  mediaType?: 'video' | 'photo';
   shouldPlay: boolean;
   isMuted: boolean;
   useNativeControls: boolean;
@@ -179,11 +162,16 @@ function FeedPostVideoInner(props: {
   videoOwnerUid?: string;
   viewerUid?: string;
   viewerUsername?: string;
+  /** First-frame JPEG shown under the player until the decoder paints. */
+  posterUrl?: string | null;
+  /** Fires once the active reel is ready to paint/play. */
+  onReady?: (videoId: string) => void;
 }) {
   const {
     url,
     secondaryUrl,
     dualFrontIsPrimary = false,
+    mediaType = 'video',
     shouldPlay,
     isMuted,
     useNativeControls,
@@ -195,26 +183,24 @@ function FeedPostVideoInner(props: {
     videoOwnerUid,
     viewerUid,
     viewerUsername,
+    posterUrl,
+    onReady,
   } = props;
   const { colors } = useTheme();
   const styles = useFeedPostVideoStyles();
-  const videoRef = React.useRef<Video>(null);
-  const secondaryVideoRef = React.useRef<Video>(null);
-  const secondarySyncPosRef = React.useRef(0);
-  const [status, setStatus] = React.useState<AVPlaybackStatus | null>(null);
+  const [singleStatus, setSingleStatus] = React.useState<ReelSinglePlaybackStatus | null>(null);
   const [dualStatus, setDualStatus] = React.useState<DualClipPlaybackStatus | null>(null);
   const [loaded, setLoaded] = React.useState(false);
-  const [playbackRetryKey, setPlaybackRetryKey] = React.useState(0);
-  const playbackRetryCountRef = React.useRef(0);
   const lastStatusPaintRef = React.useRef(0);
   const [userPaused, setUserPaused] = React.useState(false);
   const viewRecordedKeyRef = React.useRef<string | null>(null);
-  const replayingRef = React.useRef(false);
+  const readyNotifiedRef = React.useRef(false);
+  const onReadyRef = React.useRef(onReady);
+  onReadyRef.current = onReady;
   const [heartBurst, setHeartBurst] = React.useState<{ x: number; y: number } | null>(null);
   const heartScale = React.useRef(new Animated.Value(0)).current;
   const heartOpacity = React.useRef(new Animated.Value(0)).current;
   const heartAnimRef = React.useRef<Animated.CompositeAnimation | null>(null);
-  const prevEffectivePlayRef = React.useRef(false);
 
   React.useEffect(() => {
     viewRecordedKeyRef.current = null;
@@ -222,12 +208,18 @@ function FeedPostVideoInner(props: {
 
   React.useEffect(() => {
     setLoaded(false);
-    playbackRetryCountRef.current = 0;
     lastStatusPaintRef.current = 0;
-    prevEffectivePlayRef.current = false;
-    secondarySyncPosRef.current = 0;
     setDualStatus(null);
+    setSingleStatus(null);
+    readyNotifiedRef.current = false;
   }, [analyticsVideoId]);
+
+  React.useEffect(() => {
+    if (!shouldPlay || !loaded || readyNotifiedRef.current) return;
+    if (!analyticsVideoId) return;
+    readyNotifiedRef.current = true;
+    onReadyRef.current?.(analyticsVideoId);
+  }, [shouldPlay, loaded, analyticsVideoId]);
 
   React.useEffect(() => {
     if (!shouldPlay) setUserPaused(false);
@@ -236,8 +228,6 @@ function FeedPostVideoInner(props: {
   React.useEffect(
     () => () => {
       heartAnimRef.current?.stop();
-      void unloadVideoPlayer(videoRef.current);
-      void unloadVideoPlayer(secondaryVideoRef.current);
     },
     []
   );
@@ -287,37 +277,6 @@ function FeedPostVideoInner(props: {
   const isLocalPlayback = /^file:\/\//i.test(url);
   const playerMuted = !effectivePlay || isMuted;
   const isDualPost = Boolean(secondaryUrl);
-  const audioOnSecondary = isDualPost && dualFrontIsPrimary;
-  const primaryAudioMuted = playerMuted || audioOnSecondary;
-
-  // Native stop on deactivate — `shouldPlay` handles start/buffer; avoids pause loops.
-  React.useEffect(() => {
-    if (isDualPost) return;
-    const player = videoRef.current;
-    const secondary = secondaryVideoRef.current;
-    const wasPlaying = prevEffectivePlayRef.current;
-    prevEffectivePlayRef.current = effectivePlay;
-
-    if (effectivePlay || !wasPlaying) return;
-
-    void pauseVideoPlayer(player, reel);
-    void pauseVideoPlayer(secondary, false);
-  }, [effectivePlay, reel, isDualPost]);
-
-  // expo-av does not always apply mute/volume prop changes while a clip is playing.
-  React.useEffect(() => {
-    if (isDualPost) return;
-    const player = videoRef.current;
-    if (!player) return;
-    void (async () => {
-      try {
-        await player.setIsMutedAsync(primaryAudioMuted);
-        await player.setVolumeAsync(audioOnSecondary ? 0 : playerMuted ? 0 : 1.0);
-      } catch {
-        // native race
-      }
-    })();
-  }, [isDualPost, primaryAudioMuted, audioOnSecondary, playerMuted]);
 
   const maybeRecordView = React.useCallback(() => {
     if (!analyticsVideoId || !viewerUid || !videoOwnerUid || viewerUid === videoOwnerUid) return;
@@ -327,21 +286,8 @@ function FeedPostVideoInner(props: {
     void recordVideoView(analyticsVideoId);
   }, [analyticsVideoId, viewerUid, videoOwnerUid]);
 
-  const replayReel = React.useCallback(async () => {
-    if (replayingRef.current) return;
-    replayingRef.current = true;
-    try {
-      await videoRef.current?.replayAsync();
-      if (secondaryUrl) await secondaryVideoRef.current?.replayAsync();
-    } catch {
-      // native race
-    } finally {
-      replayingRef.current = false;
-    }
-  }, [secondaryUrl]);
-
-  const onDualPlaybackStatus = React.useCallback(
-    (s: DualClipPlaybackStatus) => {
+  const onClipStatus = React.useCallback(
+    (s: DualClipPlaybackStatus | ReelSinglePlaybackStatus, kind: 'dual' | 'single') => {
       if (s.isLoaded) setLoaded(true);
 
       if (effectivePlay && s.didJustFinish) {
@@ -362,46 +308,21 @@ function FeedPostVideoInner(props: {
       const paintInterval = nearEnd ? 200 : 750;
       if (justLoaded || now - lastStatusPaintRef.current >= paintInterval) {
         lastStatusPaintRef.current = now;
-        setDualStatus(s);
+        if (kind === 'dual') setDualStatus(s);
+        else setSingleStatus(s);
       }
     },
     [effectivePlay, maybeRecordView]
   );
 
-  const onPlaybackStatusUpdate = React.useCallback(
-    (s: AVPlaybackStatus) => {
-      if (s.isLoaded) setLoaded(true);
+  const onDualPlaybackStatus = React.useCallback(
+    (s: DualClipPlaybackStatus) => onClipStatus(s, 'dual'),
+    [onClipStatus]
+  );
 
-      if (!s.isLoaded) {
-        setStatus(s);
-        lastStatusPaintRef.current = 0;
-        return;
-      }
-
-      if (effectivePlay && s.didJustFinish) {
-        maybeRecordView();
-        if (reel) void replayReel();
-      } else if (effectivePlay) {
-        const durMs = s.durationMillis ?? 0;
-        const posMs = s.positionMillis ?? 0;
-        // Long clips: count a view once the viewer is most of the way through.
-        if (durMs >= 4000 && posMs >= durMs * 0.85) {
-          maybeRecordView();
-        }
-      }
-
-      const now = Date.now();
-      const justLoaded = lastStatusPaintRef.current === 0;
-      const posMs = s.positionMillis ?? 0;
-      const durMs = s.durationMillis ?? 0;
-      const nearEnd = durMs > 0 && durMs - posMs <= 1200;
-      const paintInterval = nearEnd ? 200 : 750;
-      if (justLoaded || now - lastStatusPaintRef.current >= paintInterval) {
-        lastStatusPaintRef.current = now;
-        setStatus(s);
-      }
-    },
-    [effectivePlay, reel, maybeRecordView, replayReel]
+  const onSinglePlaybackStatus = React.useCallback(
+    (s: ReelSinglePlaybackStatus) => onClipStatus(s, 'single'),
+    [onClipStatus]
   );
 
   const doSingleTap = React.useCallback(() => {
@@ -468,24 +389,67 @@ function FeedPostVideoInner(props: {
   const tapGesture = React.useMemo(() => Gesture.Exclusive(doubleTap, singleTap), [doubleTap, singleTap]);
   const reelGesture = React.useMemo(() => Gesture.Simultaneous(longPress, tapGesture), [longPress, tapGesture]);
 
+  React.useEffect(() => {
+    if (mediaType !== 'photo' || !shouldPlay) return;
+    setLoaded(true);
+    maybeRecordView();
+  }, [mediaType, shouldPlay, maybeRecordView, url]);
+
+  if (mediaType === 'photo') {
+    const photoStyle = reel ? StyleSheet.absoluteFillObject : styles.video;
+    const photoTapLayer =
+      reel ? (
+        <GestureDetector gesture={reelGesture}>
+          <View
+            style={styles.reelTouchLayer}
+            accessibilityRole="button"
+            accessibilityLabel="Photo leap"
+          />
+        </GestureDetector>
+      ) : null;
+    return (
+      <View style={reel ? styles.videoStageReel : styles.videoStage}>
+        <Image
+          source={{ uri: url }}
+          style={photoStyle}
+          resizeMode={reel ? 'cover' : 'contain'}
+          onLoad={() => setLoaded(true)}
+        />
+        {reel && url && !loaded ? (
+          <View style={styles.reelLoading} pointerEvents="none">
+            <ActivityIndicator size="large" color={colors.white} />
+          </View>
+        ) : null}
+        {photoTapLayer}
+        {reel && heartBurst ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.heartBurst,
+              {
+                left: heartBurst.x - HEART_BURST_SIZE / 2,
+                top: heartBurst.y - HEART_BURST_SIZE / 2,
+                opacity: heartOpacity,
+                transform: [{ scale: heartScale }],
+              },
+            ]}
+          >
+            <Ionicons name="heart" size={HEART_BURST_SIZE} color={colors.coral} />
+          </Animated.View>
+        ) : null}
+      </View>
+    );
+  }
+
   let remainingSec = maxDurationSeconds;
-  if (isDualPost && dualStatus?.isLoaded) {
-    const durMs = dualStatus.durationMillis > 0 ? dualStatus.durationMillis : maxDurationSeconds * 1000;
-    const posMs = dualStatus.positionMillis ?? 0;
-    remainingSec = Math.max(0, Math.ceil((durMs - posMs) / 1000));
-  } else if (status?.isLoaded) {
-    const reportedMs = status.durationMillis ?? 0;
-    const playableMs = status.playableDurationMillis ?? 0;
-    const durMs =
-      Math.max(reportedMs, playableMs) > 0
-        ? Math.max(reportedMs, playableMs)
-        : maxDurationSeconds * 1000;
-    const posMs = status.positionMillis ?? 0;
+  const liveStatus = isDualPost ? dualStatus : singleStatus;
+  if (liveStatus?.isLoaded) {
+    const durMs = liveStatus.durationMillis > 0 ? liveStatus.durationMillis : maxDurationSeconds * 1000;
+    const posMs = liveStatus.positionMillis ?? 0;
     remainingSec = Math.max(0, Math.ceil((durMs - posMs) / 1000));
   }
 
   const nativeControls = reel ? false : useNativeControls;
-  const resizeMode = reel ? ResizeMode.COVER : ResizeMode.CONTAIN;
   const videoStyle = reel ? StyleSheet.absoluteFillObject : styles.video;
 
   const reelTapLayer =
@@ -505,8 +469,17 @@ function FeedPostVideoInner(props: {
       </GestureDetector>
     ) : null;
 
+  const posterUri = String(posterUrl ?? '').trim();
+
   return (
     <View style={reel ? styles.videoStageReel : styles.videoStage}>
+      {reel && posterUri && !loaded ? (
+        <Image
+          source={{ uri: posterUri }}
+          style={StyleSheet.absoluteFillObject}
+          resizeMode="cover"
+        />
+      ) : null}
       {isDualPost && secondaryUrl ? (
         <DualClipPlayback
           primaryUrl={url}
@@ -518,38 +491,24 @@ function FeedPostVideoInner(props: {
           primaryContentFit={reel ? 'cover' : 'contain'}
           primaryStyle={videoStyle}
           pipStyle={reel ? styles.pipReel : styles.pip}
-          syncIntervalMs={dataSaver ? 200 : 100}
+          syncIntervalMs={dataSaver ? 500 : 350}
           replayOnEnd={reel && effectivePlay}
           onPlaybackStatus={onDualPlaybackStatus}
         />
       ) : (
-        <Video
-          key={`${analyticsVideoId ?? url}-${playbackRetryKey}`}
-          ref={videoRef}
-          source={{ uri: url }}
-          style={videoStyle}
-          resizeMode={resizeMode}
+        <ReelSinglePlayback
+          url={url}
           shouldPlay={effectivePlay}
-          isMuted={primaryAudioMuted}
-          isLooping={false}
-          volume={audioOnSecondary ? 0 : 1.0}
-          useNativeControls={nativeControls}
-          progressUpdateIntervalMillis={dataSaver ? 800 : 250}
-          onPlaybackStatusUpdate={onPlaybackStatusUpdate}
-          onError={() => {
-            if (playbackRetryCountRef.current < 2) {
-              playbackRetryCountRef.current += 1;
-              setLoaded(false);
-              setUserPaused(false);
-              setPlaybackRetryKey((k) => k + 1);
-              return;
-            }
-            setLoaded(false);
-            setUserPaused(false);
-          }}
+          isMuted={playerMuted}
+          nativeControls={nativeControls}
+          contentFit={reel ? 'cover' : 'contain'}
+          style={videoStyle}
+          dataSaver={dataSaver}
+          replayOnEnd={reel && effectivePlay}
+          onPlaybackStatus={onSinglePlaybackStatus}
         />
       )}
-      {reel && url && !loaded && !isLocalPlayback ? (
+      {reel && effectivePlay && url && !loaded && !isLocalPlayback && !posterUri ? (
         <View style={styles.reelLoading} pointerEvents="none">
           <ActivityIndicator size="large" color={colors.white} />
         </View>
@@ -578,5 +537,5 @@ function FeedPostVideoInner(props: {
   );
 }
 
-/** Memoized so parent feed re-renders don’t recreate expo-av instances unless props meaningfully change. */
+/** Memoized so parent feed re-renders don’t recreate players unless props meaningfully change. */
 export const FeedPostVideo = React.memo(FeedPostVideoInner);

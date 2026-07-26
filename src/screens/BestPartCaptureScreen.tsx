@@ -1,8 +1,9 @@
 import * as React from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Pressable,
   StyleSheet,
@@ -11,19 +12,36 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Audio, Video, ResizeMode } from 'expo-av';
-import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera';
+import { Audio } from 'expo-av';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import {
+  enterPlayback,
+  enterRecording,
+  ensureRecordingAudio,
+} from '../camera/audioSessionGate';
 import {
   DualCameraRecorder,
   type DualCameraController,
 } from '../components/DualCameraRecorder';
+import {
+  DualCameraPhotoCapture,
+  type DualCameraPhotoController,
+} from '../components/DualCameraPhotoCapture';
+import { KeyboardScreen } from '../components/KeyboardScreen';
+import { RecordClipPreview } from '../components/RecordClipPreview';
+import {
+  SingleCameraRecorder,
+  type SingleCameraController,
+  type SingleCameraFacing,
+} from '../components/SingleCameraRecorder';
+import { canConcatVideosNatively } from '../services/concatVideos';
 import { useAuth } from '../state/auth';
-import { commitBestPartPost } from '../services/bestPartPosts';
-import { uploadBestPartMedia } from '../services/bestPartUpload';
+import { useBackgroundBestPartUpload } from '../state/backgroundBestPartUpload';
+import { useSettingsPreferences } from '../state/settingsPreferences';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import {
   BEST_PART_MAX_CAPTION,
@@ -35,25 +53,33 @@ import { showError, showInfo } from '../utils/ui';
 
 type Stage = 'capture' | 'compose';
 type CaptureMode = BestPartMediaType;
-type CameraLayout = 'single' | 'dual';
+type CameraLayout = 'single' | 'dual' | 'switching';
 
 const DOUBLE_TAP_MS = 280;
+const CAMERA_SWITCH_MS = 280;
 
 export function BestPartCaptureScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { user } = useAuth();
+  const { preferences } = useSettingsPreferences();
+  const { startBackgroundBestPart, isActive: backgroundUploadActive } =
+    useBackgroundBestPartUpload();
   const cameraRef = React.useRef<CameraView | null>(null);
-  const dualControllerRef = React.useRef<DualCameraController | null>(null);
+  const singleVideoRef = React.useRef<SingleCameraController | null>(null);
+  const dualVideoRef = React.useRef<DualCameraController | null>(null);
+  const dualPhotoRef = React.useRef<DualCameraPhotoController | null>(null);
   const lastTapRef = React.useRef(0);
+  const releaseRecordAudioRef = React.useRef<(() => void) | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
 
   const [stage, setStage] = React.useState<Stage>('capture');
   const [mode, setMode] = React.useState<CaptureMode>('photo');
   const [cameraLayout, setCameraLayout] = React.useState<CameraLayout>('single');
-  const [facing, setFacing] = React.useState<CameraType>('back');
+  const [facing, setFacing] = React.useState<SingleCameraFacing>('back');
   const [ready, setReady] = React.useState(false);
+  const [dualReady, setDualReady] = React.useState(false);
   const [recording, setRecording] = React.useState(false);
   const [recordSecs, setRecordSecs] = React.useState(0);
   const recordTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
@@ -66,19 +92,36 @@ export function BestPartCaptureScreen() {
   const [durationSeconds, setDurationSeconds] = React.useState<number | undefined>();
   const [caption, setCaption] = React.useState('');
   const [isPrivate, setIsPrivate] = React.useState(false);
-  const [posting, setPosting] = React.useState(false);
-  const [progress, setProgress] = React.useState(0);
+  const [keyboardOpen, setKeyboardOpen] = React.useState(false);
+  const captionInputRef = React.useRef<TextInput>(null);
 
-  const dualMode = cameraLayout === 'dual' && mode === 'video';
+  const dualMode = cameraLayout === 'dual';
+  const captureReady = dualMode ? dualReady : ready;
+  const layoutSwitchTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvt, () => setKeyboardOpen(true));
+    const hideSub = Keyboard.addListener(hideEvt, () => setKeyboardOpen(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const styles = useThemedStyles((c) => ({
     root: { flex: 1, backgroundColor: '#0E0E0E' },
+    chrome: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 100,
+      elevation: 100,
+    },
     topBar: {
       position: 'absolute' as const,
       top: 0,
       left: 0,
       right: 0,
-      zIndex: 4,
       paddingTop: insets.top + 8,
       paddingHorizontal: 16,
       flexDirection: 'row' as const,
@@ -94,6 +137,23 @@ export function BestPartCaptureScreen() {
       justifyContent: 'center' as const,
     },
     iconBtnActive: { backgroundColor: c.green },
+    /** Mirrors DualCameraRecorder tap zone — chrome sits above native previews. */
+    dualTapCatcher: {
+      position: 'absolute' as const,
+      top: 96,
+      left: 0,
+      right: 0,
+      bottom: 168,
+    },
+    /** Mirrors DualCameraRecorder PIP hit target for mid-record swap. */
+    dualPipHit: {
+      position: 'absolute' as const,
+      top: 12,
+      right: 12,
+      width: 110,
+      height: 150,
+      borderRadius: 14,
+    },
     modeRow: {
       position: 'absolute' as const,
       bottom: insets.bottom + 110,
@@ -102,7 +162,6 @@ export function BestPartCaptureScreen() {
       flexDirection: 'row' as const,
       justifyContent: 'center' as const,
       gap: 22,
-      zIndex: 4,
     },
     modeChip: {
       width: 52,
@@ -121,7 +180,6 @@ export function BestPartCaptureScreen() {
       left: 0,
       right: 0,
       alignItems: 'center' as const,
-      zIndex: 4,
     },
     shutterOuter: {
       width: 78,
@@ -150,21 +208,52 @@ export function BestPartCaptureScreen() {
       borderRadius: 6,
       backgroundColor: c.coral,
     },
-    recordTimer: {
+    recordHint: {
       position: 'absolute' as const,
       top: insets.top + 64,
       alignSelf: 'center' as const,
-      zIndex: 4,
-      color: c.coral,
+      color: 'rgba(255,255,255,0.92)',
       fontWeight: '800' as const,
-      fontSize: 18,
+      fontSize: 13,
+      letterSpacing: 0.8,
+      textShadowColor: 'rgba(0,0,0,0.55)',
+      textShadowOffset: { width: 0, height: 1 },
+      textShadowRadius: 4,
+    },
+    recordTimerWrap: {
+      position: 'absolute' as const,
+      top: insets.top + 58,
+      alignSelf: 'center' as const,
+      alignItems: 'center' as const,
+      gap: 4,
+    },
+    recordTimer: {
+      color: c.coral,
+      fontWeight: '900' as const,
+      fontSize: 28,
+      fontVariant: ['tabular-nums'] as ('tabular-nums')[],
+      textShadowColor: 'rgba(0,0,0,0.55)',
+      textShadowOffset: { width: 0, height: 1 },
+      textShadowRadius: 5,
+    },
+    recordTimerWarn: {
+      color: '#FFB020',
+    },
+    recordTimerSub: {
+      color: 'rgba(255,255,255,0.9)',
+      fontWeight: '700' as const,
+      fontSize: 12,
+      letterSpacing: 0.6,
     },
     compose: {
       flex: 1,
       backgroundColor: c.bg,
       paddingTop: insets.top + 8,
       paddingHorizontal: 18,
-      paddingBottom: insets.bottom + 16,
+    },
+    composeContent: {
+      flexGrow: 1,
+      paddingBottom: insets.bottom + 24,
     },
     composeTop: {
       height: 44,
@@ -187,6 +276,11 @@ export function BestPartCaptureScreen() {
       backgroundColor: '#111',
       marginBottom: 14,
     },
+    previewCompact: {
+      aspectRatio: undefined,
+      height: 168,
+      alignSelf: 'stretch' as const,
+    },
     previewMedia: { width: '100%' as const, height: '100%' as const },
     previewPip: {
       position: 'absolute' as const,
@@ -199,6 +293,12 @@ export function BestPartCaptureScreen() {
       borderWidth: 2,
       borderColor: '#fff',
       backgroundColor: '#000',
+    },
+    previewPipCompact: {
+      width: 64,
+      height: 86,
+      top: 8,
+      right: 8,
     },
     input: {
       minHeight: 88,
@@ -260,7 +360,70 @@ export function BestPartCaptureScreen() {
     }
   }, []);
 
-  React.useEffect(() => () => clearRecordTimer(), [clearRecordTimer]);
+  React.useEffect(
+    () => () => {
+      clearRecordTimer();
+      if (layoutSwitchTimerRef.current) {
+        clearTimeout(layoutSwitchTimerRef.current);
+        layoutSwitchTimerRef.current = null;
+      }
+    },
+    [clearRecordTimer]
+  );
+
+  const switchCameraLayout = React.useCallback(() => {
+    if (recording || cameraLayout === 'switching') return;
+    const next: CameraLayout = cameraLayout === 'dual' ? 'single' : 'dual';
+    setReady(false);
+    setDualReady(false);
+    setCameraLayout('switching');
+    if (layoutSwitchTimerRef.current) clearTimeout(layoutSwitchTimerRef.current);
+    // Brief idle so expo-camera / vision-camera release the hardware before the other mounts.
+    layoutSwitchTimerRef.current = setTimeout(() => {
+      layoutSwitchTimerRef.current = null;
+      setCameraLayout(next);
+    }, CAMERA_SWITCH_MS);
+  }, [cameraLayout, recording]);
+
+  const releaseCaptureAudio = React.useCallback(() => {
+    const release = releaseRecordAudioRef.current;
+    releaseRecordAudioRef.current = null;
+    release?.();
+  }, []);
+
+  // Keep a record-capable AVAudioSession while capturing video (single or dual).
+  useFocusEffect(
+    React.useCallback(() => {
+      return () => {
+        releaseCaptureAudio();
+        void enterPlayback().catch(() => undefined);
+      };
+    }, [releaseCaptureAudio])
+  );
+
+  React.useEffect(() => {
+    const needsRecordAudio = stage === 'capture' && mode === 'video';
+    if (!needsRecordAudio) {
+      releaseCaptureAudio();
+      if (stage === 'compose') {
+        void enterPlayback().catch(() => undefined);
+      }
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const release = await enterRecording();
+      if (cancelled) {
+        release();
+        return;
+      }
+      releaseRecordAudioRef.current?.();
+      releaseRecordAudioRef.current = release;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [stage, mode, releaseCaptureAudio]);
 
   const ensureMic = React.useCallback(async () => {
     const current = await Audio.getPermissionsAsync();
@@ -270,10 +433,17 @@ export function BestPartCaptureScreen() {
   }, []);
 
   const flipFacing = React.useCallback(() => {
-    if (recording || dualMode) return;
-    setReady(false);
+    if (dualMode) {
+      if (mode === 'photo') dualPhotoRef.current?.swap();
+      else dualVideoRef.current?.swap();
+      return;
+    }
+    // Mid-take video flip needs native stitch; photo/idle flip is always safe.
+    if (recording && mode === 'video' && !canConcatVideosNatively()) return;
+    // Same production Leap single path: expo-camera flip (segments + stitch mid-take).
     setFacing((f) => (f === 'back' ? 'front' : 'back'));
-  }, [recording, dualMode]);
+    if (mode === 'video') singleVideoRef.current?.flip();
+  }, [dualMode, mode, recording]);
 
   const onPreviewTap = React.useCallback(() => {
     const now = Date.now();
@@ -286,12 +456,12 @@ export function BestPartCaptureScreen() {
   }, [flipFacing]);
 
   const close = () => {
-    if (posting) return;
+    if (backgroundUploadActive) return;
     navigation.goBack();
   };
 
   const onRetake = () => {
-    if (posting) return;
+    if (backgroundUploadActive) return;
     setLocalUri(null);
     setSecondaryUri(null);
     setDualFrontIsPrimary(false);
@@ -301,7 +471,27 @@ export function BestPartCaptureScreen() {
     setReady(false);
   };
 
+  const takeDualPhoto = async () => {
+    if (recording || !dualReady) return;
+    const controller = dualPhotoRef.current;
+    if (!controller?.supported) {
+      showError('Dual camera unsupported', new Error("This device can't run both cameras together."));
+      return;
+    }
+    setRecording(true);
+    try {
+      await controller.takePhoto();
+    } catch (err) {
+      setRecording(false);
+      showError('Could not take photo', err);
+    }
+  };
+
   const takePhoto = async () => {
+    if (dualMode) {
+      void takeDualPhoto();
+      return;
+    }
     if (!cameraRef.current || !ready || recording) return;
     try {
       const photo = await cameraRef.current.takePictureAsync({
@@ -314,6 +504,8 @@ export function BestPartCaptureScreen() {
       setDualFrontIsPrimary(false);
       setMediaType('photo');
       setDurationSeconds(undefined);
+      releaseCaptureAudio();
+      void enterPlayback().catch(() => undefined);
       setStage('compose');
     } catch (err) {
       showError('Could not take photo', err);
@@ -323,53 +515,56 @@ export function BestPartCaptureScreen() {
   const stopRecording = async () => {
     if (dualMode) {
       try {
-        await dualControllerRef.current?.stop();
+        await dualVideoRef.current?.stop();
       } catch {
         // race with auto-stop
       }
       return;
     }
     try {
-      await cameraRef.current?.stopRecording();
+      await singleVideoRef.current?.stop();
     } catch {
       // stop can race with auto-stop
     }
   };
 
-  const startSingleRecording = async () => {
-    if (!cameraRef.current || !ready || recording) return;
-    const micOk = await ensureMic();
-    if (!micOk) {
-      showInfo('Microphone needed', 'Allow microphone access to record video.');
-      return;
-    }
-    setRecording(true);
-    setRecordSecs(0);
-    recordSecsRef.current = 0;
-    clearRecordTimer();
-    recordTimerRef.current = setInterval(() => {
-      recordSecsRef.current += 1;
-      const next = recordSecsRef.current;
-      setRecordSecs(next);
-      if (next >= BEST_PART_MAX_VIDEO_SECONDS) {
-        void stopRecording();
-      }
-    }, 1000);
-    try {
-      const clip = await cameraRef.current.recordAsync({
-        maxDuration: BEST_PART_MAX_VIDEO_SECONDS,
-      });
+  const onSingleVideoCapture = React.useCallback(
+    (uri: string) => {
       clearRecordTimer();
       setRecording(false);
-      if (!clip?.uri) throw new Error('No video returned.');
-      setLocalUri(clip.uri);
+      setLocalUri(uri);
       setSecondaryUri(null);
       setDualFrontIsPrimary(false);
       setMediaType('video');
       setDurationSeconds(
         Math.min(BEST_PART_MAX_VIDEO_SECONDS, Math.max(1, recordSecsRef.current || 1))
       );
+      releaseCaptureAudio();
+      void enterPlayback().catch(() => undefined);
       setStage('compose');
+    },
+    [clearRecordTimer, releaseCaptureAudio]
+  );
+
+  const startSingleRecording = async () => {
+    if (recording) return;
+    const controller = singleVideoRef.current;
+    if (!controller?.isReady || !ready) return;
+    const micOk = await ensureMic();
+    if (!micOk) {
+      showInfo('Microphone needed', 'Allow microphone access to record video.');
+      return;
+    }
+    await ensureRecordingAudio();
+    setRecordSecs(0);
+    recordSecsRef.current = 0;
+    clearRecordTimer();
+    setRecording(true);
+    try {
+      await controller.start();
+      if (!controller.isRecording) {
+        setRecording(false);
+      }
     } catch (err) {
       clearRecordTimer();
       setRecording(false);
@@ -378,23 +573,27 @@ export function BestPartCaptureScreen() {
   };
 
   const startDualRecording = async () => {
-    const controller = dualControllerRef.current;
-    if (!controller?.supported || !controller.isReady || recording) return;
+    if (recording || !dualReady) return;
+    const controller = dualVideoRef.current;
+    if (!controller?.supported) {
+      showError('Dual camera unsupported', new Error("This device can't run both cameras together."));
+      return;
+    }
     const micOk = await ensureMic();
     if (!micOk) {
       showInfo('Microphone needed', 'Allow microphone access to record video.');
       return;
     }
-    setRecording(true);
+    await ensureRecordingAudio();
     setRecordSecs(0);
     recordSecsRef.current = 0;
     clearRecordTimer();
-    recordTimerRef.current = setInterval(() => {
-      recordSecsRef.current += 1;
-      setRecordSecs(recordSecsRef.current);
-    }, 1000);
+    setRecording(true);
     try {
       await controller.start();
+      if (!controller.isRecording) {
+        setRecording(false);
+      }
     } catch (err) {
       clearRecordTimer();
       setRecording(false);
@@ -418,57 +617,43 @@ export function BestPartCaptureScreen() {
     void startSingleRecording();
   };
 
-  const onPost = async () => {
-    if (!user?.uid || !localUri || posting) return;
+  const onPost = () => {
+    if (!user?.uid || !localUri || backgroundUploadActive) return;
     const trimmed = caption.trim();
     if (!trimmed) {
       showInfo('Caption needed', 'Add a short caption.');
       return;
     }
-    setPosting(true);
-    setProgress(0);
-    try {
-      const dateKey = nyDateKey();
-      const primary = await uploadBestPartMedia({
+
+    const submitPost = () => {
+      startBackgroundBestPart({
         uid: user.uid,
-        dateKey,
-        localUri,
-        mediaType,
-        onProgress: (pct) => setProgress(secondaryUri ? Math.round(pct * 0.55) : pct),
-      });
-      let secondary:
-        | { url: string; storagePath: string }
-        | undefined;
-      if (mediaType === 'video' && secondaryUri) {
-        secondary = await uploadBestPartMedia({
-          uid: user.uid,
-          dateKey,
-          localUri: secondaryUri,
-          mediaType: 'video',
-          onProgress: (pct) => setProgress(55 + Math.round(pct * 0.45)),
-        });
-      }
-      await commitBestPartPost({
-        uid: user.uid,
-        username: user.username,
+        username: String(user.username ?? 'user'),
         caption: trimmed,
         mediaType,
-        url: primary.url,
-        storagePath: primary.storagePath,
-        secondaryUrl: secondary?.url,
-        secondaryStoragePath: secondary?.storagePath,
-        dualFrontIsPrimary: secondary ? dualFrontIsPrimary : undefined,
+        localUri,
+        secondaryUri,
+        dualFrontIsPrimary: secondaryUri ? dualFrontIsPrimary : undefined,
         isPrivate,
         durationSeconds: mediaType === 'video' ? durationSeconds : undefined,
-        dateKey,
+        dateKey: nyDateKey(),
+        autoSavePosts: preferences.autoSavePosts,
       });
-      showInfo('Posted', isPrivate ? 'Saved privately.' : 'Shared.');
       navigation.goBack();
-    } catch (err) {
-      showError('Could not post', err);
-    } finally {
-      setPosting(false);
+    };
+
+    if (!preferences.uploadOnCellular) {
+      Alert.alert(
+        'Upload',
+        'Cellular uploads are turned off in Settings. Upload this moment anyway?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Upload', onPress: submitPost },
+        ]
+      );
+      return;
     }
+    submitPost();
   };
 
   if (!permission) {
@@ -494,93 +679,158 @@ export function BestPartCaptureScreen() {
   }
 
   if (stage === 'compose' && localUri) {
+    const dismissKeyboard = () => {
+      Keyboard.dismiss();
+      captionInputRef.current?.blur();
+    };
+
     return (
-      <KeyboardAvoidingView
+      <KeyboardScreen
         style={styles.compose}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        contentContainerStyle={styles.composeContent}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
       >
         <View style={styles.composeTop}>
-          <Pressable style={styles.composeSideLeft} onPress={onRetake} disabled={posting} hitSlop={8}>
+          <Pressable
+            style={styles.composeSideLeft}
+            onPress={() => {
+              dismissKeyboard();
+              onRetake();
+            }}
+            disabled={backgroundUploadActive}
+            hitSlop={8}
+          >
             <Text style={{ color: colors.green, fontWeight: '800' }}>Retake</Text>
           </Pressable>
           <Text style={styles.composeTitle}>New Post</Text>
-          <Pressable style={styles.composeSideRight} onPress={close} disabled={posting} hitSlop={8}>
+          <Pressable
+            style={styles.composeSideRight}
+            onPress={() => {
+              dismissKeyboard();
+              close();
+            }}
+            disabled={backgroundUploadActive}
+            hitSlop={8}
+          >
             <Ionicons name="close" size={24} color={colors.text} />
           </Pressable>
         </View>
 
-        <View style={styles.preview}>
-          {mediaType === 'photo' ? (
-            <Image source={{ uri: localUri }} style={styles.previewMedia} resizeMode="cover" />
-          ) : (
-            <Video
-              source={{ uri: localUri }}
-              style={styles.previewMedia}
-              resizeMode={ResizeMode.COVER}
-              shouldPlay
-              isLooping
-              useNativeControls={false}
-            />
-          )}
-          {secondaryUri ? (
-            <View style={styles.previewPip}>
-              <Video
-                source={{ uri: secondaryUri }}
-                style={StyleSheet.absoluteFill}
-                resizeMode={ResizeMode.COVER}
-                shouldPlay
-                isLooping
-                isMuted
-                useNativeControls={false}
-              />
-            </View>
-          ) : null}
-        </View>
+        <Pressable
+          onPress={keyboardOpen ? dismissKeyboard : undefined}
+          disabled={!keyboardOpen}
+          accessibilityRole={keyboardOpen ? 'button' : undefined}
+          accessibilityLabel={keyboardOpen ? 'Dismiss keyboard' : undefined}
+        >
+          <View style={[styles.preview, keyboardOpen && styles.previewCompact]} pointerEvents="box-none">
+            {mediaType === 'photo' ? (
+              <>
+                <Image source={{ uri: localUri }} style={styles.previewMedia} resizeMode="cover" />
+                {secondaryUri ? (
+                  <Image
+                    source={{ uri: secondaryUri }}
+                    style={[styles.previewPip, keyboardOpen && styles.previewPipCompact]}
+                    resizeMode="cover"
+                  />
+                ) : null}
+              </>
+            ) : (
+              <View style={StyleSheet.absoluteFill} pointerEvents={keyboardOpen ? 'none' : 'auto'}>
+                <RecordClipPreview
+                  key={`${localUri}|${secondaryUri ?? ''}`}
+                  uri={localUri}
+                  secondaryUri={secondaryUri}
+                  dualFrontIsPrimary={dualFrontIsPrimary}
+                  loop
+                  contentFit="cover"
+                />
+              </View>
+            )}
+          </View>
+        </Pressable>
 
         <TextInput
+          ref={captionInputRef}
           style={styles.input}
           value={caption}
           onChangeText={(t) => setCaption(t.slice(0, BEST_PART_MAX_CAPTION))}
-          placeholder="Caption"
+          placeholder="Caption… add #hashtags"
           placeholderTextColor={colors.muted2}
           multiline
           maxLength={BEST_PART_MAX_CAPTION}
-          editable={!posting}
+          editable={!backgroundUploadActive}
+          blurOnSubmit
+          returnKeyType="done"
+          onSubmitEditing={dismissKeyboard}
         />
 
-        <View style={styles.privateRow}>
-          <Text style={styles.privateLabel}>Keep it private</Text>
-          <Switch
-            value={isPrivate}
-            onValueChange={setIsPrivate}
-            disabled={posting}
-            trackColor={{ false: colors.border, true: colors.moss }}
-            thumbColor="#fff"
-          />
-        </View>
+        <Pressable onPress={dismissKeyboard}>
+          <View style={styles.privateRow}>
+            <Text style={styles.privateLabel}>Keep it private</Text>
+            <Switch
+              value={isPrivate}
+              onValueChange={(v) => {
+                dismissKeyboard();
+                setIsPrivate(v);
+              }}
+              disabled={backgroundUploadActive}
+              trackColor={{ false: colors.border, true: colors.moss }}
+              thumbColor="#fff"
+            />
+          </View>
+        </Pressable>
 
         <Pressable
-          style={[styles.postBtn, posting && styles.postBtnDisabled]}
-          onPress={() => void onPost()}
-          disabled={posting}
+          style={[styles.postBtn, backgroundUploadActive && styles.postBtnDisabled]}
+          onPress={() => {
+            dismissKeyboard();
+            onPost();
+          }}
+          disabled={backgroundUploadActive}
         >
-          {posting ? (
-            <Text style={styles.postText}>Posting… {progress}%</Text>
-          ) : (
-            <Text style={styles.postText}>{isPrivate ? 'Save' : 'Post'}</Text>
-          )}
+          <Text style={styles.postText}>
+            {backgroundUploadActive
+              ? 'Uploading…'
+              : isPrivate
+                ? 'Save'
+                : 'Post'}
+          </Text>
         </Pressable>
-      </KeyboardAvoidingView>
+      </KeyboardScreen>
     );
   }
 
   return (
     <View style={styles.root}>
-      {dualMode ? (
+      {cameraLayout === 'switching' ? (
+        <View style={StyleSheet.absoluteFill} />
+      ) : dualMode && mode === 'photo' ? (
+        <DualCameraPhotoCapture
+          active
+          controllerRef={dualPhotoRef}
+          onReadyChange={setDualReady}
+          onCapture={(clip) => {
+            setRecording(false);
+            setLocalUri(clip.primaryUri);
+            setSecondaryUri(clip.secondaryUri);
+            setDualFrontIsPrimary(clip.frontIsPrimary);
+            setMediaType('photo');
+            setDurationSeconds(undefined);
+            releaseCaptureAudio();
+            void enterPlayback().catch(() => undefined);
+            setStage('compose');
+          }}
+          onError={(err) => {
+            setRecording(false);
+            showError('Camera error', err);
+          }}
+        />
+      ) : dualMode ? (
         <DualCameraRecorder
           active
           maxDurationSec={BEST_PART_MAX_VIDEO_SECONDS}
-          controllerRef={dualControllerRef}
+          controllerRef={dualVideoRef}
+          onReadyChange={setDualReady}
           onRecordingTick={(left) => {
             const used = Math.max(0, BEST_PART_MAX_VIDEO_SECONDS - left);
             recordSecsRef.current = used;
@@ -604,100 +854,170 @@ export function BestPartCaptureScreen() {
             showError('Camera error', err);
           }}
         />
-      ) : (
-        <View style={StyleSheet.absoluteFill}>
-          <CameraView
-            key={`${mode}-${facing}`}
-            ref={cameraRef}
-            style={StyleSheet.absoluteFill}
-            facing={facing}
-            mode={mode === 'photo' ? 'picture' : 'video'}
-            mirror={facing === 'front'}
-            onCameraReady={() => setReady(true)}
-            onMountError={({ message }) => showError('Camera error', message)}
+      ) : mode === 'video' ? (
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <SingleCameraRecorder
+            active
+            initialFacing={facing}
+            maxDurationSec={BEST_PART_MAX_VIDEO_SECONDS}
+            controllerRef={singleVideoRef}
+            onReadyChange={setReady}
+            onRecordingTick={(left) => {
+              const used = Math.max(0, BEST_PART_MAX_VIDEO_SECONDS - left);
+              recordSecsRef.current = used;
+              setRecordSecs(used);
+            }}
+            onCapture={onSingleVideoCapture}
+            onError={(err) => {
+              clearRecordTimer();
+              setRecording(false);
+              showError('Camera error', err);
+            }}
           />
           <Pressable
-            style={[StyleSheet.absoluteFill, { zIndex: 1 }]}
+            style={{ position: 'absolute', top: 96, left: 0, right: 0, bottom: 168 }}
+            onPress={onPreviewTap}
+            accessibilityLabel="Double tap to flip camera"
+          />
+        </View>
+      ) : (
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <View style={StyleSheet.absoluteFill} pointerEvents="none">
+            <CameraView
+              ref={cameraRef}
+              style={StyleSheet.absoluteFill}
+              facing={facing}
+              mode="picture"
+              mirror={facing === 'front'}
+              onCameraReady={() => setReady(true)}
+              onMountError={({ message }) => showError('Camera error', message)}
+            />
+          </View>
+          <Pressable
+            style={{ position: 'absolute', top: 96, left: 0, right: 0, bottom: 168 }}
             onPress={onPreviewTap}
             accessibilityLabel="Double tap to flip camera"
           />
         </View>
       )}
 
-      <View style={styles.topBar}>
-        <Pressable style={styles.iconBtn} onPress={close} accessibilityLabel="Close">
-          <Ionicons name="close" size={22} color="#fff" />
-        </Pressable>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          {!dualMode && !recording ? (
-            <Pressable style={styles.iconBtn} onPress={flipFacing} accessibilityLabel="Flip camera">
-              <Ionicons name="camera-reverse-outline" size={22} color="#fff" />
-            </Pressable>
-          ) : null}
-          {mode === 'video' && !recording ? (
+      {/* Chrome sits above native camera layers so dual mode can't eat taps. */}
+      <View style={styles.chrome} pointerEvents="box-none">
+        <View style={styles.topBar} pointerEvents="box-none">
+          <Pressable style={styles.iconBtn} onPress={close} accessibilityLabel="Close">
+            <Ionicons name="close" size={22} color="#fff" />
+          </Pressable>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            {cameraLayout !== 'switching' ? (
+              <Pressable
+                style={styles.iconBtn}
+                onPress={flipFacing}
+                accessibilityLabel={dualMode ? 'Swap cameras' : 'Flip camera'}
+              >
+                <Ionicons name="camera-reverse-outline" size={22} color="#fff" />
+              </Pressable>
+            ) : null}
+            {!recording ? (
+              <Pressable
+                style={[styles.iconBtn, dualMode && styles.iconBtnActive]}
+                onPress={switchCameraLayout}
+                disabled={cameraLayout === 'switching'}
+                accessibilityLabel={dualMode ? 'Single camera' : 'Dual camera'}
+              >
+                <Ionicons name={dualMode ? 'copy' : 'copy-outline'} size={20} color="#fff" />
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+
+        {/* Chrome sits above dual previews — own swap gestures so mid-record works. */}
+        {dualMode ? (
+          <>
             <Pressable
-              style={[styles.iconBtn, dualMode && styles.iconBtnActive]}
-              onPress={() => {
-                setCameraLayout((m) => (m === 'single' ? 'dual' : 'single'));
-                setReady(false);
-              }}
-              accessibilityLabel={dualMode ? 'Single camera' : 'Dual camera'}
+              style={styles.dualTapCatcher}
+              onPress={onPreviewTap}
+              accessibilityLabel="Double tap to swap cameras"
+            />
+            <Pressable
+              style={styles.dualPipHit}
+              onPress={flipFacing}
+              accessibilityLabel="Swap which camera is the main one"
+            />
+          </>
+        ) : null}
+
+        {recording && mode === 'video' ? (
+          <View style={styles.recordTimerWrap} pointerEvents="none">
+            <Text
+              style={[
+                styles.recordTimer,
+                BEST_PART_MAX_VIDEO_SECONDS - recordSecs <= 5 ? styles.recordTimerWarn : null,
+              ]}
             >
-              <Ionicons name={dualMode ? 'copy' : 'copy-outline'} size={20} color="#fff" />
+              {Math.max(0, BEST_PART_MAX_VIDEO_SECONDS - recordSecs)}S LEFT
+            </Text>
+            <Text style={styles.recordTimerSub}>{BEST_PART_MAX_VIDEO_SECONDS}S MAX</Text>
+          </View>
+        ) : null}
+
+        {!recording && mode === 'video' && cameraLayout !== 'switching' ? (
+          <Text style={styles.recordHint} pointerEvents="none">
+            {BEST_PART_MAX_VIDEO_SECONDS}S MAX
+          </Text>
+        ) : null}
+
+        {!recording && cameraLayout !== 'switching' ? (
+          <View style={styles.modeRow}>
+            <Pressable
+              style={[styles.modeChip, mode === 'photo' && styles.modeChipOn]}
+              onPress={() => {
+                setReady(false);
+                setDualReady(false);
+                setMode('photo');
+              }}
+              accessibilityLabel="Photo"
+            >
+              <Ionicons name="camera" size={26} color="#fff" />
             </Pressable>
-          ) : null}
-        </View>
-      </View>
+            <Pressable
+              style={[styles.modeChip, mode === 'video' && styles.modeChipOn]}
+              onPress={() => {
+                setReady(false);
+                setDualReady(false);
+                setMode('video');
+              }}
+              accessibilityLabel="Video"
+            >
+              <Ionicons name="videocam" size={26} color={colors.coral} />
+            </Pressable>
+          </View>
+        ) : null}
 
-      {recording ? (
-        <Text style={styles.recordTimer}>0:{String(recordSecs).padStart(2, '0')}</Text>
-      ) : null}
-
-      {!recording ? (
-        <View style={styles.modeRow}>
+        <View style={styles.shutterWrap}>
           <Pressable
-            style={[styles.modeChip, mode === 'photo' && styles.modeChipOn]}
-            onPress={() => {
-              setReady(false);
-              setCameraLayout('single');
-              setMode('photo');
-            }}
-            accessibilityLabel="Photo"
-          >
-            <Ionicons name="camera" size={26} color="#fff" />
-          </Pressable>
-          <Pressable
-            style={[styles.modeChip, mode === 'video' && styles.modeChipOn]}
-            onPress={() => {
-              setReady(false);
-              setMode('video');
-            }}
-            accessibilityLabel="Video"
-          >
-            <Ionicons name="videocam" size={26} color={colors.coral} />
-          </Pressable>
-        </View>
-      ) : null}
-
-      <View style={styles.shutterWrap}>
-        <Pressable
-          style={styles.shutterOuter}
-          onPress={onShutter}
-          disabled={dualMode ? false : !ready}
-          accessibilityLabel={
-            mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : 'Start recording'
-          }
-        >
-          <View
-            style={
-              recording
-                ? styles.shutterRecording
-                : mode === 'video'
-                  ? styles.shutterInnerVideo
-                  : styles.shutterInner
+            style={[
+              styles.shutterOuter,
+              (!captureReady || cameraLayout === 'switching') && !recording
+                ? { opacity: 0.45 }
+                : null,
+            ]}
+            onPress={onShutter}
+            disabled={(!captureReady || cameraLayout === 'switching') && !recording}
+            accessibilityLabel={
+              mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : 'Start recording'
             }
-          />
-        </Pressable>
+          >
+            <View
+              style={
+                recording
+                  ? styles.shutterRecording
+                  : mode === 'video'
+                    ? styles.shutterInnerVideo
+                    : styles.shutterInner
+              }
+            />
+          </Pressable>
+        </View>
       </View>
     </View>
   );

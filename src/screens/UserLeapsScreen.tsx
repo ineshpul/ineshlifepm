@@ -41,10 +41,12 @@ type LeapVideo = {
   /** Companion PIP clip for BeReal-style dual-camera posts. */
   secondaryUrl?: string;
   dualFrontIsPrimary?: boolean;
+  mediaType?: 'video' | 'photo';
   createdAtMs: number;
   ownerUid: string;
   moderationStatus: string;
   maxDurationSeconds: number;
+  coLeapPosterUsername?: string;
 };
 
 const REEL_BOTTOM_SHEET = 232;
@@ -55,12 +57,14 @@ function leapVideoRowKey(v: LeapVideo): string {
     v.url,
     v.secondaryUrl ?? '',
     v.dualFrontIsPrimary ? '1' : '0',
+    v.mediaType === 'photo' ? 'photo' : 'video',
     v.maxDurationSeconds,
     v.moderationStatus,
     v.prompt,
     v.username,
     v.ownerUid,
     v.createdAtMs,
+    v.coLeapPosterUsername ?? '',
   ].join('|');
 }
 
@@ -236,19 +240,26 @@ export function UserLeapsScreen({ route }: Props) {
             const createdAtMs =
               typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
             const uname = String(data?.username ?? '').trim();
-            const secondaryUrl = String(data?.secondaryUrl ?? '').trim();
+            const secondaryUrl = String(
+              data?.feedSecondaryUrl || data?.secondaryUrl || ''
+            ).trim();
             const dualFrontIsPrimary = data?.dualFrontIsPrimary === true;
+            const coLeapPosterUsername = String(data?.coLeapPosterUsername ?? '').trim();
             return {
               id: d.id,
               username: uname || hint || 'user',
               prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
-              url: String(data?.url ?? ''),
+              url: String(data?.feedUrl || data?.url || ''),
               ...(secondaryUrl ? { secondaryUrl } : {}),
               ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
+              ...(data?.mediaType === 'photo' ? { mediaType: 'photo' as const } : {}),
               createdAtMs,
               ownerUid: String(data?.uid ?? targetUid),
               moderationStatus: String(data?.moderationStatus ?? ''),
               maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
+              ...(data?.isCoLeapCredit === true && coLeapPosterUsername
+                ? { coLeapPosterUsername }
+                : {}),
             } satisfies LeapVideo;
           })
           .filter(Boolean) as LeapVideo[];
@@ -369,19 +380,17 @@ export function UserLeapsScreen({ route }: Props) {
             style={styles.reelList}
             data={videos}
             keyExtractor={(x) => x.id}
-            extraData={`${pageHeight}-${activeVideoId}-${isFocused ? 1 : 0}`}
+            extraData={`${pageHeight}-${activeVideoId}-${isFocused ? 1 : 0}-${preferences.dataSaver ? 1 : 0}`}
             pagingEnabled
-            snapToInterval={pageHeight}
-            snapToAlignment="start"
             decelerationRate="fast"
             disableIntervalMomentum
             showsVerticalScrollIndicator={false}
             nestedScrollEnabled
             removeClippedSubviews={false}
             initialNumToRender={3}
-            maxToRenderPerBatch={4}
+            maxToRenderPerBatch={3}
             windowSize={5}
-            updateCellsBatchingPeriod={50}
+            updateCellsBatchingPeriod={40}
             viewabilityConfig={viewabilityConfig}
             onViewableItemsChanged={onViewableItemsChanged}
             getItemLayout={
@@ -393,15 +402,22 @@ export function UserLeapsScreen({ route }: Props) {
                   })
                 : undefined
             }
-            renderItem={({ item }) => (
+            renderItem={({ item, index }) => {
+              const activeIndex = Math.max(
+                0,
+                videos.findIndex((v) => v.id === activeVideoId)
+              );
+              const mountVideo = isFocused && index === activeIndex;
+              return (
               <View style={[styles.reelPage, { height: pageHeight }]}>
                 <View style={[styles.reelVideoSlot, { bottom: REEL_BOTTOM_SHEET }]}>
-                  {isFocused ? (
+                  {mountVideo ? (
                     <FeedPostVideo
                       reel
                       url={item.url}
                       secondaryUrl={item.secondaryUrl}
                       dualFrontIsPrimary={item.dualFrontIsPrimary}
+                      mediaType={item.mediaType}
                       shouldPlay={activeVideoId === item.id}
                       isMuted={false}
                       useNativeControls
@@ -425,6 +441,11 @@ export function UserLeapsScreen({ route }: Props) {
                     </View>
                     <View style={styles.reelTextCol}>
                       <Text style={styles.reelUser}>@{item.username}</Text>
+                      {item.coLeapPosterUsername ? (
+                        <Text style={styles.reelPrompt} numberOfLines={1}>
+                          Co-Leap with @{item.coLeapPosterUsername.replace(/^@+/u, '')}
+                        </Text>
+                      ) : null}
                       <Text style={styles.reelPrompt} numberOfLines={2}>
                         {item.prompt}
                       </Text>
@@ -476,7 +497,8 @@ export function UserLeapsScreen({ route }: Props) {
                   ) : null}
                 </View>
               </View>
-            )}
+              );
+            }}
           />
         )}
       </View>

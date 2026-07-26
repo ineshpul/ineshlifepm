@@ -9,12 +9,20 @@ export type BestPartDoc = {
   /** NY calendar day `YYYY-MM-DD` (not leap noon key). */
   dateKey: string;
   caption: string;
+  /** Normalized hashtags from caption (lowercase, no `#`), max 12. */
+  hashtags?: string[];
   mediaType: BestPartMediaType;
   url: string;
   storagePath: string;
-  /** Optional BeReal-style PIP companion clip (dual-camera video). */
+  /** 720p feed derivative (preferred for playback when present). */
+  feedUrl?: string;
+  feedStoragePath?: string;
+  /** Optional BeReal-style PIP companion (dual-camera photo or video). */
   secondaryUrl?: string;
   secondaryStoragePath?: string;
+  feedSecondaryUrl?: string;
+  feedSecondaryStoragePath?: string;
+  feedEncodeVersion?: string;
   dualFrontIsPrimary?: boolean;
   durationSeconds?: number;
   isPrivate: boolean;

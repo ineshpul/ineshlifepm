@@ -2,7 +2,11 @@ import * as React from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
-import { isActiveLeapVideoDoc } from '../lib/leapVideoDoc';
+import {
+  blocksSoloLeapRepost,
+  coLeapCreditVideoDocId,
+  isActiveLeapVideoDoc,
+} from '../lib/leapVideoDoc';
 import { userVideosQuery } from '../lib/userVideosQuery';
 import { computeFeedViewingFromNow } from '../utils/nyTime';
 
@@ -11,7 +15,58 @@ export function todayVideoDocId(uid: string, challengeDate: string) {
   return `${uid}_${challengeDate}`;
 }
 
+export { coLeapCreditVideoDocId };
+
+type LeapDocSlice = {
+  uid?: string;
+  deleted?: boolean;
+  moderationStatus?: string;
+  isCoLeapCredit?: boolean;
+  source?: string;
+};
+
+/**
+ * Day gate / feed unlock: solo post OR confirmed Co-Leap credit.
+ * Recording lock uses {@link useHasSoloPostedToday} separately.
+ */
 export function useHasPostedToday(uid: string | undefined, dateKey: string) {
+  const [soloActive, setSoloActive] = React.useState(false);
+  const [creditActive, setCreditActive] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!uid || !isFirebaseConfigured()) {
+      setSoloActive(false);
+      setCreditActive(false);
+      return;
+    }
+
+    const soloRef = doc(firestore(), 'videos', todayVideoDocId(uid, dateKey));
+    const creditRef = doc(firestore(), 'videos', coLeapCreditVideoDocId(uid, dateKey));
+    const unsubSolo = onSnapshot(soloRef, (snap) => {
+      if (!snap.exists()) {
+        setSoloActive(false);
+        return;
+      }
+      setSoloActive(isActiveLeapVideoDoc(snap.data() as LeapDocSlice, uid));
+    });
+    const unsubCredit = onSnapshot(creditRef, (snap) => {
+      if (!snap.exists()) {
+        setCreditActive(false);
+        return;
+      }
+      setCreditActive(isActiveLeapVideoDoc(snap.data() as LeapDocSlice, uid));
+    });
+    return () => {
+      unsubSolo();
+      unsubCredit();
+    };
+  }, [uid, dateKey]);
+
+  return soloActive || creditActive;
+}
+
+/** True only when the user posted their own Leap — Co-Leap confirm alone is false. */
+export function useHasSoloPostedToday(uid: string | undefined, dateKey: string) {
   const [posted, setPosted] = React.useState(false);
 
   React.useEffect(() => {
@@ -26,12 +81,7 @@ export function useHasPostedToday(uid: string | undefined, dateKey: string) {
         setPosted(false);
         return;
       }
-      const data = snap.data() as {
-        uid?: string;
-        deleted?: boolean;
-        moderationStatus?: string;
-      } | undefined;
-      setPosted(isActiveLeapVideoDoc(data, uid));
+      setPosted(blocksSoloLeapRepost(snap.data() as LeapDocSlice, uid));
     });
   }, [uid, dateKey]);
 

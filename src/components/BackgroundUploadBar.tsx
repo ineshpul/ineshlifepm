@@ -3,12 +3,22 @@ import { Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useThemedStyles } from '../theme/ThemeProvider';
+import { useBackgroundBestPartUpload } from '../state/backgroundBestPartUpload';
 import { useBackgroundPostUpload } from '../state/backgroundPostUpload';
+
+type ActiveBar = {
+  kind: 'leap' | 'bestPart';
+  phase: 'uploading' | 'saving' | 'failed';
+  progress: number;
+  errorMessage: string | null;
+  onRetry: () => void;
+  onDismiss: () => void;
+};
 
 export function BackgroundUploadBar() {
   const insets = useSafeAreaInsets();
-  const { phase, progress, errorMessage, retryBackgroundPost, dismissFailure } =
-    useBackgroundPostUpload();
+  const leap = useBackgroundPostUpload();
+  const best = useBackgroundBestPartUpload();
 
   const styles = useThemedStyles((colors) => ({
     wrap: {
@@ -81,18 +91,47 @@ export function BackgroundUploadBar() {
     },
   }));
 
-  if (phase === 'idle') return null;
+  const active: ActiveBar | null = React.useMemo(() => {
+    // Prefer leap when both are busy so leap feed progress stays visible.
+    if (leap.phase !== 'idle') {
+      return {
+        kind: 'leap',
+        phase: leap.phase,
+        progress: leap.progress,
+        errorMessage: leap.errorMessage,
+        onRetry: leap.retryBackgroundPost,
+        onDismiss: leap.dismissFailure,
+      };
+    }
+    if (best.phase !== 'idle') {
+      return {
+        kind: 'bestPart',
+        phase: best.phase,
+        progress: best.progress,
+        errorMessage: best.errorMessage,
+        onRetry: best.retryBackgroundBestPart,
+        onDismiss: best.dismissFailure,
+      };
+    }
+    return null;
+  }, [leap, best]);
 
-  const isFailed = phase === 'failed';
+  if (!active) return null;
+
+  const isFailed = active.phase === 'failed';
+  const noun = active.kind === 'leap' ? 'leap' : 'moment';
   const label = isFailed
-    ? errorMessage ?? 'Upload failed — your attempt was restored.'
-    : phase === 'saving'
-      ? 'Saving your leap…'
-      : progress > 0
-        ? `Uploading your leap… ${progress}%`
-        : 'Uploading your leap…';
+    ? active.errorMessage ??
+      (active.kind === 'leap'
+        ? 'Upload failed — your attempt was restored.'
+        : 'Upload failed. You can retry.')
+    : active.phase === 'saving'
+      ? `Saving your ${noun}…`
+      : active.progress > 0
+        ? `Uploading your ${noun}… ${active.progress}%`
+        : `Uploading your ${noun}…`;
 
-  const fillWidthPct = isFailed ? 100 : Math.max(4, Math.min(100, progress));
+  const fillWidthPct = isFailed ? 100 : Math.max(4, Math.min(100, active.progress));
 
   return (
     <View style={styles.wrap} pointerEvents="box-none">
@@ -108,7 +147,7 @@ export function BackgroundUploadBar() {
             <>
               <TouchableOpacity
                 style={styles.retryBtn}
-                onPress={retryBackgroundPost}
+                onPress={active.onRetry}
                 accessibilityRole="button"
                 accessibilityLabel="Retry upload"
               >
@@ -116,7 +155,7 @@ export function BackgroundUploadBar() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.dismissBtn}
-                onPress={dismissFailure}
+                onPress={active.onDismiss}
                 accessibilityRole="button"
                 accessibilityLabel="Dismiss"
               >

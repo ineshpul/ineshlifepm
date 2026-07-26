@@ -6,21 +6,42 @@ export type FeedPlaybackUrls = {
   dualFrontIsPrimary?: boolean;
 };
 
-/** Prefer staged local clips for a just-posted video so the feed never re-downloads from Storage. */
+export type FeedPlaybackSource = {
+  id: string;
+  url: string;
+  secondaryUrl?: string;
+  /** Moov-at-front remux for progressive Storage MP4s (preferred when present). */
+  feedUrl?: string;
+  feedSecondaryUrl?: string;
+  dualFrontIsPrimary?: boolean;
+};
+
+/**
+ * Resolve what the feed should play.
+ * 1) Just-posted local staged URIs (instant)
+ * 2) Faststart remux URLs when Cloud Function finished
+ * 3) Raw Storage download URLs (legacy / in-flight)
+ */
 export function resolveFeedPlaybackUrls(
-  item: { id: string; url: string; secondaryUrl?: string; dualFrontIsPrimary?: boolean },
+  item: FeedPlaybackSource,
   pending: PendingFeedPlayback | null
 ): FeedPlaybackUrls {
-  if (!pending || item.id !== pending.videoDocId) {
+  if (pending && item.id === pending.videoDocId) {
     return {
-      url: item.url,
-      secondaryUrl: item.secondaryUrl,
-      dualFrontIsPrimary: item.dualFrontIsPrimary,
+      url: pending.clipUri,
+      secondaryUrl: pending.secondaryClipUri ?? undefined,
+      dualFrontIsPrimary: pending.dualFrontIsPrimary,
     };
   }
+
+  const feedUrl = String(item.feedUrl ?? '').trim();
+  const feedSecondaryUrl = String(item.feedSecondaryUrl ?? '').trim();
+  const rawUrl = String(item.url ?? '').trim();
+  const rawSecondary = String(item.secondaryUrl ?? '').trim();
+
   return {
-    url: pending.clipUri,
-    secondaryUrl: pending.secondaryClipUri ?? undefined,
-    dualFrontIsPrimary: pending.dualFrontIsPrimary,
+    url: feedUrl || rawUrl,
+    secondaryUrl: feedSecondaryUrl || rawSecondary || undefined,
+    dualFrontIsPrimary: item.dualFrontIsPrimary,
   };
 }

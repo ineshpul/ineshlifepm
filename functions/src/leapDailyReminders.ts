@@ -67,6 +67,10 @@ function todayVideoDocId(uid: string, challengeDate: string): string {
   return `${uid}_${challengeDate}`;
 }
 
+function coLeapCreditVideoDocId(uid: string, challengeDate: string): string {
+  return `${uid}_${challengeDate}_coleap`;
+}
+
 /** Prefer submission count on stats; fall back to live approved query. */
 async function countPeoplePostedForDay(
   db: admin.firestore.Firestore,
@@ -139,13 +143,16 @@ async function sendLeapDailyReminders(kind: ReminderKind): Promise<void> {
     const userIds = usersSnap.docs.map((d) => d.id);
     scannedUsers += userIds.length;
 
-    const videoRefs = userIds.map((uid) =>
+    const soloRefs = userIds.map((uid) =>
       db.doc(`videos/${todayVideoDocId(uid, viewingChallengeDateKey)}`)
     );
-    const videoSnaps = await db.getAll(...videoRefs);
+    const creditRefs = userIds.map((uid) =>
+      db.doc(`videos/${coLeapCreditVideoDocId(uid, viewingChallengeDateKey)}`)
+    );
+    const videoSnaps = await db.getAll(...soloRefs, ...creditRefs);
     const postedUids = new Set<string>();
     videoSnaps.forEach((snap, idx) => {
-      const uid = userIds[idx];
+      const uid = userIds[idx % userIds.length];
       if (userHasPostedVideo(snap, uid)) postedUids.add(uid);
     });
 

@@ -1,9 +1,10 @@
 import * as React from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { CameraView, type CameraType } from 'expo-camera';
-import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
+import { canConcatVideosNatively, concatVideos } from '../services/concatVideos';
 import { MIN_TASK_DURATION_SECONDS } from '../state/challenge';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 export type SingleCameraFacing = 'front' | 'back';
 
@@ -13,35 +14,32 @@ export type SingleCameraController = {
   readonly facing: SingleCameraFacing;
   start: () => Promise<void>;
   stop: () => Promise<void>;
-  /** Toggle front<->back. No-op while recording — expo-camera cannot flip mid-take on iOS. */
+  /**
+   * Toggle front↔back. Safe while recording when native stitch is available:
+   * closes the current expo-camera segment, flips, starts the next segment.
+   */
   flip: () => void;
 };
 
 type Props = {
-  /** Stops/starts the underlying session for battery/lifecycle management. */
   active: boolean;
   initialFacing?: SingleCameraFacing;
   maxDurationSec: number;
   onRecordingTick?: (secondsLeft: number) => void;
   onCapture: (uri: string) => void;
   onError?: (e: unknown) => void;
+  onReadyChange?: (ready: boolean) => void;
   controllerRef?: React.MutableRefObject<SingleCameraController | null>;
 };
 
+type SegmentEndReason = 'flip' | 'stop' | 'max';
+
 /**
- * Single-camera recorder backed by expo-camera's `CameraView`.
+ * Production Leap single-camera path: expo-camera `CameraView`
+ * (hardware `AVCaptureMovieFileOutput`).
  *
- * Why not vision-camera v5? Empirically its iOS preview/recording quality was
- * noticeably worse than expo-camera's at the same target resolution, with
- * visible lag during recording and inconsistent front-camera mirroring on
- * playback. Dual mode still uses vision-camera (`DualCameraRecorder`) because
- * expo-camera doesn't expose multi-cam sessions; for single-camera capture
- * we prefer the proven, hardware-accelerated `AVCaptureMovieFileOutput` path
- * that `CameraView` uses.
- *
- * The component exposes the same `SingleCameraController` shape the vision-
- * camera implementation did, so `RecordScreen` doesn't care which backend is
- * in use.
+ * Mid-record flip uses short MovieFileOutput segments + native stitch —
+ * not vision-camera's persistent recorder (soft/laggy).
  */
 export function SingleCameraRecorder({
   active,
@@ -50,45 +48,64 @@ export function SingleCameraRecorder({
   onRecordingTick,
   onCapture,
   onError,
+  onReadyChange,
   controllerRef,
 }: Props) {
   const { colors } = useTheme();
-  const styles = useThemedStyles((colors) => ({
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  loadingText: {
-    color: 'rgba(255,255,255,0.85)',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-}));
+  const styles = useThemedStyles(() => ({
+    loadingOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      gap: 10,
+      backgroundColor: 'rgba(0,0,0,0.35)',
+    },
+    loadingText: {
+      color: 'rgba(255,255,255,0.85)',
+      fontSize: 13,
+      fontWeight: '700' as const,
+    },
+  }));
+
   const boundedMaxSec = Math.max(MIN_TASK_DURATION_SECONDS, Math.round(maxDurationSec));
   const [facing, setFacing] = React.useState<SingleCameraFacing>(initialFacing);
   const [isReady, setIsReady] = React.useState(false);
   const [isRecording, setIsRecording] = React.useState(false);
+  const [stitching, setStitching] = React.useState(false);
 
   const cameraRef = React.useRef<CameraView | null>(null);
   const cameraReadyRef = React.useRef(false);
+  const isReadyRef = React.useRef(false);
   const isRecordingRef = React.useRef(false);
-  const stopInFlightRef = React.useRef(false);
+  const facingRef = React.useRef(facing);
   const tickIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const elapsedRef = React.useRef(0);
+  const segmentsRef = React.useRef<string[]>([]);
+  const takeIdRef = React.useRef(0);
+  const segmentEndReasonRef = React.useRef<SegmentEndReason | null>(null);
+  const segmentLoopBusyRef = React.useRef(false);
+
+  const onErrorRef = React.useRef(onError);
+  onErrorRef.current = onError;
+  const onCaptureRef = React.useRef(onCapture);
+  onCaptureRef.current = onCapture;
+  const onRecordingTickRef = React.useRef(onRecordingTick);
+  onRecordingTickRef.current = onRecordingTick;
+  const onReadyChangeRef = React.useRef(onReadyChange);
+  onReadyChangeRef.current = onReadyChange;
+
+  React.useEffect(() => {
+    facingRef.current = facing;
+  }, [facing]);
 
   React.useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
 
-  // NB: deliberately no "reset isReady when facing/active changes" effect.
-  // expo-camera handles facing flips in-place without remounting; flipping the
-  // `active` prop pauses/resumes the session without tearing it down. Once the
-  // CameraView has fired `onCameraReady` the very first time, we keep the
-  // ready flag true so the loading overlay doesn't flash on every flip or
-  // focus transition — that was the source of the "Starting camera…"
-  // notification showing continuously and the flip feeling sluggish.
+  React.useEffect(() => {
+    isReadyRef.current = isReady;
+    onReadyChangeRef.current?.(isReady);
+  }, [isReady]);
 
   const stopTickInterval = React.useCallback(() => {
     if (tickIntervalRef.current) {
@@ -97,100 +114,211 @@ export function SingleCameraRecorder({
     }
   }, []);
 
+  const emitTick = React.useCallback(() => {
+    onRecordingTickRef.current?.(Math.max(0, boundedMaxSec - elapsedRef.current));
+  }, [boundedMaxSec]);
+
+  const startTickInterval = React.useCallback(() => {
+    stopTickInterval();
+    emitTick();
+    tickIntervalRef.current = setInterval(() => {
+      elapsedRef.current += 1;
+      emitTick();
+      if (elapsedRef.current >= boundedMaxSec) {
+        stopTickInterval();
+        if (segmentEndReasonRef.current == null) {
+          segmentEndReasonRef.current = 'max';
+        }
+        try {
+          cameraRef.current?.stopRecording?.();
+        } catch {
+          /* recordAsync settles */
+        }
+      }
+    }, 1000);
+  }, [boundedMaxSec, emitTick, stopTickInterval]);
+
+  const resetTakeState = React.useCallback(() => {
+    stopTickInterval();
+    isRecordingRef.current = false;
+    setIsRecording(false);
+    segmentEndReasonRef.current = null;
+    segmentLoopBusyRef.current = false;
+    elapsedRef.current = 0;
+    segmentsRef.current = [];
+  }, [stopTickInterval]);
+
+  const finalizeTake = React.useCallback(
+    async (takeId: number, segments: string[]) => {
+      if (takeId !== takeIdRef.current) return;
+      resetTakeState();
+      const usable = segments.filter(Boolean);
+      if (usable.length === 0) return;
+
+      try {
+        if (usable.length === 1) {
+          onCaptureRef.current(usable[0]);
+          return;
+        }
+        setStitching(true);
+        const stitched = await concatVideos(usable);
+        if (takeId !== takeIdRef.current) return;
+        onCaptureRef.current(stitched);
+      } catch (e) {
+        if (takeId === takeIdRef.current) onErrorRef.current?.(e);
+      } finally {
+        if (takeId === takeIdRef.current) setStitching(false);
+      }
+    },
+    [resetTakeState]
+  );
+
+  const runSegmentLoop = React.useCallback(
+    async (takeId: number) => {
+      if (segmentLoopBusyRef.current) return;
+      segmentLoopBusyRef.current = true;
+
+      try {
+        while (takeId === takeIdRef.current && isRecordingRef.current) {
+          if (!cameraReadyRef.current || !cameraRef.current) {
+            throw new Error('Camera not ready');
+          }
+
+          const remaining = Math.max(1, boundedMaxSec - elapsedRef.current);
+          segmentEndReasonRef.current = null;
+
+          let uri: string | null = null;
+          try {
+            const result = await cameraRef.current.recordAsync({
+              maxDuration: remaining,
+            });
+            const rawUri = result?.uri ?? null;
+            uri = rawUri
+              ? rawUri.startsWith('file://')
+                ? rawUri
+                : `file://${rawUri}`
+              : null;
+          } catch (e) {
+            if (takeId !== takeIdRef.current) return;
+            // User stop / flip can reject recordAsync on some devices — keep segments.
+            if (segmentsRef.current.length === 0) throw e;
+          }
+
+          if (takeId !== takeIdRef.current) return;
+          if (uri) segmentsRef.current.push(uri);
+
+          const reason = segmentEndReasonRef.current;
+          if (reason === 'flip' && canConcatVideosNatively()) {
+            // Flip only after the segment file is closed (facing mid-take corrupts expo-camera).
+            setFacing((f) => (f === 'front' ? 'back' : 'front'));
+            // Brief yield so CameraView applies the new facing before the next recordAsync.
+            await new Promise<void>((r) => setTimeout(r, 120));
+            if (takeId !== takeIdRef.current || !isRecordingRef.current) {
+              await finalizeTake(takeId, segmentsRef.current);
+              return;
+            }
+            continue;
+          }
+
+          await finalizeTake(takeId, segmentsRef.current);
+          return;
+        }
+      } catch (e) {
+        if (takeId === takeIdRef.current) {
+          resetTakeState();
+          onErrorRef.current?.(e);
+        }
+      } finally {
+        if (takeId === takeIdRef.current) {
+          segmentLoopBusyRef.current = false;
+        }
+      }
+    },
+    [boundedMaxSec, finalizeTake, resetTakeState]
+  );
+
   const start = React.useCallback(async () => {
-    if (isRecordingRef.current) return;
+    if (isRecordingRef.current || stitching) return;
     if (!cameraReadyRef.current || !cameraRef.current) {
       throw new Error('Camera not ready');
     }
 
-    stopInFlightRef.current = false;
+    takeIdRef.current += 1;
+    const takeId = takeIdRef.current;
+    segmentsRef.current = [];
+    elapsedRef.current = 0;
+    segmentEndReasonRef.current = null;
     isRecordingRef.current = true;
     setIsRecording(true);
-
-    // Drive the seconds-left tick the same way DualCameraRecorder does, so
-    // RecordScreen's UI updates work uniformly across modes.
-    let elapsed = 0;
-    onRecordingTick?.(boundedMaxSec);
-    tickIntervalRef.current = setInterval(() => {
-      elapsed += 1;
-      const left = Math.max(0, boundedMaxSec - elapsed);
-      onRecordingTick?.(left);
-      if (left <= 0 && tickIntervalRef.current) {
-        clearInterval(tickIntervalRef.current);
-        tickIntervalRef.current = null;
-      }
-    }, 1000);
-
-    // `recordAsync` blocks until the recording ends, either by `maxDuration`
-    // elapsing or `stopRecording()` being invoked. Fire-and-forget here so the
-    // controller's `start()` resolves immediately and the parent can manage
-    // its own state machine.
-    void (async () => {
-      try {
-        const result = await cameraRef.current?.recordAsync({
-          maxDuration: boundedMaxSec,
-        });
-        const rawUri = result?.uri ?? null;
-        const uri = rawUri
-          ? rawUri.startsWith('file://')
-            ? rawUri
-            : `file://${rawUri}`
-          : null;
-        if (uri) onCapture(uri);
-      } catch (e) {
-        onError?.(e);
-      } finally {
-        stopInFlightRef.current = false;
-        isRecordingRef.current = false;
-        setIsRecording(false);
-        stopTickInterval();
-      }
-    })();
-  }, [boundedMaxSec, onCapture, onError, onRecordingTick, stopTickInterval]);
+    startTickInterval();
+    void runSegmentLoop(takeId);
+  }, [runSegmentLoop, startTickInterval, stitching]);
 
   const stop = React.useCallback(async () => {
     if (!isRecordingRef.current) return;
-    if (stopInFlightRef.current) return;
-    stopInFlightRef.current = true;
+    if (segmentEndReasonRef.current === 'stop' || segmentEndReasonRef.current === 'max') {
+      return;
+    }
+    segmentEndReasonRef.current = 'stop';
     try {
       cameraRef.current?.stopRecording?.();
     } catch {
-      /* `recordAsync` will still resolve with whatever file was written */
+      /* recordAsync settles */
     }
   }, []);
 
   const flip = React.useCallback(() => {
-    // expo-camera cannot switch `facing` mid-record on iOS without breaking the
-    // file. RecordScreen also hides the flip FAB during recording, but we
-    // guard defensively here too.
-    if (isRecordingRef.current) return;
-    setFacing((f) => (f === 'front' ? 'back' : 'front'));
-  }, []);
+    if (stitching) return;
+
+    if (!isRecordingRef.current) {
+      setFacing((f) => (f === 'front' ? 'back' : 'front'));
+      return;
+    }
+
+    // Mid-record flip needs native stitch; otherwise keep production no-op.
+    if (!canConcatVideosNatively()) return;
+    if (segmentEndReasonRef.current != null) return;
+    if (elapsedRef.current >= boundedMaxSec - 1) return;
+
+    segmentEndReasonRef.current = 'flip';
+    try {
+      cameraRef.current?.stopRecording?.();
+    } catch {
+      segmentEndReasonRef.current = null;
+    }
+  }, [boundedMaxSec, stitching]);
+
+  const controllerApiRef = React.useRef<SingleCameraController | null>(null);
+  if (!controllerApiRef.current) {
+    controllerApiRef.current = {
+      get isReady() {
+        return isReadyRef.current;
+      },
+      get isRecording() {
+        return isRecordingRef.current;
+      },
+      get facing() {
+        return facingRef.current;
+      },
+      start: async () => undefined,
+      stop: async () => undefined,
+      flip: () => undefined,
+    };
+  }
+  controllerApiRef.current.start = start;
+  controllerApiRef.current.stop = stop;
+  controllerApiRef.current.flip = flip;
 
   React.useEffect(() => {
     if (!controllerRef) return;
-    controllerRef.current = {
-      get isReady() {
-        return isReady;
-      },
-      get isRecording() {
-        return isRecording;
-      },
-      get facing() {
-        return facing;
-      },
-      start,
-      stop,
-      flip,
-    };
+    controllerRef.current = controllerApiRef.current;
     return () => {
-      if (controllerRef.current && controllerRef.current.start === start) {
+      if (controllerRef.current === controllerApiRef.current) {
         controllerRef.current = null;
       }
     };
-  }, [controllerRef, isReady, isRecording, facing, start, stop, flip]);
+  }, [controllerRef]);
 
-  // Map our 'front'/'back' to expo-camera's CameraType.
   const cameraType: CameraType = facing === 'front' ? 'front' : 'back';
 
   React.useEffect(() => {
@@ -221,13 +349,15 @@ export function SingleCameraRecorder({
         onMountError={({ message }) => {
           cameraReadyRef.current = false;
           setIsReady(false);
-          onError?.(new Error(message));
+          onErrorRef.current?.(new Error(message));
         }}
       />
-      {!isReady ? (
+      {!isReady || stitching ? (
         <View style={styles.loadingOverlay} pointerEvents="none">
           <ActivityIndicator size="large" color={colors.white} />
-          <Text style={styles.loadingText}>Starting camera…</Text>
+          <Text style={styles.loadingText}>
+            {stitching ? 'Finishing flip…' : 'Starting camera…'}
+          </Text>
         </View>
       ) : null}
     </View>

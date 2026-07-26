@@ -28,12 +28,15 @@ export async function handleNotificationNavigation(
     uid &&
     notificationId &&
     (kind === 'social' ||
+      kind === 'co_leap' ||
       kind === 'mod_queue' ||
       kind === 'moderation_rejected' ||
       type === 'like' ||
       type === 'comment' ||
       type === 'mention' ||
       type === 'follow' ||
+      type === 'co_leap_invite' ||
+      type === 'co_leap_confirmed' ||
       type === 'mod_queue' ||
       type === 'moderation_rejected' ||
       type === 'app_review_request')
@@ -77,6 +80,15 @@ export async function handleNotificationNavigation(
   const fromUid = str(raw, 'fromUid');
   const fromUsername = str(raw, 'fromUsername');
   const videoId = str(raw, 'videoId');
+
+  if ((kind === 'co_leap' || type === 'co_leap_invite') && videoId) {
+    ref.navigate('ConfirmCoLeap', { videoId });
+    return;
+  }
+  if (type === 'co_leap_confirmed' && videoId) {
+    ref.navigate('VideoPost', { videoId });
+    return;
+  }
 
   if (kind === 'social' || type === 'like' || type === 'comment' || type === 'mention' || type === 'follow') {
     if (type === 'follow' && fromUid) {

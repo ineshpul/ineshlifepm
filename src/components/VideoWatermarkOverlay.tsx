@@ -12,11 +12,19 @@ import {
 export const WATERMARK_HEADING_SEMIBOLD = 'Outfit_600SemiBold';
 export const WATERMARK_HEADING_BOLD = 'Outfit_700Bold';
 
+export type VideoWatermarkVariant = 'leap' | 'bestPart';
+
 export type VideoWatermarkOverlayProps = {
+  /** Leap: challenge prompt. Best Part: formatted date (e.g. "Jul 25"). */
   title: string;
   username: string;
   width: number;
   height: number;
+  /**
+   * `leap` — logo + prompt + @user · site (daily challenge export).
+   * `bestPart` — logo + title (date or “Your week w/ Leap”) + @user · site.
+   */
+  variant?: VideoWatermarkVariant;
   /** Fired once the Leap logo has loaded (or failed) so callers can time the capture. */
   onLogoSettled?: () => void;
 };
@@ -27,41 +35,37 @@ export function VideoWatermarkOverlay({
   username,
   width,
   height,
+  variant = 'leap',
   onLogoSettled,
 }: VideoWatermarkOverlayProps) {
   const { colors } = useTheme();
   const styles = useThemedStyles((colors) => ({
     frame: {
       backgroundColor: 'transparent',
-      position: 'relative',
-    },
-    pillWrap: {
-      position: 'absolute',
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: colors.overlay,
+      position: 'relative' as const,
     },
     strip: {
-      position: 'absolute',
+      position: 'absolute' as const,
       left: 0,
       right: 0,
       bottom: 0,
-      justifyContent: 'flex-end',
+      justifyContent: 'flex-end' as const,
     },
     stripContent: {
-      width: '100%',
+      width: '100%' as const,
     },
     prompt: {
       color: colors.white,
-      fontWeight: '600',
+      fontWeight: '600' as const,
     },
     meta: {
       color: colors.watermarkMeta,
-      fontWeight: '600',
+      fontWeight: '600' as const,
     },
   }));
 
-  const displayTitle = title.trim() || "Today's leap";
+  const isBestPart = variant === 'bestPart';
+  const displayTitle = title.trim() || (isBestPart ? 'Today' : "Today's leap");
   const layout = React.useMemo(
     () => computeVideoWatermarkLayout(width, height, displayTitle),
     [width, height, displayTitle]

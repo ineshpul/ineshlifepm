@@ -2,10 +2,9 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   LayoutChangeEvent,
-  Platform,
   RefreshControl,
-  StyleSheet,
   Text,
   TouchableOpacity,
   View,
@@ -23,22 +22,19 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 
+import { patchAudioMode } from '../camera/audioSessionGate';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 import { FeedCameraRollSaveBanner } from '../components/FeedCameraRollSaveBanner';
 import { FeedGraduationMoment } from '../components/FeedGraduationMoment';
-import { LockedLeapFrame } from '../components/LockedLeapFrame';
 import { FeedPreviewChoice } from '../components/FeedPreviewChoice';
 import { FeedLastLeapJumpChip } from '../components/FeedLastLeapJumpChip';
 import { FeedSinceLastLeapBanner } from '../components/FeedSinceLastLeapBanner';
 import { FeedTier1ExploreBanner } from '../components/FeedTier1ExploreBanner';
 import { FeedTeaserWallBar } from '../components/FeedTeaserWallBar';
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
-import { UsernameLink } from '../components/UsernameLink';
 import { Brandmark } from '../components/Brandmark';
-import { FollowButton } from '../components/FollowButton';
-import { FeedPostEngagement } from '../components/FeedPostEngagement';
-import { FeedPostVideo, ReelVideoPlaceholder } from '../components/FeedPostVideo';
+import { FeedReelRow } from '../components/FeedReelRow';
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { deleteOwnedVideo } from '../services/deleteVideo';
@@ -74,6 +70,7 @@ import {
   type FollowingRow,
 } from '../services/social';
 import { setAppBadgeCount } from '../services/pushNotifications';
+import { isHiddenCoLeapCreditDoc, parseCoLeapInvitees } from '../lib/coLeapInvitees';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import { FEED_PREVIEW_SCROLL_LIMIT } from '../constants/feedPreview';
 import {
@@ -104,6 +101,14 @@ import {
 } from '../state/referralNudgeDay';
 import { resolveFeedPlaybackUrls } from '../lib/feedPlaybackUrls';
 import { useBackgroundPostUpload } from '../state/backgroundPostUpload';
+
+/**
+ * Keep active ±1 mounted so the paging swipe stays painted (TikTok-style).
+ * 720p feed files are small enough that neighbor warm no longer starves playback.
+ */
+const FEED_PRELOAD_BEHIND = 1;
+const FEED_PRELOAD_AHEAD = 1;
+
 type FeedVideo = {
   id: string;
   username: string;
@@ -111,8 +116,15 @@ type FeedVideo = {
   url: string;
   /** Companion PIP clip for BeReal-style dual-camera posts (absent on solo clips). */
   secondaryUrl?: string;
+  /** Faststart / 720p feed URLs when Cloud Function has finished. */
+  feedUrl?: string;
+  feedSecondaryUrl?: string;
+  /** First-frame JPEG for seamless paint before the decoder is ready. */
+  posterUrl?: string;
   /** When true on dual posts, audio lives on the PIP clip because front was the big view. */
   dualFrontIsPrimary?: boolean;
+  /** Proof / camera-roll leaps may be still photos. */
+  mediaType?: 'video' | 'photo';
   createdAtMs: number;
   ownerUid: string;
   moderationStatus: string;
@@ -121,6 +133,8 @@ type FeedVideo = {
   challengeDate: string;
   likesCount: number;
   commentsCount: number;
+  /** Co-Leap invitees on the source post (credit docs are hidden from feed). */
+  coLeapInvitees?: Array<{ uid: string; username: string; status: 'pending' | 'confirmed' }>;
 };
 
 /** Bottom sheet height (instructions + engagement) per reel page — matches Tabs tab bar feel. */
@@ -157,8 +171,8 @@ function filterFeedVideosForViewer(
 
 /** Must be a stable reference — `viewabilityConfigCallbackPairs` cannot change after mount (RN FlatList). */
 const FEED_VIEWABILITY_CONFIG = {
-  itemVisiblePercentThreshold: 55,
-  minimumViewTime: 40,
+  itemVisiblePercentThreshold: 50,
+  minimumViewTime: 1,
   waitForInteraction: false,
 } as const;
 
@@ -168,7 +182,11 @@ function feedVideoRowKey(v: FeedVideo): string {
     v.id,
     v.url,
     v.secondaryUrl ?? '',
+    v.feedUrl ?? '',
+    v.feedSecondaryUrl ?? '',
+    v.posterUrl ?? '',
     v.dualFrontIsPrimary ? '1' : '0',
+    v.mediaType === 'photo' ? 'photo' : 'video',
     v.maxDurationSeconds,
     v.moderationStatus,
     v.challengeDate,
@@ -176,6 +194,7 @@ function feedVideoRowKey(v: FeedVideo): string {
     v.username,
     v.ownerUid,
     v.createdAtMs,
+    (v.coLeapInvitees ?? []).map((i) => `${i.uid}:${i.status}`).join(','),
   ].join('|');
 }
 
@@ -899,7 +918,9 @@ export function FeedScreen() {
   );
 
   React.useEffect(() => {
-    void Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
+    void patchAudioMode({ playsInSilentModeIOS: true }).catch(() => {
+      void Audio.setAudioModeAsync({ playsInSilentModeIOS: true }).catch(() => {});
+    });
     return () => {
       void Audio.setIsEnabledAsync(true).catch(() => {});
     };
@@ -909,6 +930,8 @@ export function FeedScreen() {
   const [feedHydrated, setFeedHydrated] = React.useState(false);
   const [followingRows, setFollowingRows] = React.useState<FollowingRow[]>([]);
   const [activeVideoId, setActiveVideoId] = React.useState<string | null>(null);
+  /** Gate next-clip warm mount until the active reel is actually ready. */
+  const [activeReadyId, setActiveReadyId] = React.useState<string | null>(null);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [nullingId, setNullingId] = React.useState<string | null>(null);
   const [unreadNotifications, setUnreadNotifications] = React.useState(0);
@@ -1006,7 +1029,7 @@ export function FeedScreen() {
     loadMoreFeedRef.current?.();
   }, []);
 
-  const onReelSheetLayoutFor = React.useCallback((videoId: string) => (e: LayoutChangeEvent) => {
+  const onReelSheetLayout = React.useCallback((videoId: string, e: LayoutChangeEvent) => {
     const h = Math.ceil(e.nativeEvent.layout.height);
     if (h < 48) return;
     setReelSheetHeights((prev) => (prev[videoId] === h ? prev : { ...prev, [videoId]: h }));
@@ -1056,6 +1079,7 @@ export function FeedScreen() {
             ? { secondaryUrl: pendingFeedPlayback.secondaryClipUri }
             : {}),
           ...(pendingFeedPlayback.dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
+          ...(pendingFeedPlayback.mediaType === 'photo' ? { mediaType: 'photo' as const } : {}),
           createdAtMs: Date.now(),
           ownerUid: pendingFeedPlayback.uid,
           moderationStatus: 'pending',
@@ -1094,10 +1118,9 @@ export function FeedScreen() {
       const on = y >= scrollTopThreshold;
       setShowScrollTop((prev) => (prev === on ? prev : on));
 
+      // Keep index in a ref during the fling — avoid React re-renders mid-scroll.
       if (pageHeight > 40) {
-        const idx = Math.max(0, Math.round(y / pageHeight));
-        activeScrollIndexRef.current = idx;
-        setActiveScrollIndex((prev) => (prev === idx ? prev : idx));
+        activeScrollIndexRef.current = Math.max(0, Math.round(y / pageHeight));
       }
 
       if (
@@ -1106,7 +1129,9 @@ export function FeedScreen() {
         pageHeight > 40 &&
         y > maxTier1ScrollOffset + pageHeight * 0.12
       ) {
-        flatListRef.current?.scrollToOffset({ offset: maxTier1ScrollOffset, animated: true });
+        // Non-animated: animated clamps have crashed iOS mid-OTA reload
+        // (UIScrollViewScrollAnimation → _notifyDidScroll null deref).
+        flatListRef.current?.scrollToOffset({ offset: maxTier1ScrollOffset, animated: false });
       }
 
       if (
@@ -1115,7 +1140,7 @@ export function FeedScreen() {
         pageHeight > 40 &&
         y > maxFeedPreviewOffset + pageHeight * 0.12
       ) {
-        flatListRef.current?.scrollToOffset({ offset: maxFeedPreviewOffset, animated: true });
+        flatListRef.current?.scrollToOffset({ offset: maxFeedPreviewOffset, animated: false });
         endFeedPreviewSession();
       }
     },
@@ -1130,6 +1155,19 @@ export function FeedScreen() {
       maxFeedPreviewOffset,
       endFeedPreviewSession,
     ]
+  );
+
+  const onFeedMomentumScrollEnd = React.useCallback(
+    (e: any) => {
+      const y = Number(e?.nativeEvent?.contentOffset?.y ?? 0);
+      if (pageHeight <= 40) return;
+      const idx = Math.max(0, Math.min(displayVideosRef.current.length - 1, Math.round(y / pageHeight)));
+      activeScrollIndexRef.current = idx;
+      setActiveScrollIndex((prev) => (prev === idx ? prev : idx));
+      const id = displayVideosRef.current[idx]?.id;
+      if (id) setActiveVideoId((prev) => (prev === id ? prev : id));
+    },
+    [pageHeight]
   );
 
   const scrollToTop = React.useCallback(() => {
@@ -1247,11 +1285,33 @@ export function FeedScreen() {
     [displayVideos, previousChallengeDateKey]
   );
 
+  /** Preload window follows settled active id — avoids mount thrash mid-fling. */
+  const activePreloadIndex = React.useMemo(() => {
+    if (!activeVideoId) return activeScrollIndex;
+    const i = displayVideos.findIndex((v) => v.id === activeVideoId);
+    return i >= 0 ? i : activeScrollIndex;
+  }, [activeVideoId, displayVideos, activeScrollIndex]);
+
+  // Prefetch nearby posters so the next page never flashes black mid-swipe.
+  React.useEffect(() => {
+    if (preferences.dataSaver) return;
+    for (let d = -1; d <= 2; d += 1) {
+      const uri = String(displayVideos[activePreloadIndex + d]?.posterUrl ?? '').trim();
+      if (uri) {
+        void Image.prefetch(uri).catch(() => {
+          /* ignore */
+        });
+      }
+    }
+  }, [activePreloadIndex, displayVideos, preferences.dataSaver]);
+
   const flatListExtraData = React.useMemo(
     () =>
       [
         pageHeight,
         activeVideoId,
+        activePreloadIndex,
+        preferences.dataSaver ? 1 : 0,
         feedHydrated ? 1 : 0,
         isFocused ? 1 : 0,
         hasPostedToday ? 1 : 0,
@@ -1261,10 +1321,13 @@ export function FeedScreen() {
         postedDatesReady ? [...postedDates].sort().join(',') : 'pending',
         lastLeapJumpIndex,
         lastPostedDateKey ?? '',
+        firstPreviousLeapsIndex,
       ].join('|'),
     [
       pageHeight,
       activeVideoId,
+      activePreloadIndex,
+      preferences.dataSaver,
       feedHydrated,
       isFocused,
       hasPostedToday,
@@ -1275,6 +1338,7 @@ export function FeedScreen() {
       postedDates,
       lastLeapJumpIndex,
       lastPostedDateKey,
+      firstPreviousLeapsIndex,
     ]
   );
 
@@ -1305,18 +1369,29 @@ export function FeedScreen() {
 
   React.useEffect(() => {
     setActiveVideoId(null);
+    setActiveReadyId(null);
   }, [nyCalendarDay, viewingChallengeDateKey]);
 
   React.useEffect(() => {
     activeScrollIndexRef.current = 0;
     if (displayVideos.length === 0) {
       setActiveVideoId(null);
+      setActiveReadyId(null);
       return;
     }
     setActiveVideoId((cur) =>
       cur && displayVideos.some((v) => v.id === cur) ? cur : displayVideos[0].id
     );
   }, [displayVideos]);
+
+  React.useEffect(() => {
+    // New active reel → revoke warm-next until this one is ready.
+    setActiveReadyId((prev) => (prev === activeVideoId ? prev : null));
+  }, [activeVideoId]);
+
+  const onActiveReelReady = React.useCallback((videoId: string) => {
+    setActiveReadyId((prev) => (prev === videoId ? prev : videoId));
+  }, []);
 
   /** After posting (or first load), reel rows can mount before viewability runs; sync scroll + active id once. */
   const prevFeedNonEmptyCountRef = React.useRef(0);
@@ -1347,60 +1422,66 @@ export function FeedScreen() {
 
   const canStaffMod = Boolean(user?.isAdmin || user?.isModerator);
 
-  const confirmStaffNull = (item: FeedVideo) => {
-    if (!canStaffMod || !user?.uid || item.ownerUid === user.uid) return;
-    if (item.moderationStatus === 'nulled') return;
-    Alert.alert(
-      'Null this leap?',
-      'Removes inches for this video. Streak is not reverted. Only use for policy violations.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Null video',
-          style: 'destructive',
-          onPress: () =>
-            void (async () => {
-              setNullingId(item.id);
-              try {
-                await staffNullVideo(item.id);
-              } catch (e) {
-                showError('Null failed', e);
-              } finally {
-                setNullingId(null);
-              }
-            })(),
-        },
-      ]
-    );
-  };
+  const confirmStaffNull = React.useCallback(
+    (item: Pick<FeedVideo, 'id' | 'ownerUid' | 'moderationStatus'>) => {
+      if (!canStaffMod || !user?.uid || item.ownerUid === user.uid) return;
+      if (item.moderationStatus === 'nulled') return;
+      Alert.alert(
+        'Null this leap?',
+        'Removes inches for this video. Streak is not reverted. Only use for policy violations.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Null video',
+            style: 'destructive',
+            onPress: () =>
+              void (async () => {
+                setNullingId(item.id);
+                try {
+                  await staffNullVideo(item.id);
+                } catch (e) {
+                  showError('Null failed', e);
+                } finally {
+                  setNullingId(null);
+                }
+              })(),
+          },
+        ]
+      );
+    },
+    [canStaffMod, user?.uid]
+  );
 
-  const confirmDelete = (item: FeedVideo) => {
-    if (!user?.uid || item.ownerUid !== user.uid) return;
-    Alert.alert(
-      'Delete video?',
-      'This removes your post, comments, and likes. You can record again for that day if this was your only post.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () =>
-            void (async () => {
-              setDeletingId(item.id);
-              try {
-                await deleteOwnedVideo({ videoId: item.id, viewerUid: user.uid });
-              } catch (e) {
-                showError('Delete failed', e);
-              } finally {
-                clearPostedOverride();
-                clearPendingFeedPlayback();
-                setDeletingId(null);
-              }
-            })(),
-        },
-      ]
-    );
-  };
+  const confirmDelete = React.useCallback(
+    (item: Pick<FeedVideo, 'id' | 'ownerUid'>) => {
+      if (!user?.uid || item.ownerUid !== user.uid) return;
+      Alert.alert(
+        'Delete video?',
+        'This removes your post, comments, and likes. You can record again for that day if this was your only post.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: () =>
+              void (async () => {
+                setDeletingId(item.id);
+                try {
+                  await deleteOwnedVideo({ videoId: item.id, viewerUid: user.uid });
+                } catch (e) {
+                  showError('Delete failed', e);
+                } finally {
+                  clearPostedOverride();
+                  clearPendingFeedPlayback();
+                  setDeletingId(null);
+                }
+              })(),
+          },
+        ]
+      );
+    },
+    [user?.uid, clearPostedOverride, clearPendingFeedPlayback]
+  );
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !user?.uid) {
@@ -1434,6 +1515,22 @@ export function FeedScreen() {
 
     const docToFeedVideo = (d: QueryDocumentSnapshot): FeedVideo => {
       const data: any = d.data();
+      // Credit mirrors stay off the shared feed (posted-today still uses the credit doc).
+      if (isHiddenCoLeapCreditDoc(data)) {
+        return {
+          id: d.id,
+          username: String(data?.username ?? 'user'),
+          prompt: '',
+          url: '',
+          createdAtMs: 0,
+          ownerUid: String(data?.uid ?? ''),
+          moderationStatus: String(data?.moderationStatus ?? 'approved'),
+          maxDurationSeconds: 0,
+          challengeDate: viewingChallengeDateKey,
+          likesCount: 0,
+          commentsCount: 0,
+        };
+      }
       const createdAtMs =
         typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
       const rawCd = data?.challengeDate;
@@ -1443,14 +1540,26 @@ export function FeedScreen() {
           : String(rawCd ?? '');
       const challengeDate = normalizeNyDateKey(cdRaw, viewingChallengeDateKey);
       const secondaryUrlRaw = String(data?.secondaryUrl ?? '').trim();
+      const feedUrlRaw = String(data?.feedUrl ?? '').trim();
+      const feedSecondaryUrlRaw = String(data?.feedSecondaryUrl ?? '').trim();
+      const posterUrlRaw = String(data?.posterUrl ?? '').trim();
       const dualFrontIsPrimary = data?.dualFrontIsPrimary === true;
+      const coLeapInvitees = parseCoLeapInvitees(data?.coLeapInvitees).map((i) => ({
+        uid: i.uid,
+        username: i.username,
+        status: i.status,
+      }));
       return {
         id: d.id,
         username: String(data?.username ?? 'user'),
         prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
         url: String(data?.url ?? ''),
         ...(secondaryUrlRaw ? { secondaryUrl: secondaryUrlRaw } : {}),
+        ...(feedUrlRaw ? { feedUrl: feedUrlRaw } : {}),
+        ...(feedSecondaryUrlRaw ? { feedSecondaryUrl: feedSecondaryUrlRaw } : {}),
+        ...(posterUrlRaw ? { posterUrl: posterUrlRaw } : {}),
         ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
+        ...(data?.mediaType === 'photo' ? { mediaType: 'photo' as const } : {}),
         createdAtMs,
         ownerUid: String(data?.uid ?? ''),
         moderationStatus: String(data?.moderationStatus ?? 'approved'),
@@ -1458,6 +1567,7 @@ export function FeedScreen() {
         challengeDate,
         likesCount: Math.max(0, Number(data?.likesCount ?? 0)),
         commentsCount: Math.max(0, Number(data?.commentsCount ?? 0)),
+        ...(coLeapInvitees.length > 0 ? { coLeapInvitees } : {}),
       };
     };
 
@@ -1570,6 +1680,10 @@ export function FeedScreen() {
           mineDocs = [];
         } else {
           const data: any = snap.data();
+          // Co-Leap credit docs unlock the day but are not a second feed row.
+          if (isHiddenCoLeapCreditDoc(data)) {
+            mineDocs = [];
+          } else {
           const createdAtMs =
             typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
           const rawMineCd = data?.challengeDate;
@@ -1578,7 +1692,15 @@ export function FeedScreen() {
               ? nyDateKey((rawMineCd as { toDate: () => Date }).toDate())
               : String(rawMineCd ?? '');
           const mineSecondaryUrl = String(data?.secondaryUrl ?? '').trim();
+          const mineFeedUrl = String(data?.feedUrl ?? '').trim();
+          const mineFeedSecondaryUrl = String(data?.feedSecondaryUrl ?? '').trim();
+          const minePosterUrl = String(data?.posterUrl ?? '').trim();
           const mineDualFrontIsPrimary = data?.dualFrontIsPrimary === true;
+          const mineCoLeap = parseCoLeapInvitees(data?.coLeapInvitees).map((i) => ({
+            uid: i.uid,
+            username: i.username,
+            status: i.status,
+          }));
           mineDocs = [
             {
               id: snap.id,
@@ -1586,7 +1708,11 @@ export function FeedScreen() {
               prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
               url: String(data?.url ?? ''),
               ...(mineSecondaryUrl ? { secondaryUrl: mineSecondaryUrl } : {}),
+              ...(mineFeedUrl ? { feedUrl: mineFeedUrl } : {}),
+              ...(mineFeedSecondaryUrl ? { feedSecondaryUrl: mineFeedSecondaryUrl } : {}),
+              ...(minePosterUrl ? { posterUrl: minePosterUrl } : {}),
               ...(mineDualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
+              ...(data?.mediaType === 'photo' ? { mediaType: 'photo' as const } : {}),
               createdAtMs,
               ownerUid: String(data?.uid ?? ''),
               moderationStatus: String(data?.moderationStatus ?? 'pending'),
@@ -1594,8 +1720,10 @@ export function FeedScreen() {
               challengeDate: normalizeNyDateKey(mineCdRaw, viewingChallengeDateKey),
               likesCount: Math.max(0, Number(data?.likesCount ?? 0)),
               commentsCount: Math.max(0, Number(data?.commentsCount ?? 0)),
+              ...(mineCoLeap.length > 0 ? { coLeapInvitees: mineCoLeap } : {}),
             },
           ];
+          }
         }
         merge();
         mineListenerSeen = true;
@@ -1762,20 +1890,19 @@ export function FeedScreen() {
           viewabilityConfig={FEED_VIEWABILITY_CONFIG}
           onViewableItemsChanged={onViewableItemsChanged}
           onScroll={onFeedScroll}
-          scrollEventThrottle={16}
+          onMomentumScrollEnd={onFeedMomentumScrollEnd}
+          scrollEventThrottle={64}
           onEndReached={FEED_GATE_V2 || (canViewEveryoneFeed && !feedPreviewMode) ? onEndReachedFeed : undefined}
           onEndReachedThreshold={0.6}
           contentContainerStyle={displayVideos.length === 0 ? { flexGrow: 1 } : undefined}
           pagingEnabled
-          snapToInterval={pageHeight}
-          snapToAlignment="start"
           decelerationRate="fast"
           disableIntervalMomentum
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
-          removeClippedSubviews={Platform.OS === 'android' ? !tier2HasActiveLocks : false}
-          initialNumToRender={3}
-          maxToRenderPerBatch={tier2HasActiveLocks ? 1 : 3}
+          removeClippedSubviews={false}
+          initialNumToRender={2}
+          maxToRenderPerBatch={2}
           windowSize={tier2HasActiveLocks ? 1 : 3}
           updateCellsBatchingPeriod={50}
           getItemLayout={
@@ -1815,9 +1942,8 @@ export function FeedScreen() {
 
             /**
              * Locked tiles must NEVER mount FeedPostVideo / expo-av / expo-video.
-             * Pause+mute was racing into full playback under the frost on device.
-             * Locked / lock-pending → LockedLeapFrame (tint + frost) only.
-             * Unlocked active → one live reel. Inactive → empty placeholder.
+             * Unlocked active ± neighbors keep paused decoders warm for snappy swipe.
+             * Data saver keeps active-only mounting.
              */
             const wouldBeTier2Locked =
               TIER2_CARD_LOCKS_ENABLED &&
@@ -1837,145 +1963,56 @@ export function FeedScreen() {
             const overlayUnlocking =
               tier2UnlockAnimating && wouldBeTier2Locked && !isTier2Locked;
             const freezeLocked = showLockedOverlay || awaitingLockDecision;
-            const mountLiveReel =
-              isFocused && activeVideoId === item.id && !freezeLocked;
+            const isActive = activeVideoId === item.id;
+            const isNext = index === activePreloadIndex + FEED_PRELOAD_AHEAD;
+            const isPrev =
+              FEED_PRELOAD_BEHIND > 0 && index === activePreloadIndex - FEED_PRELOAD_BEHIND;
+            // Keep ±1 decoders warm so the paging swipe never lands on a dark empty cell.
+            const warmNeighbor =
+              !preferences.dataSaver && (isNext || isPrev);
+            const mountVideo = isFocused && !freezeLocked && (isActive || warmNeighbor);
+            const shouldPlay = isFocused && !freezeLocked && isActive;
             const playback = resolveFeedPlaybackUrls(item, pendingFeedPlayback);
+            const dayTag =
+              item.challengeDate && item.challengeDate !== viewingChallengeDateKey
+                ? item.challengeDate === previousChallengeDateKey
+                  ? 'Previous challenge'
+                  : item.challengeDate
+                : null;
 
             return (
-            <View
-              style={[styles.reelPage, { height: pageHeight }]}
-              collapsable={false}
-            >
-              <View style={[styles.reelVideoSlot, { bottom: sheetBottom }]}>
-                {freezeLocked && isFocused ? (
-                  <LockedLeapFrame unlocking={overlayUnlocking} />
-                ) : mountLiveReel ? (
-                  <FeedPostVideo
-                    reel
-                    url={playback.url}
-                    secondaryUrl={playback.secondaryUrl}
-                    dualFrontIsPrimary={playback.dualFrontIsPrimary}
-                    shouldPlay
-                    isMuted={false}
-                    useNativeControls
-                    maxDurationSeconds={item.maxDurationSeconds}
-                    dataSaver={preferences.dataSaver}
-                    analyticsVideoId={item.id}
-                    videoOwnerUid={item.ownerUid}
-                    viewerUid={user?.uid}
-                    viewerUsername={user?.username}
-                    onReelActivate={activateReelVideo}
-                  />
-                ) : (
-                  <ReelVideoPlaceholder />
+              <FeedReelRow
+                item={item}
+                pageHeight={pageHeight}
+                sheetBottom={sheetBottom}
+                tabBarClearance={tabBarClearance}
+                mountVideo={mountVideo}
+                shouldPlay={shouldPlay}
+                isFocused={isFocused}
+                freezeLocked={freezeLocked}
+                showLockedOverlay={showLockedOverlay}
+                overlayUnlocking={overlayUnlocking}
+                showPreviousLeapsChip={showPreviousLeapsChip}
+                showSwipeHint={displayVideos.length > 1}
+                dayTag={dayTag}
+                playback={playback}
+                posterUrl={item.posterUrl}
+                dataSaver={preferences.dataSaver}
+                viewerUid={user?.uid}
+                viewerUsername={user?.username}
+                canStaffMod={canStaffMod}
+                deletingId={deletingId}
+                nullingId={nullingId}
+                showFollowButton={Boolean(
+                  user?.uid && item.ownerUid !== user.uid && item.id === activeVideoId
                 )}
-              </View>
-
-              <View
-                style={[styles.reelSheet, { paddingBottom: tabBarClearance }]}
-                onLayout={onReelSheetLayoutFor(item.id)}
-              >
-                <View style={styles.reelSheetTop}>
-                  <View style={styles.reelAvatar}>
-                    <Text style={styles.reelAvatarText}>{item.username[0]?.toUpperCase()}</Text>
-                  </View>
-                  <View style={styles.reelTextCol}>
-                    <UsernameLink uid={item.ownerUid} username={item.username} style={styles.reelUser} />
-                    {item.challengeDate && item.challengeDate !== viewingChallengeDateKey ? (
-                      <Text style={styles.reelDayTag}>
-                        {item.challengeDate === previousChallengeDateKey
-                          ? 'Previous challenge'
-                          : item.challengeDate}
-                      </Text>
-                    ) : null}
-                    <Text style={styles.reelPrompt} numberOfLines={2}>
-                      {item.prompt}
-                    </Text>
-                  </View>
-                  <View style={styles.reelSheetActions}>
-                    {user?.uid && item.ownerUid !== user.uid && item.id === activeVideoId ? (
-                      <FollowButton
-                        viewerUid={user.uid}
-                        viewerUsername={user.username}
-                        targetUid={item.ownerUid}
-                        targetUsername={item.username}
-                      />
-                    ) : null}
-                    {canStaffMod && item.ownerUid !== user?.uid ? (
-                      item.moderationStatus === 'nulled' ? (
-                        <Text style={styles.nulledBadge}>Nulled</Text>
-                      ) : item.moderationStatus === 'approved' ? (
-                        <TouchableOpacity
-                          onPress={() => confirmStaffNull(item)}
-                          disabled={nullingId === item.id}
-                          hitSlop={8}
-                          accessibilityRole="button"
-                          accessibilityLabel="Null this leap"
-                        >
-                          <Text style={styles.nullLink}>
-                            {nullingId === item.id ? '…' : 'Null'}
-                          </Text>
-                        </TouchableOpacity>
-                      ) : null
-                    ) : null}
-                    {user?.uid && item.ownerUid === user.uid ? (
-                      <>
-                        {item.moderationStatus === 'pending' ? (
-                          <Text style={styles.pendingBadge}>Pending review</Text>
-                        ) : null}
-                        <TouchableOpacity
-                          onPress={() => confirmDelete(item)}
-                          disabled={deletingId === item.id}
-                          hitSlop={8}
-                          accessibilityRole="button"
-                          accessibilityLabel="Delete video"
-                        >
-                          <Text style={styles.deleteLink}>
-                            {deletingId === item.id ? '…' : 'Delete'}
-                          </Text>
-                        </TouchableOpacity>
-                      </>
-                    ) : null}
-                  </View>
-                </View>
-                {user?.uid && item.id === activeVideoId && !showLockedOverlay ? (
-                  <View style={styles.reelEngagementScroll}>
-                    <FeedPostEngagement
-                      reelLayout
-                      videoId={item.id}
-                      videoOwnerUid={item.ownerUid}
-                      videoOwnerUsername={item.username}
-                      shareTitle={`${item.username} on Leap`}
-                      shareUrl={item.url}
-                      challengePrompt={item.prompt}
-                      viewerUid={user.uid}
-                      viewerUsername={user.username}
-                      initialLikesCount={item.likesCount}
-                      initialCommentsCount={item.commentsCount}
-                    />
-                  </View>
-                ) : user?.uid ? (
-                  <View style={styles.reelEngagementPlaceholder}>
-                    <Text style={styles.reelEngagementPlaceholderText}>
-                      Swipe to this leap — likes and comments load on the clip in view.
-                    </Text>
-                  </View>
-                ) : null}
-                {displayVideos.length > 1 ? (
-                  <View style={styles.reelSwipeRail} pointerEvents="none">
-                    <Ionicons name="chevron-down" size={13} color={colors.muted} />
-                    <Text style={styles.reelSwipeRailText}>Swipe for more leaps</Text>
-                    <Ionicons name="chevron-down" size={13} color={colors.muted} />
-                  </View>
-                ) : null}
-              </View>
-              {showPreviousLeapsChip ? (
-                <View style={[styles.previousLeapsChip, { bottom: sheetBottom + 12 }]} pointerEvents="none">
-                  <Ionicons name="calendar-outline" size={15} color={colors.moss} />
-                  <Text style={styles.previousLeapsChipText}>Previous leaps</Text>
-                </View>
-              ) : null}
-            </View>
+                showEngagement={item.id === activeVideoId && !showLockedOverlay}
+                onReelSheetLayout={onReelSheetLayout}
+                onReelActivate={activateReelVideo}
+                onReady={isActive ? onActiveReelReady : undefined}
+                onConfirmDelete={confirmDelete}
+                onConfirmStaffNull={confirmStaffNull}
+              />
             );
           }}
         />

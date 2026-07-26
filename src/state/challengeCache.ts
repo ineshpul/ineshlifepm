@@ -8,6 +8,7 @@ export type CachedChallenge = {
   subtitle: string;
   maxDurationSeconds: number;
   maxRecordingAttempts: number;
+  allowLibraryAttach: boolean;
 };
 
 const STORAGE_PREFIX = 'leap:challenge:v1:';
@@ -42,6 +43,7 @@ function parseCached(raw: string, dateKey: string): CachedChallenge | null {
       subtitle: String(data?.subtitle ?? ''),
       maxDurationSeconds: normalizeDuration(data?.maxDurationSeconds),
       maxRecordingAttempts: normalizeAttempts(data?.maxRecordingAttempts),
+      allowLibraryAttach: data?.allowLibraryAttach === true,
     };
   } catch {
     return null;

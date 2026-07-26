@@ -38,6 +38,11 @@ export const onLeapVideoUploadedModerate = onObjectFinalized(
     const videoDocId = `${uid}_${challengeDate}`;
     const fileName = objectPath.split('/').pop() ?? '';
 
+    // Feed encode outputs — never send to Rekognition.
+    if (/_feed\.mp4$/i.test(fileName)) {
+      logger.info('Skip moderation: feed encode output', { objectPath });
+      return;
+    }
     // Dual-camera PIP is a secondary upload — moderating it would overwrite the primary job.
     if (/_pip\.(mp4|mov)$/i.test(fileName)) {
       logger.info('Skip moderation: PIP secondary upload', { objectPath });

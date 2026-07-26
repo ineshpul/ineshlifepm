@@ -95,6 +95,8 @@ export async function deleteStaffVideo(args: { videoId: string }) {
 /**
  * Orphan video doc with no recording attempts consumed — stale row from a partial failure.
  * Normal posts always consume at least one attempt before upload, so `used === 0` is the ghost signal.
+ *
+ * Never deletes a doc that already has a real media URL/path (that is a live post, not a ghost).
  */
 export async function removeGhostLeapVideoIfOpenLedger(args: {
   uid: string;
@@ -108,6 +110,11 @@ export async function removeGhostLeapVideoIfOpenLedger(args: {
 
   const data = snap.data() as Record<string, unknown>;
   if (!isActiveLeapVideoDoc(data, uid)) return false;
+
+  const hasMedia =
+    (typeof data.url === 'string' && data.url.trim().length > 0) ||
+    (typeof data.storagePath === 'string' && data.storagePath.trim().length > 0);
+  if (hasMedia) return false;
 
   const attemptSnap = await getDoc(doc(firestore(), 'postAttempts', videoId));
   const used = Number(attemptSnap.data()?.used ?? 0);

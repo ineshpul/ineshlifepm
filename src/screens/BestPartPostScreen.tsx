@@ -29,6 +29,20 @@ function mapPost(id: string, data: Record<string, unknown>): BestPartPost | null
     mediaType,
     url,
     storagePath,
+    feedUrl: typeof data.feedUrl === 'string' ? data.feedUrl : undefined,
+    feedStoragePath: typeof data.feedStoragePath === 'string' ? data.feedStoragePath : undefined,
+    secondaryUrl: typeof data.secondaryUrl === 'string' ? data.secondaryUrl : undefined,
+    secondaryStoragePath:
+      typeof data.secondaryStoragePath === 'string' ? data.secondaryStoragePath : undefined,
+    feedSecondaryUrl:
+      typeof data.feedSecondaryUrl === 'string' ? data.feedSecondaryUrl : undefined,
+    feedSecondaryStoragePath:
+      typeof data.feedSecondaryStoragePath === 'string'
+        ? data.feedSecondaryStoragePath
+        : undefined,
+    feedEncodeVersion:
+      typeof data.feedEncodeVersion === 'string' ? data.feedEncodeVersion : undefined,
+    dualFrontIsPrimary: data.dualFrontIsPrimary === true,
     durationSeconds: typeof data.durationSeconds === 'number' ? data.durationSeconds : undefined,
     isPrivate: data.isPrivate === true,
     deleted: data.deleted === true,

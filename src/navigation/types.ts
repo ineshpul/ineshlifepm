@@ -16,12 +16,14 @@ export type RootStackParamList = {
   BestPartCapture: undefined;
   /** Sunday-style playback of this week’s best-part moments. */
   BestPartWeekRecap: {
+    username?: string;
     posts: Array<{
       id: string;
       dateKey: string;
       caption: string;
       mediaType: 'photo' | 'video';
       url: string;
+      feedUrl?: string;
     }>;
   };
   ChallengeAdmin: undefined;
@@ -41,6 +43,8 @@ export type RootStackParamList = {
   TakeTheLeapForLeaps: { uid: string; username?: string };
   /** Opens a single leap by Firestore `videos/{videoId}` (e.g. profile “best vertical gain” post). */
   VideoPost: { videoId: string };
+  /** Invitee confirms a Co-Leap for posted-today credit. */
+  ConfirmCoLeap: { videoId: string };
   /** Opens a single best-part moment (notification deep link). */
   BestPartPost: { bestPartId: string };
   AdminVideoModeration: undefined;

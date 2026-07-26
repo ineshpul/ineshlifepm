@@ -441,6 +441,19 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /bestPartReports/{reportId} {
+      allow read: if false;
+      allow create: if signedIn()
+        && request.resource.data.reporterUid == request.auth.uid
+        && request.resource.data.bestPartId is string
+        && request.resource.data.bestPartOwnerUid is string
+        && request.resource.data.bestPartOwnerUsername is string
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() > 0
+        && request.resource.data.reason.size() < 500;
+      allow update, delete: if false;
+    }
+
     // Active leap cycle key (noon→noon ET) — used only by security rules for feed/video access.
     match /config/{docId} {
       allow read: if signedIn();
@@ -457,6 +470,30 @@ service cloud.firestore {
     // `pending` posts: owner + staff read; others only after `approved`. Leap inches while pending
     // are written by Cloud Functions (not client-writable fields on create).
     match /videos/{videoId} {
+      // Invitees may read a Co-Leap source (even pending) so they can confirm.
+      function isListedCoLeapInvitee() {
+        return 'coLeapInviteeUids' in resource.data
+          && resource.data.coLeapInviteeUids is list
+          && request.auth.uid in resource.data.coLeapInviteeUids;
+      }
+
+      function coLeapInviteFieldsValid() {
+        return (
+          !('coLeapInvitees' in request.resource.data)
+          && !('coLeapInviteeUids' in request.resource.data)
+        )
+        || (
+          'coLeapInvitees' in request.resource.data
+          && 'coLeapInviteeUids' in request.resource.data
+          && request.resource.data.coLeapInvitees is list
+          && request.resource.data.coLeapInviteeUids is list
+          && request.resource.data.coLeapInvitees.size() <= 3
+          && request.resource.data.coLeapInviteeUids.size() <= 3
+          && request.resource.data.coLeapInvitees.size() == request.resource.data.coLeapInviteeUids.size()
+          && !(request.auth.uid in request.resource.data.coLeapInviteeUids)
+        );
+      }
+
       // Allow read when the doc is missing so `onSnapshot` (e.g. “posted today?”) does not throw
       // permission-denied — `resource.data` is not valid if the document does not exist.
       allow read: if signedIn()
@@ -464,6 +501,7 @@ service cloud.firestore {
           !exists(/databases/$(database)/documents/videos/$(videoId))
           || isStaff()
           || resource.data.uid == request.auth.uid
+          || isListedCoLeapInvitee()
           || (
             resource.data.moderationStatus == 'approved'
             && canReadApprovedVideoMetadata()
@@ -473,6 +511,11 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.uid == request.auth.uid
         && videoId == request.resource.data.uid + '_' + request.resource.data.challengeDate
+        // Credit docs / hideFromFeed are Admin SDK only.
+        && !('isCoLeapCredit' in request.resource.data)
+        && !('coLeapSourceVideoId' in request.resource.data)
+        && !('hideFromFeed' in request.resource.data)
+        && coLeapInviteFieldsValid()
         // Instant approve is allowed (product policy); still validate shape + storage ownership.
         && (
           request.resource.data.moderationStatus == 'pending'
@@ -492,6 +535,8 @@ service cloud.firestore {
               'source',
               'url',
               'storagePath',
+              // Optional: 'video' (default) or 'photo' for proof / camera-roll leaps.
+              'mediaType',
               // Optional companion PIP clip URL + storage path for BeReal-style dual-camera posts.
               'secondaryUrl',
               'secondaryStoragePath',
@@ -506,6 +551,9 @@ service cloud.firestore {
               'reportCount',
               'deleted',
               'challengeCompleted',
+              // Optional Co-Leap invitees (poster-only; confirm is server-side).
+              'coLeapInvitees',
+              'coLeapInviteeUids',
             ])
           )
           || (
@@ -525,6 +573,8 @@ service cloud.firestore {
               'source',
               'url',
               'storagePath',
+              // Optional: 'video' (default) or 'photo' for proof / camera-roll leaps.
+              'mediaType',
               // Optional companion PIP clip URL + storage path for BeReal-style dual-camera posts.
               'secondaryUrl',
               'secondaryStoragePath',
@@ -539,7 +589,22 @@ service cloud.firestore {
               'reportCount',
               'deleted',
               'challengeCompleted',
+              // Optional Co-Leap invitees (poster-only; confirm is server-side).
+              'coLeapInvitees',
+              'coLeapInviteeUids',
             ])
+          )
+        )
+        && (
+          !('mediaType' in request.resource.data)
+          || request.resource.data.mediaType in ['video', 'photo']
+        )
+        && (
+          !('mediaType' in request.resource.data)
+          || request.resource.data.mediaType != 'photo'
+          || (
+            !('secondaryUrl' in request.resource.data)
+            && !('secondaryStoragePath' in request.resource.data)
           )
         )
         // Either both PIP fields are present (and valid) or both are absent.
@@ -1064,7 +1129,9 @@ service cloud.firestore {
         && (!request.resource.data.keys().hasAny(['maxDurationSeconds'])
           || (request.resource.data.maxDurationSeconds is int
             && request.resource.data.maxDurationSeconds >= 10
-            && request.resource.data.maxDurationSeconds <= 600));
+            && request.resource.data.maxDurationSeconds <= 600))
+        && (!request.resource.data.keys().hasAny(['allowLibraryAttach'])
+          || request.resource.data.allowLibraryAttach is bool);
       allow delete: if false;
     }
 
@@ -1084,6 +1151,7 @@ service cloud.firestore {
           'photoUrl',
           'dateKey',
           'caption',
+          'hashtags',
           'mediaType',
           'url',
           'storagePath',
@@ -1100,6 +1168,14 @@ service cloud.firestore {
         ]);
       }
 
+      function bestPartHashtagsOk() {
+        return !('hashtags' in request.resource.data)
+          || (
+            request.resource.data.hashtags is list
+            && request.resource.data.hashtags.size() <= 12
+          );
+      }
+
       function bestPartShapeOk() {
         return request.resource.data.uid == request.auth.uid
           && bestPartId == request.resource.data.uid + '_' + request.resource.data.dateKey
@@ -1110,6 +1186,7 @@ service cloud.firestore {
           && request.resource.data.caption is string
           && request.resource.data.caption.size() >= 1
           && request.resource.data.caption.size() <= 280
+          && bestPartHashtagsOk()
           && (request.resource.data.mediaType == 'photo' || request.resource.data.mediaType == 'video')
           && request.resource.data.url is string
           && request.resource.data.url.size() > 0
@@ -1136,7 +1213,8 @@ service cloud.firestore {
               && !('dualFrontIsPrimary' in request.resource.data)
             )
             || (
-              request.resource.data.mediaType == 'video'
+              (request.resource.data.mediaType == 'video'
+                || request.resource.data.mediaType == 'photo')
               && request.resource.data.secondaryUrl is string
               && request.resource.data.secondaryUrl.size() > 0
               && request.resource.data.secondaryUrl.size() < 2048
@@ -1147,6 +1225,36 @@ service cloud.firestore {
               && request.resource.data.dualFrontIsPrimary is bool
             )
           );
+      }
+
+      /** Client may only touch these keys on update (server feed/poster fields may already exist). */
+      function bestPartClientUpdateKeysOk() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'username',
+          'photoUrl',
+          'caption',
+          'hashtags',
+          'mediaType',
+          'url',
+          'storagePath',
+          'secondaryUrl',
+          'secondaryStoragePath',
+          'dualFrontIsPrimary',
+          'durationSeconds',
+          'isPrivate',
+          'deleted',
+          'updatedAt',
+          // Cleared on retake so feed encode re-runs for the new media.
+          'feedUrl',
+          'feedStoragePath',
+          'feedSecondaryUrl',
+          'feedSecondaryStoragePath',
+          'feedEncodeVersion',
+          'faststartReady',
+          'faststartUpdatedAt',
+          'posterUrl',
+          'posterStoragePath',
+        ]);
       }
 
       allow read: if signedIn()
@@ -1169,7 +1277,7 @@ service cloud.firestore {
 
       allow update: if signedIn()
         && resource.data.uid == request.auth.uid
-        && bestPartCreateKeysOk()
+        && bestPartClientUpdateKeysOk()
         && bestPartShapeOk()
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.dateKey == resource.data.dateKey

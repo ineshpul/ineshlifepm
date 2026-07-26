@@ -13,9 +13,23 @@ export function isActiveLeapVideoDoc(
   return owner === ownerUid;
 }
 
+export function isCoLeapCreditDoc(data: DocumentData | undefined): boolean {
+  if (!data) return false;
+  return data.isCoLeapCredit === true || String(data.source ?? '') === 'co_leap';
+}
+
+/** Solo leap only — Co-Leap credits do not block another post that day. */
 export function videoBlocksLeapRepost(
   snap: DocumentSnapshot,
   ownerUid: string
 ): boolean {
-  return snap.exists && isActiveLeapVideoDoc(snap.data(), ownerUid);
+  if (!snap.exists) return false;
+  const data = snap.data();
+  if (!isActiveLeapVideoDoc(data, ownerUid)) return false;
+  if (isCoLeapCreditDoc(data)) return false;
+  return true;
+}
+
+export function coLeapCreditVideoDocId(uid: string, challengeDate: string): string {
+  return `${uid}_${challengeDate}_coleap`;
 }

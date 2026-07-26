@@ -2,6 +2,7 @@ import * as Updates from 'expo-updates';
 import * as React from 'react';
 import { AppState } from 'react-native';
 import { Audio } from 'expo-av';
+import { patchAudioMode } from './src/camera/audioSessionGate';
 import * as Notifications from 'expo-notifications';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -17,6 +18,7 @@ const ChallengeWatermarkCaptureHost = React.lazy(() =>
 );
 import { AuthProvider, useAuth } from './src/state/auth';
 import { AppStateProvider } from './src/state/appState';
+import { BackgroundBestPartUploadProvider } from './src/state/backgroundBestPartUpload';
 import { BackgroundPostUploadProvider } from './src/state/backgroundPostUpload';
 import { SettingsPreferencesProvider, useSettingsPreferences } from './src/state/settingsPreferences';
 import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
@@ -109,31 +111,42 @@ function PushTokenRegistrar() {
   return null;
 }
 
-/** Fetch and apply EAS updates on launch and when returning to foreground. */
+/**
+ * Download EAS updates in the background; apply on the next cold start.
+ *
+ * Never call `Updates.reloadAsync()` while the UI is live. Hot-reloading
+ * tears down native UIScrollViews mid-animation and SIGSEGVs on iOS:
+ *   UIScrollViewScrollAnimation → _notifyDidScroll → null deref
+ * (seen ~3s after launch in TestFlight build 48).
+ */
 function OtaUpdateOnLaunch() {
-  const applyPendingUpdate = React.useCallback(async () => {
-    if (__DEV__ || !Updates.isEnabled) return;
+  const fetchInFlightRef = React.useRef(false);
+
+  const fetchUpdateIfNeeded = React.useCallback(async () => {
+    if (__DEV__ || !Updates.isEnabled || fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
     try {
       const result = await Updates.checkForUpdateAsync();
       if (result.isAvailable) {
         await Updates.fetchUpdateAsync();
-        await Updates.reloadAsync();
       }
     } catch {
-      // Offline, dev client, or update server unreachable — keep running embedded bundle.
+      // Offline, dev client, or update server unreachable — keep current bundle.
+    } finally {
+      fetchInFlightRef.current = false;
     }
   }, []);
 
   React.useEffect(() => {
-    void applyPendingUpdate();
-  }, [applyPendingUpdate]);
+    void fetchUpdateIfNeeded();
+  }, [fetchUpdateIfNeeded]);
 
   React.useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void applyPendingUpdate();
+      if (state === 'active') void fetchUpdateIfNeeded();
     });
     return () => sub.remove();
-  }, [applyPendingUpdate]);
+  }, [fetchUpdateIfNeeded]);
 
   return null;
 }
@@ -144,11 +157,20 @@ export default function App() {
   }, []);
 
   React.useEffect(() => {
-    void Audio.setAudioModeAsync({
+    // Use the shared gate so a later capture hold can't be stomped if this
+    // effect ever re-runs while a dual/single recorder is live.
+    void patchAudioMode({
       playsInSilentModeIOS: true,
       allowsRecordingIOS: false,
       staysActiveInBackground: false,
       shouldDuckAndroid: true,
+    }).catch(() => {
+      void Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        allowsRecordingIOS: false,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+      }).catch(() => undefined);
     });
   }, []);
 
@@ -164,12 +186,14 @@ export default function App() {
             <PushTokenRegistrar />
             <AppStateProvider>
               <BackgroundPostUploadProvider>
+              <BackgroundBestPartUploadProvider>
               <ThemeProvider>
                 <RootNavigator />
                 <React.Suspense fallback={null}>
                   <ChallengeWatermarkCaptureHost />
                 </React.Suspense>
               </ThemeProvider>
+              </BackgroundBestPartUploadProvider>
               </BackgroundPostUploadProvider>
             </AppStateProvider>
           </SettingsPreferencesProvider>

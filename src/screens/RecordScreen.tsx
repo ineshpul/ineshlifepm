@@ -13,10 +13,16 @@ import {
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
-import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
+import { Audio } from 'expo-av';
+import * as ImagePicker from 'expo-image-picker';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
+import {
+  enterPlayback,
+  enterRecording,
+  ensureRecordingAudio,
+} from '../camera/audioSessionGate';
 import { DualCameraRecorder, type DualCameraController } from '../components/DualCameraRecorder';
 import { LeapLoadingFrog } from '../components/LeapLoadingFrog';
 import { RecordClipPreview } from '../components/RecordClipPreview';
@@ -42,8 +48,9 @@ import {
   resetRecordingAttemptsAfterVideoDelete,
   useAttemptsRemaining,
 } from '../state/postAttempts';
-import { removeGhostLeapVideoIfOpenLedger, resetStaffLeapDayForTesting } from '../services/deleteVideo';
-import { useHasPostedToday } from '../state/posting';
+import { canConcatVideosNatively } from '../services/concatVideos';
+import { removeGhostLeapVideoIfOpenLedger } from '../services/deleteVideo';
+import { useHasSoloPostedToday } from '../state/posting';
 import { useBackgroundPostUpload } from '../state/backgroundPostUpload';
 import { showError, showInfo } from '../utils/ui';
 import { useSettingsPreferences } from '../state/settingsPreferences';
@@ -55,6 +62,8 @@ import {
 import { purchaseRecordingAttemptWithScore } from '../services/recordingAttemptsPurchase';
 import { computeFeedViewingFromNow } from '../utils/nyTime';
 import { navigateToFeedTab } from '../navigation/navigationHelpers';
+import { CoLeapInvitePickerModal } from '../components/CoLeapInvitePickerModal';
+import type { CoLeapInviteePick } from '../types/coLeap';
 
 function openCameraSettingsAlert() {
   Alert.alert(
@@ -65,30 +74,6 @@ function openCameraSettingsAlert() {
       { text: 'Open Settings', onPress: () => void Linking.openSettings() },
     ]
   );
-}
-
-async function setAudioSessionForRecording() {
-  await Audio.setAudioModeAsync({
-    allowsRecordingIOS: true,
-    playsInSilentModeIOS: true,
-    interruptionModeIOS: InterruptionModeIOS.DoNotMix,
-    interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
-    shouldDuckAndroid: true,
-    playThroughEarpieceAndroid: false,
-    staysActiveInBackground: false,
-  });
-}
-
-async function setAudioSessionForPlayback() {
-  await Audio.setAudioModeAsync({
-    allowsRecordingIOS: false,
-    playsInSilentModeIOS: true,
-    interruptionModeIOS: InterruptionModeIOS.MixWithOthers,
-    interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
-    shouldDuckAndroid: true,
-    playThroughEarpieceAndroid: false,
-    staysActiveInBackground: false,
-  });
 }
 
 /**
@@ -353,6 +338,25 @@ export function RecordScreen() {
     height: 44,
     borderRadius: 14,
   },
+  libraryAttachBtn: {
+    width: 220,
+    height: 44,
+    borderRadius: 14,
+    marginTop: 10,
+  },
+  coLeapBtn: {
+    width: 220,
+    height: 44,
+    borderRadius: 14,
+  },
+  coLeapHint: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 16,
+    maxWidth: 280,
+  },
 }));
   const nav = useNavigation<any>();
   const isFocused = useIsFocused();
@@ -365,7 +369,8 @@ export function RecordScreen() {
   const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
   const recordingChallengeDateKey = viewingChallengeDateKey;
   const isStaffUser = Boolean(user?.isAdmin || user?.isModerator);
-  const postedForRecordingDay = useHasPostedToday(user?.uid, recordingChallengeDateKey);
+  // Co-Leap confirm unlocks the feed/streak but does not lock the camera — only a solo post does.
+  const postedForRecordingDay = useHasSoloPostedToday(user?.uid, recordingChallengeDateKey);
   const maxSec = normalizeTaskDurationSeconds(challenge.maxDurationSeconds);
   const playerFacing = getPlayerFacingChallenge(challenge, window);
   const attemptsRemaining = useAttemptsRemaining(
@@ -392,21 +397,25 @@ export function RecordScreen() {
   /** Seconds left while recording — shown in the bottom meta line (replaces "60S MAX"). */
   const [recordingSecondsLeft, setRecordingSecondsLeft] = React.useState<number | null>(null);
   const [clipUri, setClipUri] = React.useState<string | null>(null);
-  const [clipSource, setClipSource] = React.useState<'recorded' | 'demo' | null>(null);
+  const [clipSource, setClipSource] = React.useState<'recorded' | 'demo' | 'library' | null>(null);
+  const [clipMediaType, setClipMediaType] = React.useState<'video' | 'photo'>('video');
   /** PIP companion video captured at the same time as `clipUri` when dual mode is on. */
   const [secondaryClipUri, setSecondaryClipUri] = React.useState<string | null>(null);
   /** Whether the front camera was the big view when a dual take finished. */
   const [dualFrontIsPrimary, setDualFrontIsPrimary] = React.useState(false);
+  const [coLeapInvitees, setCoLeapInvitees] = React.useState<CoLeapInviteePick[]>([]);
+  const [coLeapPickerOpen, setCoLeapPickerOpen] = React.useState(false);
   /** Current direction of the single-camera recorder; the dual recorder owns its own facing state. */
   const [cameraFacing, setCameraFacing] = React.useState<'front' | 'back'>('front');
-  /** Both modes use vision-camera. Single is one device + persistent recorder; dual is multi-cam. */
+  /** Single = expo-camera (production quality). Dual = vision-camera multi-cam. */
   const [cameraMode, setCameraMode] = React.useState<'single' | 'dual'>('single');
   const dualControllerRef = React.useRef<DualCameraController | null>(null);
   const singleControllerRef = React.useRef<SingleCameraController | null>(null);
-  const staffLeapResetRef = React.useRef(false);
   const recordingAbortRef = React.useRef(false);
   const isRecordingRef = React.useRef(false);
   const recordTapBusyRef = React.useRef(false);
+  /** Release fn from AudioSessionGate while this screen holds the record category. */
+  const releaseRecordAudioRef = React.useRef<(() => void) | null>(null);
   /** Bumped on blur/unmount so the active take is invalidated. */
   const recordingSessionRef = React.useRef(0);
   const [cameraSessionKey, setCameraSessionKey] = React.useState(0);
@@ -434,31 +443,6 @@ export function RecordScreen() {
       /* the recorder's onRecordingFinished will surface the file regardless */
     }
   }, [cameraMode]);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      const isStaff = Boolean(user?.isAdmin || user?.isModerator);
-      if (!isStaff || !user?.uid || !isFirebaseConfigured() || staffLeapResetRef.current) {
-        return;
-      }
-      staffLeapResetRef.current = true;
-      void resetStaffLeapDayForTesting({
-        uid: user.uid,
-        challengeDate: viewingChallengeDateKey,
-      })
-        .then(() => clearPostedOverride())
-        .catch((e) => {
-          if (__DEV__) console.log('[Record] staff leap reset failed:', e);
-          staffLeapResetRef.current = false;
-        });
-    }, [
-      user?.isAdmin,
-      user?.isModerator,
-      user?.uid,
-      viewingChallengeDateKey,
-      clearPostedOverride,
-    ])
-  );
 
   useFocusEffect(
     React.useCallback(() => {
@@ -567,8 +551,10 @@ export function RecordScreen() {
   const clearPreview = React.useCallback(() => {
     setClipUri(null);
     setClipSource(null);
+    setClipMediaType('video');
     setSecondaryClipUri(null);
     setDualFrontIsPrimary(false);
+    setCoLeapInvitees([]);
     setPreRecordCountdown(null);
     setRecordingSecondsLeft(null);
     setIsRecording(false);
@@ -583,6 +569,7 @@ export function RecordScreen() {
   React.useEffect(() => {
     setClipUri(null);
     setClipSource(null);
+    setClipMediaType('video');
     setSecondaryClipUri(null);
     setDualFrontIsPrimary(false);
     setPreRecordCountdown(null);
@@ -595,12 +582,95 @@ export function RecordScreen() {
     if (!recordingBlocked) return;
     setClipUri(null);
     setClipSource(null);
+    setClipMediaType('video');
     setSecondaryClipUri(null);
     setDualFrontIsPrimary(false);
     setPreRecordCountdown(null);
     setRecordingSecondsLeft(null);
     setIsRecording(false);
   }, [recordingBlocked]);
+
+  const onAttachFromLibrary = React.useCallback(async () => {
+    if (!challenge.allowLibraryAttach) return;
+    if (recordingBlocked || backgroundUploadActive || !playerFacing.canRecord) return;
+    if (attemptsLeft <= 0 && !isStaffUser) {
+      showInfo('Out of attempts', 'Unlock another attempt to attach media.');
+      return;
+    }
+    if (isRecordingRef.current || preRecordCountdown != null) return;
+
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      showError(
+        'Photos access needed',
+        new Error('Allow Photos access in Settings so you can attach proof from your camera roll.')
+      );
+      return;
+    }
+
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      quality: 0.9,
+      videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+      allowsEditing: false,
+    });
+    if (res.canceled || !res.assets?.[0]) return;
+
+    const asset = res.assets[0];
+    const uri = String(asset.uri ?? '').trim();
+    if (!uri) {
+      showError('Attach failed', new Error('Could not read that file. Try another photo or video.'));
+      return;
+    }
+
+    const isPhoto =
+      asset.type === 'image' ||
+      /\.(jpe?g|png|heic|webp)$/i.test(uri) ||
+      String(asset.mimeType ?? '').startsWith('image/');
+
+    if (!isPhoto) {
+      // ImagePicker duration is milliseconds on iOS/Android.
+      const durationSec =
+        typeof asset.duration === 'number' && asset.duration > 0
+          ? asset.duration > 1000
+            ? asset.duration / 1000
+            : asset.duration
+          : 0;
+      if (durationSec > maxSec + 0.75) {
+        showError(
+          'Too long',
+          new Error(`Pick a clip of ${maxSec}s or less for today’s leap.`)
+        );
+        return;
+      }
+    }
+
+    setClipUri(uri);
+    setClipSource('library');
+    setClipMediaType(isPhoto ? 'photo' : 'video');
+    setSecondaryClipUri(null);
+    setDualFrontIsPrimary(false);
+
+    if (user?.uid && isFirebaseConfigured() && !isStaffUser) {
+      void consumeRecordingAttempt({
+        uid: user.uid,
+        challengeDate: recordingChallengeDateKey,
+      }).catch((e) => {
+        if (__DEV__) console.log('[Record] library attempt consume failed:', e);
+      });
+    }
+  }, [
+    challenge.allowLibraryAttach,
+    recordingBlocked,
+    backgroundUploadActive,
+    playerFacing.canRecord,
+    attemptsLeft,
+    isStaffUser,
+    preRecordCountdown,
+    maxSec,
+    user?.uid,
+    recordingChallengeDateKey,
+  ]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -613,11 +683,15 @@ export function RecordScreen() {
         recordingSessionRef.current += 1;
         setPreRecordCountdown(null);
         setRecordingSecondsLeft(null);
+        // Stop writers before releasing the audio category / pausing the session.
         void (async () => {
           if (isRecordingRef.current) {
             await stopActiveRecording();
           }
-          void setAudioSessionForPlayback().catch(() => {});
+          const release = releaseRecordAudioRef.current;
+          releaseRecordAudioRef.current = null;
+          release?.();
+          await enterPlayback().catch(() => undefined);
         })();
       };
     }, [
@@ -630,12 +704,30 @@ export function RecordScreen() {
   );
 
   React.useEffect(() => {
-    if (!isFocused || clipUri) return;
-    // Single (expo-camera) and dual (vision-camera) capture both write audio through
-    // an iOS `AVCaptureMovieFileOutput`, which needs a record-capable AVAudioSession
-    // (`.playAndRecord`). Forcing a playback category here disabled the microphone
-    // input and left dual clips silent, so keep the mic live for both modes.
-    void setAudioSessionForRecording().catch(() => {});
+    if (!isFocused || clipUri) {
+      const release = releaseRecordAudioRef.current;
+      releaseRecordAudioRef.current = null;
+      release?.();
+      if (clipUri) {
+        void enterPlayback().catch(() => undefined);
+      }
+      return;
+    }
+    // Single (expo-camera) and dual (vision-camera) both need a record-capable
+    // AVAudioSession while the capture surface is live.
+    let cancelled = false;
+    void (async () => {
+      const release = await enterRecording();
+      if (cancelled) {
+        release();
+        return;
+      }
+      releaseRecordAudioRef.current?.();
+      releaseRecordAudioRef.current = release;
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isFocused, cameraMode, clipUri]);
 
   React.useEffect(() => {
@@ -792,7 +884,10 @@ export function RecordScreen() {
           if (__DEV__) console.log('[Record] single attempt consume failed:', e);
         });
       }
-      void setAudioSessionForPlayback().catch(() => {});
+      const release = releaseRecordAudioRef.current;
+      releaseRecordAudioRef.current = null;
+      release?.();
+      void enterPlayback().catch(() => undefined);
     },
     [user?.uid, recordingChallengeDateKey, isStaffUser]
   );
@@ -805,12 +900,13 @@ export function RecordScreen() {
     setRecordingSecondsLeft(null);
   }, []);
 
-  // Flip works during recording — the SingleCameraRecorder's persistent recorder
-  // continues writing across the input-device swap, so we just toggle facing.
+  // Flip works mid-record via expo-camera segment stitch (production quality path).
   const onFlipCamera = React.useCallback(() => {
     if (recordingBlocked || !playerFacing.canRecord || preRecordCountdown != null || !canUseCamera) {
       return;
     }
+    // Avoid label/camera desync when the binary cannot stitch mid-take flips yet.
+    if (isRecordingRef.current && !canConcatVideosNatively()) return;
     setCameraFacing((prev) => (prev === 'front' ? 'back' : 'front'));
     singleControllerRef.current?.flip();
   }, [recordingBlocked, playerFacing.canRecord, preRecordCountdown, canUseCamera]);
@@ -877,13 +973,16 @@ export function RecordScreen() {
           restorePreviewAfterRecording();
           return;
         }
-        await setAudioSessionForRecording().catch(() => {});
+        if (!releaseRecordAudioRef.current) {
+          releaseRecordAudioRef.current = await enterRecording();
+        }
         await startRecordingSession();
       } else {
-        // Dual mode records audio via vision-camera's `AVCaptureMovieFileOutput`, which
-        // needs a record-capable AVAudioSession just like single capture. A playback
-        // category disables the mic and produces silent dual clips.
-        await setAudioSessionForRecording().catch(() => {});
+        if (!releaseRecordAudioRef.current) {
+          releaseRecordAudioRef.current = await enterRecording();
+        } else {
+          await ensureRecordingAudio();
+        }
         await startDualRecordingSession();
       }
     } finally {
@@ -910,6 +1009,7 @@ export function RecordScreen() {
         markPostedToday();
         setClipUri(null);
         setClipSource(null);
+        setClipMediaType('video');
         setSecondaryClipUri(null);
         setDualFrontIsPrimary(false);
         navigateToFeedTab(nav);
@@ -917,14 +1017,18 @@ export function RecordScreen() {
       }
 
       const uploadClipUri = clipUri;
-      const uploadSecondaryClipUri = secondaryClipUri;
+      const uploadSecondaryClipUri = clipMediaType === 'photo' ? null : secondaryClipUri;
       const uploadClipSource = clipSource ?? 'unknown';
       const uploadDualFrontIsPrimary = dualFrontIsPrimary;
+      const uploadMediaType = clipMediaType;
 
+      const uploadCoLeapInvitees = coLeapInvitees;
       setClipUri(null);
       setClipSource(null);
+      setClipMediaType('video');
       setSecondaryClipUri(null);
       setDualFrontIsPrimary(false);
+      setCoLeapInvitees([]);
 
       startBackgroundPost({
         uid: user.uid,
@@ -936,8 +1040,10 @@ export function RecordScreen() {
         secondaryClipUri: uploadSecondaryClipUri,
         dualFrontIsPrimary: uploadDualFrontIsPrimary,
         clipSource: uploadClipSource,
+        mediaType: uploadMediaType,
         autoSavePosts: preferences.autoSavePosts,
         watermarkInfo,
+        ...(uploadCoLeapInvitees.length > 0 ? { coLeapInvitees: uploadCoLeapInvitees } : {}),
       });
 
       navigateToFeedTab(nav);
@@ -946,7 +1052,7 @@ export function RecordScreen() {
     if (!preferences.uploadOnCellular) {
       Alert.alert(
         'Upload',
-        'Cellular uploads are turned off in Settings. Upload this video anyway?',
+        'Cellular uploads are turned off in Settings. Upload this anyway?',
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Upload', onPress: submitPost },
@@ -981,7 +1087,10 @@ export function RecordScreen() {
           if (__DEV__) console.log('[Record] dual attempt consume failed:', e);
         });
       }
-      void setAudioSessionForPlayback().catch(() => {});
+      const release = releaseRecordAudioRef.current;
+      releaseRecordAudioRef.current = null;
+      release?.();
+      void enterPlayback().catch(() => undefined);
     },
     [user?.uid, recordingChallengeDateKey, isStaffUser]
   );
@@ -1006,8 +1115,10 @@ export function RecordScreen() {
       const next = m === 'single' ? 'dual' : 'single';
       // Both single and dual capture need a record-capable AVAudioSession while
       // previewing so the microphone stays live for the next take.
-      if (isFocused && !clipUri) {
-        void setAudioSessionForRecording().catch(() => {});
+      if (isFocused && !clipUri && !releaseRecordAudioRef.current) {
+        void enterRecording().then((release) => {
+          releaseRecordAudioRef.current = release;
+        });
       }
       return next;
     });
@@ -1078,7 +1189,8 @@ export function RecordScreen() {
           <RecordClipPreview
             key={clipUri}
             uri={clipUri}
-            secondaryUri={secondaryClipUri}
+            mediaType={clipMediaType}
+            secondaryUri={clipMediaType === 'photo' ? null : secondaryClipUri}
             dualFrontIsPrimary={dualFrontIsPrimary}
           />
         ) : clipUri?.startsWith('demo://') ? (
@@ -1127,18 +1239,14 @@ export function RecordScreen() {
             {!recordingBlocked &&
             !clipUri &&
             preRecordCountdown == null &&
-            cameraMode === 'single' &&
-            !isRecording ? (
+            cameraMode === 'single' ? (
               <TouchableOpacity
                 accessibilityRole="button"
                 accessibilityLabel={
                   cameraFacing === 'front' ? 'Use back camera' : 'Use front camera'
                 }
                 onPress={onFlipCamera}
-                // We hide the flip FAB during recording: vision-camera's
-                // non-persistent movie file output corrupts the in-flight clip
-                // if the input device changes. The user can stop, flip, and
-                // start a new take — matching the original expo-camera UX.
+                // Mid-record flip: expo-camera segments stitched on stop.
                 style={[styles.cornerFab, styles.cornerFabLeft]}
                 activeOpacity={0.85}
               >
@@ -1174,25 +1282,42 @@ export function RecordScreen() {
           </>
         ) : (
           <View style={styles.demo}>
-            <Ionicons name="camera-outline" size={40} color="rgba(255,255,255,0.85)" />
-            <Text style={styles.demoTitle}>Camera access needed</Text>
-            <Text style={styles.demoBody}>
-              {cameraDenied
-                ? 'Leap needs camera access to record your daily leap. Turn it on in Settings.'
-                : 'Allow camera access to record your daily leap.'}
-            </Text>
-            <PrimaryButton
-              title={cameraDenied ? 'Open Settings' : 'Allow camera'}
-              variant="green"
-              onPress={() => {
-                if (cameraDenied) {
-                  void Linking.openSettings();
-                  return;
-                }
-                void ensureCameraPermission();
-              }}
-              style={styles.permissionBtn}
+            <Ionicons
+              name={challenge.allowLibraryAttach ? 'images-outline' : 'camera-outline'}
+              size={40}
+              color="rgba(255,255,255,0.85)"
             />
+            <Text style={styles.demoTitle}>
+              {challenge.allowLibraryAttach ? 'Camera optional today' : 'Camera access needed'}
+            </Text>
+            <Text style={styles.demoBody}>
+              {challenge.allowLibraryAttach
+                ? 'Today’s leap allows camera-roll proof. Attach a photo or video below, or enable the camera to record.'
+                : cameraDenied
+                  ? 'Leap needs camera access to record your daily leap. Turn it on in Settings.'
+                  : 'Allow camera access to record your daily leap.'}
+            </Text>
+            {!challenge.allowLibraryAttach || !cameraDenied ? (
+              <PrimaryButton
+                title={cameraDenied ? 'Open Settings' : 'Allow camera'}
+                variant="green"
+                onPress={() => {
+                  if (cameraDenied) {
+                    void Linking.openSettings();
+                    return;
+                  }
+                  void ensureCameraPermission();
+                }}
+                style={styles.permissionBtn}
+              />
+            ) : (
+              <PrimaryButton
+                title="Open Settings for camera"
+                variant="outline"
+                onPress={() => void Linking.openSettings()}
+                style={styles.permissionBtn}
+              />
+            )}
             {allowReviewDemo ? (
               <PrimaryButton
                 title="Continue without camera"
@@ -1200,6 +1325,7 @@ export function RecordScreen() {
                 onPress={() => {
                   setClipUri('demo://clip');
                   setClipSource('demo');
+                  setClipMediaType('video');
                 }}
                 style={styles.permissionBtn}
               />
@@ -1260,13 +1386,42 @@ export function RecordScreen() {
         {clipUri ? (
           <>
             <View style={styles.doneCard}>
-              <Text style={styles.doneTitle}>Recording complete</Text>
+              <Text style={styles.doneTitle}>
+                {clipSource === 'library'
+                  ? clipMediaType === 'photo'
+                    ? 'Photo ready'
+                    : 'Clip ready'
+                  : 'Recording complete'}
+              </Text>
               <Text style={styles.doneBody}>
                 {clipUri.startsWith('demo://')
                   ? 'Review mode — post to continue, or record again.'
-                  : 'Replay your take with the video controls, then post or record again.'}
+                  : clipSource === 'library'
+                    ? clipMediaType === 'photo'
+                      ? 'Review your proof photo, then post or choose another.'
+                      : 'Replay your clip, then post or choose another.'
+                    : 'Replay your take with the video controls, then post or record again.'}
               </Text>
             </View>
+            <PrimaryButton
+              title={
+                coLeapInvitees.length === 0
+                  ? 'Add Co-Leapers'
+                  : coLeapInvitees.length === 1
+                    ? 'Co-Leap: 1 invited'
+                    : `Co-Leap: ${coLeapInvitees.length} invited`
+              }
+              variant="outline"
+              onPress={() => setCoLeapPickerOpen(true)}
+              disabled={recordingBlocked || backgroundUploadActive}
+              style={styles.coLeapBtn}
+            />
+            {coLeapInvitees.length > 0 ? (
+              <Text style={styles.coLeapHint}>
+                {coLeapInvitees.map((p) => `@${p.username.replace(/^@+/u, '')}`).join(' · ')}
+                {' — they’ll confirm to get posted-today credit'}
+              </Text>
+            ) : null}
             <PrimaryButton
               title="POST"
               variant="green"
@@ -1274,12 +1429,24 @@ export function RecordScreen() {
               style={styles.postBtn}
             />
             <PrimaryButton
-              title="RECORD AGAIN"
+              title={clipSource === 'library' ? 'CHOOSE AGAIN' : 'RECORD AGAIN'}
               variant="outline"
               onPress={clearPreview}
               disabled={recordingBlocked || backgroundUploadActive}
               style={styles.attachBtn}
             />
+            {user?.uid ? (
+              <CoLeapInvitePickerModal
+                visible={coLeapPickerOpen}
+                viewerUid={user.uid}
+                initial={coLeapInvitees}
+                onClose={() => setCoLeapPickerOpen(false)}
+                onDone={(picks) => {
+                  setCoLeapInvitees(picks);
+                  setCoLeapPickerOpen(false);
+                }}
+              />
+            ) : null}
           </>
         ) : (
           <>
@@ -1318,9 +1485,11 @@ export function RecordScreen() {
                 {!playerFacing.canRecord
                   ? 'DROPS NOON ET'
                   : !permission?.granted
-                    ? cameraDenied
-                      ? 'OPEN SETTINGS FOR CAMERA'
-                      : 'TAP TO ENABLE CAMERA'
+                    ? challenge.allowLibraryAttach
+                      ? 'RECORD OR ATTACH BELOW'
+                      : cameraDenied
+                        ? 'OPEN SETTINGS FOR CAMERA'
+                        : 'TAP TO ENABLE CAMERA'
                     : preRecordCountdown != null
                       ? 'GET READY…'
                       : isRecording
@@ -1328,6 +1497,20 @@ export function RecordScreen() {
                         : 'TAP TO RECORD'}
               </Text>
             </TouchableOpacity>
+            {challenge.allowLibraryAttach && playerFacing.canRecord ? (
+              <PrimaryButton
+                title="ATTACH FROM CAMERA ROLL"
+                variant="outline"
+                onPress={() => void onAttachFromLibrary()}
+                disabled={
+                  attemptsLeft <= 0 ||
+                  backgroundUploadActive ||
+                  preRecordCountdown != null ||
+                  isRecording
+                }
+                style={styles.libraryAttachBtn}
+              />
+            ) : null}
           </>
         )}
       </View>

@@ -75,6 +75,36 @@ export async function saveRemoteVideoToCameraRoll(
   }
 }
 
+/** Save a Best Part photo (remote or local) to the camera roll. */
+export async function saveRemotePhotoToCameraRoll(photoUrl: string): Promise<void> {
+  const trimmed = photoUrl.trim();
+  if (!trimmed || trimmed.startsWith('demo://')) {
+    throw new Error('No photo to save.');
+  }
+
+  const existing = await MediaLibrary.getPermissionsAsync(true);
+  const p = existing.granted ? existing : await MediaLibrary.requestPermissionsAsync(true);
+  if (!p.granted) {
+    throw new Error('Photo library access was not granted. You can allow it in Settings.');
+  }
+
+  if (!/^https?:\/\//i.test(trimmed)) {
+    await MediaLibrary.saveToLibraryAsync(trimmed);
+    return;
+  }
+
+  const dest = `${FileSystem.cacheDirectory}leap-share-save-${Date.now()}.jpg`;
+  const result = await FileSystem.downloadAsync(trimmed, dest);
+  if (result.status !== 200) {
+    throw new Error('Could not download the photo. Check your connection and try again.');
+  }
+  try {
+    await MediaLibrary.saveToLibraryAsync(result.uri);
+  } finally {
+    await cleanupTempFile(result.uri);
+  }
+}
+
 /** Camera-roll export — burns in the leap prompt when challenge info is provided. */
 export async function saveVideoToCameraRoll(
   uri: string,
@@ -97,6 +127,7 @@ export async function saveVideoToCameraRoll(
     watermarkedUri = await applyChallengeWatermarkToVideo(localUri, {
       title: challenge.title.trim(),
       username: challenge.username?.trim() || 'user',
+      variant: challenge.variant ?? 'leap',
     });
     localUri = watermarkedUri;
   }

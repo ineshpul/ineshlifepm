@@ -182,6 +182,7 @@ export function SettingsPreferencesProvider({ children }: { children: React.Reac
             subtitle: String(data?.subtitle ?? ''),
             maxDurationSeconds: Number(data?.maxDurationSeconds) || 60,
             maxRecordingAttempts: Number(data?.maxRecordingAttempts) || 3,
+            allowLibraryAttach: data?.allowLibraryAttach === true,
           });
         }
       },

@@ -6,6 +6,7 @@ import { syncUserIdentityFromVideo } from './syncUserIdentityFromVideo';
 import { buildLeaperPointsPatch, incrementUserLeapInches } from './leaperPoints';
 import { recomputeUserWeeklyLeaperFields, writeUserWeeklyLeaperFields } from './weeklyLeaperFields';
 import {
+  computeCoLeapInviteeInches,
   computePostLeapInches,
   countsForStreak,
   isAwardedLeapVideo,
@@ -14,6 +15,7 @@ import {
   updateStreakState,
   updateStreakStateWithLeapExtensionAllowance,
 } from './verticalScoreEngine';
+import { isCoLeapCreditDoc } from './postAttemptLeapVideo';
 import {
   decrementApprovedPostCountForLeap,
   decrementPostedPostCountForLeap,
@@ -36,6 +38,7 @@ import {
 import { cancelModerationJob } from './videoModerationCore';
 import { processReferralRewardsOnApproval } from './referralRewards';
 import { logLeapStatsMutation } from './leapStatsLogging';
+import { syncCoLeapCreditsForSourceModeration } from './coLeap';
 
 const REGION = 'us-central1';
 const DEFAULT_MAX_RECORDING_ATTEMPTS = 3;
@@ -166,6 +169,62 @@ async function loadEngagementForLeap(
   };
 }
 
+/** Co-Leap invitees earn engagement from the shared source post, not their credit mirror. */
+async function loadEngagementForAward(
+  db: admin.firestore.Firestore,
+  videoRef: admin.firestore.DocumentReference,
+  ownerId: string,
+  data: Record<string, unknown>
+): Promise<{ likes: number; comments: number; shares: number; views: number }> {
+  if (isCoLeapCreditDoc(data)) {
+    const sourceId = String(data.coLeapSourceVideoId ?? '').trim();
+    if (sourceId) {
+      const sourceRef = db.doc(`${POST_COLLECTION}/${sourceId}`);
+      const sourceSnap = await sourceRef.get();
+      if (sourceSnap.exists) {
+        const sd = sourceSnap.data() as Record<string, unknown>;
+        const posterUid =
+          String(sd.uid ?? '').trim() || String(data.coLeapPosterUid ?? '').trim() || ownerId;
+        return loadEngagementForLeap(sourceRef, posterUid, sd);
+      }
+    }
+  }
+  return loadEngagementForLeap(videoRef, ownerId, data);
+}
+
+function computeInchesForVideo(
+  data: Record<string, unknown>,
+  args: {
+    streakDays: number;
+    isFirstEverLeap: boolean;
+    isFirstPostOfDay: boolean;
+    baseInchesReduction: number;
+    likes: number;
+    comments: number;
+    shares: number;
+    views: number;
+  }
+) {
+  if (isCoLeapCreditDoc(data)) {
+    return computeCoLeapInviteeInches({
+      likes: args.likes,
+      comments: args.comments,
+      shares: args.shares,
+      views: args.views,
+    });
+  }
+  return computePostLeapInches({
+    streakDays: args.streakDays,
+    isFirstEverLeap: args.isFirstEverLeap,
+    isFirstPostOfDay: args.isFirstPostOfDay,
+    baseInchesReduction: args.baseInchesReduction,
+    likes: args.likes,
+    comments: args.comments,
+    shares: args.shares,
+    views: args.views,
+  });
+}
+
 function videoCountsTowardLeapTotals(data: Record<string, unknown>): boolean {
   if (data.deleted === true) return false;
   const status = String(data.moderationStatus ?? '');
@@ -218,7 +277,7 @@ async function awardLeapInchesOnPending(
   const nowMs = Date.now();
   const videoChallengeDate = String(data.challengeDate ?? '').trim();
   const challengeDate = videoChallengeDate || leapChallengeDateKeyFromMs(nowMs);
-  const eng = await loadEngagementForLeap(videoRef, owner, data);
+  const eng = await loadEngagementForAward(db, videoRef, owner, data);
   const userRef = db.doc(`users/${owner}`);
   const attemptRef = db.doc(`postAttempts/${owner}_${challengeDate}`);
 
@@ -239,7 +298,7 @@ async function awardLeapInchesOnPending(
     );
     const priorStreak = Math.max(0, Math.floor(Number(ud.activeLeapStreakDays ?? 0)));
 
-    const computed = computePostLeapInches({
+    const computed = computeInchesForVideo(vd, {
       streakDays: priorStreak,
       isFirstEverLeap: !hasEver,
       isFirstPostOfDay: false,
@@ -356,11 +415,12 @@ async function awardLeapInchesOnFullApproval(
   const nowMs = Date.now();
   const videoChallengeDate = String(data.challengeDate ?? '').trim();
   const challengeDate = videoChallengeDate || leapChallengeDateKeyFromMs(nowMs);
-  const eng = await loadEngagementForLeap(videoRef, owner, data);
+  const eng = await loadEngagementForAward(db, videoRef, owner, data);
   const userRef = db.doc(`users/${owner}`);
   const attemptRef = db.doc(`postAttempts/${owner}_${challengeDate}`);
   const dayStatsKey = leapDayKeyFromStoredChallengeDate(videoChallengeDate, nowMs);
   const dayStatsRef = db.doc(`${DAILY_CHALLENGE_STATS_COLLECTION}/${dayStatsKey}`);
+  const isCoLeapCredit = isCoLeapCreditDoc(data);
 
   const br = await db.runTransaction(async (tx) => {
     const vSnap = await tx.get(videoRef);
@@ -380,20 +440,23 @@ async function awardLeapInchesOnFullApproval(
       Number(vd.leapBaseReductionInches ?? attSnap.data()?.leapBaseReductionInches ?? 0)
     );
 
-    const isGlobalFirstOfDay = claimGlobalFirstPostOfDayInTransaction({
-      tx,
-      statsRef: dayStatsRef,
-      statsSnap: dayStatsSnap,
-      videoId,
-      ownerUid: owner,
-      challengeDate,
-    });
+    // Co-Leap credits never claim global-first; the source poster owns that race.
+    const isGlobalFirstOfDay = isCoLeapCredit
+      ? false
+      : claimGlobalFirstPostOfDayInTransaction({
+          tx,
+          statsRef: dayStatsRef,
+          statsSnap: dayStatsSnap,
+          videoId,
+          ownerUid: owner,
+          challengeDate,
+        });
 
     const priorStreak = Math.max(0, Math.floor(Number(ud.activeLeapStreakDays ?? 0)));
     const priorLongest = Math.max(0, Math.floor(Number(ud.longestLeapStreakDays ?? 0)));
     const lastKey = String(ud.lastApprovedLeapDateKey ?? '').trim();
 
-    const computed = computePostLeapInches({
+    const computed = computeInchesForVideo(vd, {
       streakDays: priorStreak,
       isFirstEverLeap: !hasEver,
       isFirstPostOfDay: isGlobalFirstOfDay,
@@ -561,14 +624,16 @@ async function finalizeLeapInchesOnApproval(
     const lastKey = String(ud.lastApprovedLeapDateKey ?? '').trim();
 
     const dayStatsSnap = await tx.get(dayStatsRef);
-    const isGlobalFirstOfDay = claimGlobalFirstPostOfDayInTransaction({
-      tx,
-      statsRef: dayStatsRef,
-      statsSnap: dayStatsSnap,
-      videoId,
-      ownerUid: owner,
-      challengeDate,
-    });
+    const isGlobalFirstOfDay = isCoLeapCreditDoc(vd)
+      ? false
+      : claimGlobalFirstPostOfDayInTransaction({
+          tx,
+          statsRef: dayStatsRef,
+          statsSnap: dayStatsSnap,
+          videoId,
+          ownerUid: owner,
+          challengeDate,
+        });
 
     const streakNext = updateStreakStateWithLeapExtensionAllowance({
       uid: owner,
@@ -676,6 +741,7 @@ async function handleVideoModerationRejected(
   const owner = String(beforeData.uid ?? '').trim();
   const challengeDate = String(beforeData.challengeDate ?? '').trim();
   if (!owner) return;
+  const isCoLeapCredit = beforeData.isCoLeapCredit === true;
 
   if (isAwardedLeapVideo(beforeData)) {
     try {
@@ -691,10 +757,13 @@ async function handleVideoModerationRejected(
     logger.warn('reset attempts after reject failed', { videoId, owner, e });
   }
 
-  try {
-    await notifyUserModerationRejected({ ownerUid: owner, videoId });
-  } catch (e) {
-    logger.warn('reject notification failed', { videoId, owner, e });
+  // Credit docs follow the source leap — don't ping invitees as if their own post failed.
+  if (!isCoLeapCredit) {
+    try {
+      await notifyUserModerationRejected({ ownerUid: owner, videoId });
+    } catch (e) {
+      logger.warn('reject notification failed', { videoId, owner, e });
+    }
   }
 
   try {
@@ -812,15 +881,15 @@ export async function adminRetotalAwardedVideoLeapInches(
   const owner = String(data.uid ?? '').trim();
   if (!owner) return { delta: 0 };
 
-  const eng = await loadEngagementForLeap(videoRef, owner, data);
+  const eng = await loadEngagementForAward(db, videoRef, owner, data);
   const challengeDate = String(data.challengeDate ?? '');
   const streakBasis = Math.max(0, Math.floor(Number(data.leapStreakDaysBasis ?? 0)));
   const isFirstEver = data.leapWasFirstEver === true;
   const globalFirstId = await resolveGlobalFirstApprovedVideoIdForDay(db, challengeDate);
-  const isGlobalFirstOfDay = globalFirstId === videoId;
+  const isGlobalFirstOfDay = isCoLeapCreditDoc(data) ? false : globalFirstId === videoId;
   const baseReduction = Math.max(0, Number(data.leapBaseReductionInches ?? 0));
 
-  const br = computePostLeapInches({
+  const br = computeInchesForVideo(data, {
     streakDays: streakBasis,
     isFirstEverLeap: isFirstEver,
     isFirstPostOfDay: isGlobalFirstOfDay,
@@ -1164,7 +1233,7 @@ export async function settleApprovedLeapInchesForLeapDay(
   return settled;
 }
 
-/** Full user stats recompute from awarded videos (source of truth). */
+/** Full user stats recompute from awarded videos + Best Parts (source of truth). */
 export async function recomputeUserLeapStatsAdmin(ownerId: string): Promise<void> {
   if (!ownerId) return;
   const db = admin.firestore();
@@ -1174,11 +1243,21 @@ export async function recomputeUserLeapStatsAdmin(ownerId: string): Promise<void
   const todayKey = leapChallengeDateKeyFromMs(now);
   const todayKeys = dayKeyVariants(todayKey);
 
-  const lifetime = await sumLeapInchesForOwner(db, ownerId);
-  const todayDayPoints = await sumLeapInchesForOwner(db, ownerId, (data) => {
+  const { sumBestPartInchesForOwner } = await import('./bestPartScore');
+  const lifetimeVideos = await sumLeapInchesForOwner(db, ownerId);
+  const lifetimeBestParts = await sumBestPartInchesForOwner(db, ownerId);
+  const lifetime = Math.round((lifetimeVideos + lifetimeBestParts) * 10) / 10;
+
+  const todayVideos = await sumLeapInchesForOwner(db, ownerId, (data) => {
     const k = String(data.challengeDate ?? '').trim();
     return todayKeys.has(k);
   });
+  const todayBestParts = await sumBestPartInchesForOwner(db, ownerId, (data) => {
+    const k = String(data.dateKey ?? '').trim();
+    return todayKeys.has(k);
+  });
+  const todayDayPoints = Math.round((todayVideos + todayBestParts) * 10) / 10;
+
   const weeklyFields = await recomputeUserWeeklyLeaperFields(db, ownerId, now);
   const { highestDay, bestPostId } = await highestLeapDayStatsForOwner(db, ownerId);
   const streak = await rebuildStreakFromVideos(db, ownerId, todayKey);
@@ -1266,14 +1345,16 @@ export const onVerticalScoreVideoCreated = onDocumentCreated(
       } catch (e) {
         logger.warn('leap inches settlement after pending create failed', { videoId, uid, e });
       }
-      try {
-        await notifyModeratorsPendingReview({
-          videoId,
-          ownerUid: uid,
-          ownerUsername: String(data.username ?? 'user'),
-        });
-      } catch (e) {
-        logger.warn('moderator pending notify failed', { videoId, uid, e });
+      if (data.isCoLeapCredit !== true) {
+        try {
+          await notifyModeratorsPendingReview({
+            videoId,
+            ownerUid: uid,
+            ownerUsername: String(data.username ?? 'user'),
+          });
+        } catch (e) {
+          logger.warn('moderator pending notify failed', { videoId, uid, e });
+        }
       }
       return;
     }
@@ -1317,6 +1398,19 @@ export const onVerticalScoreVideoDeleted = onDocumentDeleted(
     const videoRef = db.doc(`${POST_COLLECTION}/${videoId}`);
     const challengeDate = String(data.challengeDate ?? '').trim();
     const wasApproved = String(data.moderationStatus ?? '') === 'approved';
+
+    if (data.isCoLeapCredit !== true) {
+      try {
+        await syncCoLeapCreditsForSourceModeration({
+          db,
+          sourceVideoId: videoId,
+          sourceData: data,
+          nextStatus: 'rejected',
+        });
+      } catch (e) {
+        logger.warn('sync co-leap credits on source delete failed', { videoId, uid, e });
+      }
+    }
 
     // Deleted posts (voluntary or rejected) get a fresh set of recording attempts for that day.
     if (videoId === `${uid}_${challengeDate}` || videoId.startsWith(`${uid}_`)) {
@@ -1431,6 +1525,16 @@ export const onVerticalScoreVideoApprovedLeaper = onDocumentWritten(
 
     if (afterStatus === 'rejected' && beforeStatus !== 'rejected' && before) {
       try {
+        await syncCoLeapCreditsForSourceModeration({
+          db: admin.firestore(),
+          sourceVideoId: videoId,
+          sourceData: before,
+          nextStatus: 'rejected',
+        });
+      } catch (e) {
+        logger.warn('sync co-leap credits on reject failed', { videoId, owner, e });
+      }
+      try {
         await handleVideoModerationRejected(admin.firestore(), videoRef, videoId, before);
       } catch (e) {
         logger.warn('handle moderation rejected failed', { videoId, owner, e });
@@ -1470,6 +1574,18 @@ export const onVerticalScoreVideoApprovedLeaper = onDocumentWritten(
         await ensureLeapInchesOnApproval(db, videoRef, videoId);
       } catch (e) {
         logger.warn('ensure leap inches on approval failed', { videoId, owner, e });
+      }
+      if (after.isCoLeapCredit !== true) {
+        try {
+          await syncCoLeapCreditsForSourceModeration({
+            db,
+            sourceVideoId: videoId,
+            sourceData: after,
+            nextStatus: 'approved',
+          });
+        } catch (e) {
+          logger.warn('sync co-leap credits on approve failed', { videoId, owner, e });
+        }
       }
       return;
     }

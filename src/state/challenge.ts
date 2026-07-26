@@ -39,6 +39,11 @@ export type Challenge = {
   maxDurationSeconds: TaskDurationSeconds;
   /** Recording/post tries for that calendar day (default 3). */
   maxRecordingAttempts: number;
+  /**
+   * When true, players may attach a photo/video from their camera roll
+   * instead of (or in addition to) recording in-app for that day’s leap.
+   */
+  allowLibraryAttach: boolean;
 };
 
 export type ChallengeWindow = {
@@ -74,7 +79,9 @@ export function getPlayerFacingChallenge(challenge: Challenge, window: Challenge
     const title = challenge.title.trim() || cachedTitle;
     return {
       title: title || "Loading today's leap…",
-      instructionsLine: `${CHALLENGE_INSTRUCTIONS} · Up to ${challenge.maxDurationSeconds}s`,
+      instructionsLine: challenge.allowLibraryAttach
+        ? `${CHALLENGE_INSTRUCTIONS} · Up to ${challenge.maxDurationSeconds}s · Camera roll OK`
+        : `${CHALLENGE_INSTRUCTIONS} · Up to ${challenge.maxDurationSeconds}s`,
       canRecord: true,
     };
   }
@@ -110,6 +117,7 @@ export function useTodayChallenge() {
       subtitle: '',
       maxDurationSeconds: 60,
       maxRecordingAttempts: DEFAULT_MAX_RECORDING_ATTEMPTS,
+      allowLibraryAttach: false,
     }),
     []
   );
@@ -147,6 +155,7 @@ export function useTodayChallenge() {
             subtitle: String(data?.subtitle ?? ''),
             maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
             maxRecordingAttempts: normalizeMaxRecordingAttempts(data?.maxRecordingAttempts),
+            allowLibraryAttach: data?.allowLibraryAttach === true,
           };
           setChallenge(next);
           void writeChallengeCache(next);
@@ -175,6 +184,7 @@ export function useChallengeForDate(dateKey: string) {
       subtitle: '',
       maxDurationSeconds: 60,
       maxRecordingAttempts: DEFAULT_MAX_RECORDING_ATTEMPTS,
+      allowLibraryAttach: false,
     }),
     []
   );
@@ -212,6 +222,7 @@ export function useChallengeForDate(dateKey: string) {
             subtitle: String(data?.subtitle ?? ''),
             maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
             maxRecordingAttempts: normalizeMaxRecordingAttempts(data?.maxRecordingAttempts),
+            allowLibraryAttach: data?.allowLibraryAttach === true,
           };
           setChallenge(next);
           void writeChallengeCache(next);

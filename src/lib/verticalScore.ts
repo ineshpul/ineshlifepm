@@ -6,6 +6,8 @@ import { normalizeWeekKey } from './getCurrentWeekKey';
 
 export const LEAP_BASE_INCHES = 5;
 export const LEAP_FIRST_BONUS_BASE_INCHES = 10;
+/** Confirming a Co-Leap (invitee) — flat base; poster still gets full solo inches. */
+export const CO_LEAP_INVITEE_BASE_INCHES = 3;
 export const BONUS_ATTEMPT_BASE_REDUCTION_INCHES = 2;
 
 export function clamp(n: number, lo: number, hi: number): number {
@@ -77,6 +79,20 @@ export type PostLeapInchesBreakdown = {
   leapInches: number;
 };
 
+function engagementInchesFromCounts(input: {
+  likes: number;
+  comments: number;
+  shares: number;
+  views: number;
+}): number {
+  return (
+    Math.max(0, input.likes) * 1 +
+    Math.max(0, input.comments) * 2 +
+    Math.max(0, input.shares) * 3 +
+    Math.max(0, input.views) * 0.5
+  );
+}
+
 export function computePostLeapInches(input: PostLeapInchesInput): PostLeapInchesBreakdown {
   let nominalBase = LEAP_BASE_INCHES;
   if (input.isFirstEverLeap || input.isFirstPostOfDay) {
@@ -86,11 +102,7 @@ export function computePostLeapInches(input: PostLeapInchesInput): PostLeapInche
   const base = Math.max(0, nominalBase - reduction);
   const mult = streakMultiplierForDays(input.streakDays);
   const baseAfterStreak = base * mult;
-  const engagementInches =
-    Math.max(0, input.likes) * 1 +
-    Math.max(0, input.comments) * 2 +
-    Math.max(0, input.shares) * 3 +
-    Math.max(0, input.views) * 0.5;
+  const engagementInches = engagementInchesFromCounts(input);
   const leapInches = Math.round((baseAfterStreak + engagementInches) * 10) / 10;
   return {
     nominalBaseInches: nominalBase,
@@ -98,6 +110,26 @@ export function computePostLeapInches(input: PostLeapInchesInput): PostLeapInche
     baseInches: base,
     streakMultiplier: mult,
     baseAfterStreak,
+    engagementInches,
+    leapInches: Math.max(0, leapInches),
+  };
+}
+
+/** Invitee Co-Leap confirm: flat 3in + engagement (poster keeps full solo award). */
+export function computeCoLeapInviteeInches(input: {
+  likes: number;
+  comments: number;
+  shares: number;
+  views: number;
+}): PostLeapInchesBreakdown {
+  const engagementInches = engagementInchesFromCounts(input);
+  const leapInches = Math.round((CO_LEAP_INVITEE_BASE_INCHES + engagementInches) * 10) / 10;
+  return {
+    nominalBaseInches: CO_LEAP_INVITEE_BASE_INCHES,
+    baseInchesReduction: 0,
+    baseInches: CO_LEAP_INVITEE_BASE_INCHES,
+    streakMultiplier: 1,
+    baseAfterStreak: CO_LEAP_INVITEE_BASE_INCHES,
     engagementInches,
     leapInches: Math.max(0, leapInches),
   };

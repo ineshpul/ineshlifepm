@@ -36,10 +36,13 @@ type LeapVideo = {
   /** Companion PIP clip for BeReal-style dual-camera posts. */
   secondaryUrl?: string;
   dualFrontIsPrimary?: boolean;
+  mediaType?: 'video' | 'photo';
   createdAtMs: number;
   ownerUid: string;
   moderationStatus: string;
   maxDurationSeconds: number;
+  /** Present when this day was cleared via confirming someone else's Co-Leap. */
+  coLeapPosterUsername?: string;
 };
 
 const REEL_BOTTOM_SHEET = 232;
@@ -185,19 +188,26 @@ export function YourLeapsScreen() {
             if (data?.deleted) return null;
             const createdAtMs =
               typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
-            const secondaryUrl = String(data?.secondaryUrl ?? '').trim();
+            const secondaryUrl = String(
+              data?.feedSecondaryUrl || data?.secondaryUrl || ''
+            ).trim();
             const dualFrontIsPrimary = data?.dualFrontIsPrimary === true;
+            const coLeapPosterUsername = String(data?.coLeapPosterUsername ?? '').trim();
             return {
               id: d.id,
               username: String(data?.username ?? user?.username ?? 'user'),
               prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
-              url: String(data?.url ?? ''),
+              url: String(data?.feedUrl || data?.url || ''),
               ...(secondaryUrl ? { secondaryUrl } : {}),
               ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
+              ...(data?.mediaType === 'photo' ? { mediaType: 'photo' as const } : {}),
               createdAtMs,
               ownerUid: user.uid,
               moderationStatus: String(data?.moderationStatus ?? ''),
               maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
+              ...(data?.isCoLeapCredit === true && coLeapPosterUsername
+                ? { coLeapPosterUsername }
+                : {}),
             } satisfies LeapVideo;
           })
           .filter(Boolean) as LeapVideo[];
@@ -309,19 +319,17 @@ export function YourLeapsScreen() {
             style={styles.reelList}
             data={videos}
             keyExtractor={(x) => x.id}
-            extraData={`${pageHeight}-${activeVideoId}-${isFocused ? 1 : 0}`}
+            extraData={`${pageHeight}-${activeVideoId}-${isFocused ? 1 : 0}-${preferences.dataSaver ? 1 : 0}`}
             pagingEnabled
-            snapToInterval={pageHeight}
-            snapToAlignment="start"
             decelerationRate="fast"
             disableIntervalMomentum
             showsVerticalScrollIndicator={false}
             nestedScrollEnabled
             removeClippedSubviews={false}
             initialNumToRender={3}
-            maxToRenderPerBatch={4}
+            maxToRenderPerBatch={3}
             windowSize={5}
-            updateCellsBatchingPeriod={50}
+            updateCellsBatchingPeriod={40}
             viewabilityConfig={viewabilityConfig}
             onViewableItemsChanged={onViewableItemsChanged}
             getItemLayout={
@@ -333,86 +341,100 @@ export function YourLeapsScreen() {
                   })
                 : undefined
             }
-            renderItem={({ item }) => (
-              <View style={[styles.reelPage, { height: pageHeight }]}>
-                <View style={[styles.reelVideoSlot, { bottom: REEL_BOTTOM_SHEET }]}>
-                  {isFocused ? (
-                    <FeedPostVideo
-                      reel
-                      url={item.url}
-                      secondaryUrl={item.secondaryUrl}
-                      dualFrontIsPrimary={item.dualFrontIsPrimary}
-                      shouldPlay={activeVideoId === item.id}
-                      isMuted={false}
-                      useNativeControls
-                      maxDurationSeconds={item.maxDurationSeconds}
-                      dataSaver={preferences.dataSaver}
-                      analyticsVideoId={item.id}
-                      videoOwnerUid={item.ownerUid}
-                      viewerUid={user?.uid}
-                      viewerUsername={user?.username}
-                      onReelActivate={activateReelVideo}
-                    />
-                  ) : (
-                    <ReelVideoPlaceholder />
-                  )}
-                </View>
-
-                <View style={[styles.reelSheet, { height: REEL_BOTTOM_SHEET }]}>
-                  <View style={styles.reelSheetTop}>
-                    <View style={styles.reelAvatar}>
-                      <Text style={styles.reelAvatarText}>{item.username[0]?.toUpperCase()}</Text>
-                    </View>
-                    <View style={styles.reelTextCol}>
-                      <Text style={styles.reelUser}>@{item.username}</Text>
-                      <Text style={styles.reelPrompt} numberOfLines={2}>
-                        {item.prompt}
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={() => confirmDelete(item)}
-                      disabled={deletingId === item.id}
-                      hitSlop={8}
-                    >
-                      <Text style={styles.deleteLink}>{deletingId === item.id ? '…' : 'Delete'}</Text>
-                    </TouchableOpacity>
-                  </View>
-                  {user?.uid && item.id === activeVideoId ? (
-                    <ScrollView
-                      ref={(r) => {
-                        engagementScrollRefs.current[item.id] = r;
-                      }}
-                      style={styles.reelEngagementScroll}
-                      nestedScrollEnabled
-                      keyboardShouldPersistTaps="handled"
-                      showsVerticalScrollIndicator={false}
-                    >
-                      <FeedPostEngagement
-                        videoId={item.id}
+            renderItem={({ item, index }) => {
+              const activeIndex = Math.max(
+                0,
+                videos.findIndex((v) => v.id === activeVideoId)
+              );
+              // Active-only mount — avoids starving the visible reel's download.
+              const mountVideo = isFocused && index === activeIndex;
+              return (
+                <View style={[styles.reelPage, { height: pageHeight }]}>
+                  <View style={[styles.reelVideoSlot, { bottom: REEL_BOTTOM_SHEET }]}>
+                    {mountVideo ? (
+                      <FeedPostVideo
+                        reel
+                        url={item.url}
+                        secondaryUrl={item.secondaryUrl}
+                        dualFrontIsPrimary={item.dualFrontIsPrimary}
+                        mediaType={item.mediaType}
+                        shouldPlay={activeVideoId === item.id}
+                        isMuted={false}
+                        useNativeControls
+                        maxDurationSeconds={item.maxDurationSeconds}
+                        dataSaver={preferences.dataSaver}
+                        analyticsVideoId={item.id}
                         videoOwnerUid={item.ownerUid}
-                        videoOwnerUsername={item.username}
-                        shareTitle={`${item.username} on Leap`}
-                        shareUrl={item.url}
-                        challengePrompt={item.prompt}
-                        viewerUid={user.uid}
-                        viewerUsername={user.username}
-                        onCommentComposerFocus={() => {
-                          requestAnimationFrame(() => {
-                            engagementScrollRefs.current[item.id]?.scrollToEnd({ animated: true });
-                          });
-                        }}
+                        viewerUid={user?.uid}
+                        viewerUsername={user?.username}
+                        onReelActivate={activateReelVideo}
                       />
-                    </ScrollView>
-                  ) : user?.uid ? (
-                    <View style={styles.reelEngagementPlaceholder}>
-                      <Text style={styles.reelEngagementPlaceholderText}>
-                        Swipe to another leap — comments and share load on the clip in view.
-                      </Text>
+                    ) : (
+                      <ReelVideoPlaceholder />
+                    )}
+                  </View>
+
+                  <View style={[styles.reelSheet, { height: REEL_BOTTOM_SHEET }]}>
+                    <View style={styles.reelSheetTop}>
+                      <View style={styles.reelAvatar}>
+                        <Text style={styles.reelAvatarText}>{item.username[0]?.toUpperCase()}</Text>
+                      </View>
+                      <View style={styles.reelTextCol}>
+                        <Text style={styles.reelUser}>@{item.username}</Text>
+                        {item.coLeapPosterUsername ? (
+                          <Text style={styles.reelPrompt} numberOfLines={1}>
+                            Co-Leap with @{item.coLeapPosterUsername.replace(/^@+/u, '')}
+                          </Text>
+                        ) : null}
+                        <Text style={styles.reelPrompt} numberOfLines={2}>
+                          {item.prompt}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => confirmDelete(item)}
+                        disabled={deletingId === item.id}
+                        hitSlop={8}
+                      >
+                        <Text style={styles.deleteLink}>{deletingId === item.id ? '…' : 'Delete'}</Text>
+                      </TouchableOpacity>
                     </View>
-                  ) : null}
+                    {user?.uid && item.id === activeVideoId ? (
+                      <ScrollView
+                        ref={(r) => {
+                          engagementScrollRefs.current[item.id] = r;
+                        }}
+                        style={styles.reelEngagementScroll}
+                        nestedScrollEnabled
+                        keyboardShouldPersistTaps="handled"
+                        showsVerticalScrollIndicator={false}
+                      >
+                        <FeedPostEngagement
+                          videoId={item.id}
+                          videoOwnerUid={item.ownerUid}
+                          videoOwnerUsername={item.username}
+                          shareTitle={`${item.username} on Leap`}
+                          shareUrl={item.url}
+                          challengePrompt={item.prompt}
+                          viewerUid={user.uid}
+                          viewerUsername={user.username}
+                          onCommentComposerFocus={() => {
+                            requestAnimationFrame(() => {
+                              engagementScrollRefs.current[item.id]?.scrollToEnd({ animated: true });
+                            });
+                          }}
+                        />
+                      </ScrollView>
+                    ) : user?.uid ? (
+                      <View style={styles.reelEngagementPlaceholder}>
+                        <Text style={styles.reelEngagementPlaceholderText}>
+                          Swipe to another leap — comments and share load on the clip in view.
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
                 </View>
-              </View>
-            )}
+              );
+            }}
           />
         )}
       </View>
