@@ -1,6 +1,7 @@
 import * as React from 'react';
 
 import { useAuth } from './auth';
+import { registerClearPostedOverride } from './backgroundPostUploadControl';
 import { useChallengeWindow } from './challenge';
 import { useHasPostedToday } from './posting';
 import { computeFeedViewingFromNow } from '../utils/nyTime';
@@ -59,6 +60,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const clearPostedOverride = React.useCallback(() => {
     setLocalPostedOverride(false);
   }, []);
+
+  React.useEffect(() => {
+    registerClearPostedOverride(clearPostedOverride);
+    return () => registerClearPostedOverride(null);
+  }, [clearPostedOverride]);
 
   const resetForNewDay = React.useCallback(() => {
     setDay(todayKey());

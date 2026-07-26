@@ -1,5 +1,6 @@
 import * as React from 'react';
 import {
+  deleteDoc,
   deleteField,
   doc,
   getDoc,
@@ -61,12 +62,26 @@ export type PostedVideoPayload = {
 
 export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
   const { payload } = args;
+  const videoRef = doc(firestore(), 'videos', `${payload.uid}_${payload.challengeDate}`);
+
+  // Security rules allow owner create, not update. Delete any inactive row outside the
+  // transaction so the commit `set` is always evaluated as create (repost-after-delete).
+  const preSnap = await getDoc(videoRef);
+  if (preSnap.exists()) {
+    const existing = preSnap.data() as {
+      deleted?: boolean;
+      uid?: string;
+      moderationStatus?: string;
+    };
+    if (blocksSoloLeapRepost(existing, payload.uid)) {
+      throw new Error('You already posted today.');
+    }
+    await withRetries(() => deleteDoc(videoRef), { maxAttempts: 3 });
+  }
 
   return await runTransaction(firestore(), async (tx) => {
-    const videoRef = doc(firestore(), 'videos', `${payload.uid}_${payload.challengeDate}`);
     const attemptRef = doc(firestore(), 'postAttempts', `${payload.uid}_${payload.challengeDate}`);
 
-    // Firestore transactions require ALL reads before ANY writes — read video, challenge, and ledger first.
     const videoSnap = await tx.get(videoRef);
     const max = await maxAttemptsForChallengeDate(tx, payload.challengeDate);
     const attemptSnap = await tx.get(attemptRef);
@@ -80,8 +95,7 @@ export async function commitPostedVideo(args: { payload: PostedVideoPayload }) {
       if (blocksSoloLeapRepost(existing, payload.uid)) {
         throw new Error('You already posted today.');
       }
-      // Soft-deleted or stale row — remove so create rules apply to the new post.
-      tx.delete(videoRef);
+      throw new Error('Could not prepare your post. Try again in a moment.');
     }
 
     const { coLeapInvitees, ...restPayload } = payload;

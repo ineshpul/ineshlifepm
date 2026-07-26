@@ -11,7 +11,10 @@ import { deleteObject, ref } from 'firebase/storage';
 
 import { firestore, storage } from '../firebase/firebase';
 import { isOrphanLeapSoloVideoDoc } from '../lib/leapVideoDoc';
-import { cancelActiveBackgroundPost } from '../state/backgroundPostUploadControl';
+import {
+  cancelActiveBackgroundPost,
+  clearPostedOverrideGlobal,
+} from '../state/backgroundPostUploadControl';
 import { clearPendingPostUpload } from '../state/pendingPostUpload';
 import { resetRecordingAttemptsAfterVideoDelete } from '../state/postAttempts';
 import { withRetries } from '../utils/retry';
@@ -50,6 +53,7 @@ export async function deleteOwnedVideo(args: { videoId: string; viewerUid: strin
   const { videoId, viewerUid } = args;
   // Stop in-flight uploads first so commitPostedVideo cannot recreate the doc after delete.
   cancelActiveBackgroundPost();
+  clearPostedOverrideGlobal();
   await clearPendingPostUpload();
 
   const vref = doc(firestore(), 'videos', videoId);

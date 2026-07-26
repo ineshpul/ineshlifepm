@@ -230,6 +230,7 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
           },
         });
         if (sessionId !== uploadSessionIdRef.current) return;
+        markPostedToday();
         resetIdle();
       } catch (e) {
         if (e instanceof BackgroundPostAbortedError) {
@@ -268,24 +269,23 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
       }
       const stable = withStableStoragePaths(params);
       setPendingFeedPlayback(buildPending(stable));
-      markPostedToday();
       void runJob(stable);
     },
-    [runJob, markPostedToday]
+    [runJob]
   );
 
   const retryBackgroundPost = React.useCallback(() => {
     const job = jobRef.current;
     if (!job || runningRef.current) return;
-    markPostedToday();
     void runJob(job);
-  }, [runJob, markPostedToday]);
+  }, [runJob]);
 
   const dismissFailure = React.useCallback(() => {
     if (phase !== 'failed') return;
+    clearPostedOverride();
     clearPendingFeedPlayback();
     resetIdle();
-  }, [phase, resetIdle, clearPendingFeedPlayback]);
+  }, [phase, resetIdle, clearPendingFeedPlayback, clearPostedOverride]);
 
   // Resume unfinished posts after force-quit / process death.
   React.useEffect(() => {
@@ -295,15 +295,18 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
     void (async () => {
       const pending = await loadPendingPostUpload();
       if (cancelled || !pending || runningRef.current) return;
+      if (await alreadyPostedLeap(pending.params.uid, pending.params.viewingChallengeDateKey)) {
+        await clearPendingPostUpload();
+        return;
+      }
       jobRef.current = pending.params;
       setPendingFeedPlayback(buildPending(pending.params));
-      markPostedToday();
       void runJob(pending.params);
     })();
     return () => {
       cancelled = true;
     };
-  }, [markPostedToday, runJob]);
+  }, [runJob]);
 
   // If a background URLSession finished while suspended, kick progress when we return.
   React.useEffect(() => {
@@ -313,15 +316,18 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
       void (async () => {
         const pending = await loadPendingPostUpload();
         if (!pending || runningRef.current) return;
+        if (await alreadyPostedLeap(pending.params.uid, pending.params.viewingChallengeDateKey)) {
+          await clearPendingPostUpload();
+          return;
+        }
         jobRef.current = pending.params;
         setPendingFeedPlayback(buildPending(pending.params));
-        markPostedToday();
         void runJob(pending.params);
       })();
     };
     const sub = AppState.addEventListener('change', onChange);
     return () => sub.remove();
-  }, [markPostedToday, phase, runJob]);
+  }, [phase, runJob]);
 
   const isActive = phase === 'uploading' || phase === 'saving';
 
