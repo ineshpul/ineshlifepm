@@ -1,5 +1,7 @@
 import { Alert } from 'react-native';
 
+import { toUserFacingCameraRecordingError } from './cameraRecordingErrors';
+
 function errorMessage(err: unknown): string {
   if (typeof err === 'string') return err;
   if (err && typeof err === 'object') {
@@ -15,6 +17,15 @@ function errorMessage(err: unknown): string {
 
 export function showError(title: string, err: unknown) {
   Alert.alert(title, errorMessage(err));
+}
+
+export function showCameraRecordingError(err: unknown, title = 'Camera error') {
+  let body = toUserFacingCameraRecordingError(err).message;
+  const lower = body.toLowerCase();
+  if (lower.includes('recording a video') || lower.includes('video recording failed')) {
+    body = 'The camera was busy. Wait a moment, then tap record to try again.';
+  }
+  Alert.alert(title, body);
 }
 
 export function showInfo(title: string, message: string) {

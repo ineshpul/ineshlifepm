@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { CameraView, type CameraType } from 'expo-camera';
+import { CameraView, type CameraRecordingOptions, type CameraType } from 'expo-camera';
 
+import { prepareForVideoRecording } from '../camera/prepareForVideoRecording';
 import { canConcatVideosNatively, concatVideos } from '../services/concatVideos';
 import { MIN_TASK_DURATION_SECONDS } from '../state/challenge';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
@@ -29,10 +30,16 @@ type Props = {
   onCapture: (uri: string) => void;
   onError?: (e: unknown) => void;
   onReadyChange?: (ready: boolean) => void;
+  onFacingChange?: (facing: SingleCameraFacing) => void;
   controllerRef?: React.MutableRefObject<SingleCameraController | null>;
 };
 
 type SegmentEndReason = 'flip' | 'stop' | 'max';
+
+function recordingOptionsForTake(maxDurationSec: number): CameraRecordingOptions[] {
+  const maxDuration = Math.max(1, Math.round(maxDurationSec));
+  return [{ maxDuration }];
+}
 
 /**
  * Production Leap single-camera path: expo-camera `CameraView`
@@ -49,6 +56,7 @@ export function SingleCameraRecorder({
   onCapture,
   onError,
   onReadyChange,
+  onFacingChange,
   controllerRef,
 }: Props) {
   const { colors } = useTheme();
@@ -84,6 +92,8 @@ export function SingleCameraRecorder({
   const takeIdRef = React.useRef(0);
   const segmentEndReasonRef = React.useRef<SegmentEndReason | null>(null);
   const segmentLoopBusyRef = React.useRef(false);
+  const readyWaitersRef = React.useRef<Array<() => void>>([]);
+  const hasBeenReadyRef = React.useRef(false);
 
   const onErrorRef = React.useRef(onError);
   onErrorRef.current = onError;
@@ -93,9 +103,46 @@ export function SingleCameraRecorder({
   onRecordingTickRef.current = onRecordingTick;
   const onReadyChangeRef = React.useRef(onReadyChange);
   onReadyChangeRef.current = onReadyChange;
+  const onFacingChangeRef = React.useRef(onFacingChange);
+  onFacingChangeRef.current = onFacingChange;
+
+  const markCameraReady = React.useCallback(() => {
+    cameraReadyRef.current = true;
+    hasBeenReadyRef.current = true;
+    setIsReady(true);
+    const waiters = readyWaitersRef.current.splice(0);
+    for (const resolve of waiters) resolve();
+    requestAnimationFrame(() => {
+      void cameraRef.current?.resumePreview?.().catch(() => undefined);
+    });
+  }, []);
+
+  const markCameraNotReady = React.useCallback(() => {
+    cameraReadyRef.current = false;
+    setIsReady(false);
+  }, []);
+
+  const waitForCameraReady = React.useCallback((timeoutMs: number): Promise<void> => {
+    if (cameraReadyRef.current && cameraRef.current) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const idx = readyWaitersRef.current.indexOf(onReady);
+        if (idx >= 0) readyWaitersRef.current.splice(idx, 1);
+        reject(new Error('Camera not ready'));
+      }, timeoutMs);
+      const onReady = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      readyWaitersRef.current.push(onReady);
+    });
+  }, []);
 
   React.useEffect(() => {
     facingRef.current = facing;
+    onFacingChangeRef.current?.(facing);
   }, [facing]);
 
   React.useEffect(() => {
@@ -173,6 +220,39 @@ export function SingleCameraRecorder({
     [resetTakeState]
   );
 
+  const recordOneSegment = React.useCallback(
+    async (remaining: number): Promise<string | null> => {
+      if (!cameraRef.current) {
+        throw new Error('Camera not ready');
+      }
+      await prepareForVideoRecording();
+      await waitForCameraReady(5000);
+
+      const optionSets = recordingOptionsForTake(remaining);
+      let lastError: unknown = null;
+
+      for (let i = 0; i < 2; i += 1) {
+        try {
+          const result = await cameraRef.current.recordAsync(optionSets[0]);
+          const rawUri = result?.uri ?? null;
+          if (!rawUri) {
+            throw new Error('Camera not ready');
+          }
+          return rawUri.startsWith('file://') ? rawUri : `file://${rawUri}`;
+        } catch (e) {
+          lastError = e;
+          if (i < 1) {
+            await prepareForVideoRecording();
+            await new Promise<void>((r) => setTimeout(r, 220));
+            await waitForCameraReady(3000).catch(() => undefined);
+          }
+        }
+      }
+      throw lastError ?? new Error('Camera not ready');
+    },
+    [waitForCameraReady]
+  );
+
   const runSegmentLoop = React.useCallback(
     async (takeId: number) => {
       if (segmentLoopBusyRef.current) return;
@@ -180,27 +260,19 @@ export function SingleCameraRecorder({
 
       try {
         while (takeId === takeIdRef.current && isRecordingRef.current) {
-          if (!cameraReadyRef.current || !cameraRef.current) {
-            throw new Error('Camera not ready');
-          }
-
           const remaining = Math.max(1, boundedMaxSec - elapsedRef.current);
           segmentEndReasonRef.current = null;
 
           let uri: string | null = null;
           try {
-            const result = await cameraRef.current.recordAsync({
-              maxDuration: remaining,
-            });
-            const rawUri = result?.uri ?? null;
-            uri = rawUri
-              ? rawUri.startsWith('file://')
-                ? rawUri
-                : `file://${rawUri}`
-              : null;
+            uri = await recordOneSegment(remaining);
           } catch (e) {
             if (takeId !== takeIdRef.current) return;
-            // User stop / flip can reject recordAsync on some devices — keep segments.
+            const reason = segmentEndReasonRef.current;
+            if (reason === 'stop' || reason === 'max') {
+              await finalizeTake(takeId, segmentsRef.current);
+              return;
+            }
             if (segmentsRef.current.length === 0) throw e;
           }
 
@@ -209,10 +281,9 @@ export function SingleCameraRecorder({
 
           const reason = segmentEndReasonRef.current;
           if (reason === 'flip' && canConcatVideosNatively()) {
-            // Flip only after the segment file is closed (facing mid-take corrupts expo-camera).
             setFacing((f) => (f === 'front' ? 'back' : 'front'));
-            // Brief yield so CameraView applies the new facing before the next recordAsync.
-            await new Promise<void>((r) => setTimeout(r, 120));
+            await new Promise<void>((r) => setTimeout(r, 280));
+            await waitForCameraReady(4000).catch(() => undefined);
             if (takeId !== takeIdRef.current || !isRecordingRef.current) {
               await finalizeTake(takeId, segmentsRef.current);
               return;
@@ -234,12 +305,14 @@ export function SingleCameraRecorder({
         }
       }
     },
-    [boundedMaxSec, finalizeTake, resetTakeState]
+    [boundedMaxSec, finalizeTake, recordOneSegment, resetTakeState, waitForCameraReady]
   );
 
   const start = React.useCallback(async () => {
     if (isRecordingRef.current || stitching) return;
-    if (!cameraReadyRef.current || !cameraRef.current) {
+    await prepareForVideoRecording();
+    await waitForCameraReady(5000);
+    if (!cameraRef.current) {
       throw new Error('Camera not ready');
     }
 
@@ -252,7 +325,7 @@ export function SingleCameraRecorder({
     setIsRecording(true);
     startTickInterval();
     void runSegmentLoop(takeId);
-  }, [runSegmentLoop, startTickInterval, stitching]);
+  }, [runSegmentLoop, startTickInterval, stitching, waitForCameraReady]);
 
   const stop = React.useCallback(async () => {
     if (!isRecordingRef.current) return;
@@ -275,7 +348,6 @@ export function SingleCameraRecorder({
       return;
     }
 
-    // Mid-record flip needs native stitch; otherwise keep production no-op.
     if (!canConcatVideosNatively()) return;
     if (segmentEndReasonRef.current != null) return;
     if (elapsedRef.current >= boundedMaxSec - 1) return;
@@ -322,12 +394,23 @@ export function SingleCameraRecorder({
   const cameraType: CameraType = facing === 'front' ? 'front' : 'back';
 
   React.useEffect(() => {
-    if (!active) return;
-    if (!cameraReadyRef.current || !cameraRef.current) return;
+    if (!active) {
+      markCameraNotReady();
+      return;
+    }
+    // CameraView stays mounted across `active` toggles, so `onCameraReady` fires
+    // only on the first mount. Without re-arming here, readiness cleared on
+    // deactivate never comes back and `waitForCameraReady` times out on the next
+    // take (retry after a clip, or returning to a focused Record screen).
+    if (!hasBeenReadyRef.current || !cameraRef.current) return;
     requestAnimationFrame(() => {
-      void cameraRef.current?.resumePreview?.().catch(() => undefined);
+      const cam = cameraRef.current;
+      if (!cam) return;
+      void Promise.resolve(cam.resumePreview?.())
+        .catch(() => undefined)
+        .finally(() => markCameraReady());
     });
-  }, [active]);
+  }, [active, markCameraNotReady, markCameraReady]);
 
   return (
     <View style={StyleSheet.absoluteFill}>
@@ -339,16 +422,9 @@ export function SingleCameraRecorder({
         active={active}
         mirror={facing === 'front'}
         responsiveOrientationWhenOrientationLocked
-        onCameraReady={() => {
-          cameraReadyRef.current = true;
-          setIsReady(true);
-          requestAnimationFrame(() => {
-            void cameraRef.current?.resumePreview?.().catch(() => undefined);
-          });
-        }}
+        onCameraReady={markCameraReady}
         onMountError={({ message }) => {
-          cameraReadyRef.current = false;
-          setIsReady(false);
+          markCameraNotReady();
           onErrorRef.current?.(new Error(message));
         }}
       />

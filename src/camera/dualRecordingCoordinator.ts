@@ -51,7 +51,7 @@ export async function startDualRecording(opts: StartOpts): Promise<DualRecording
   // expo-av permission prompts can flip the category back to playback while
   // the dual session is already live — that yields silent MP4s with no error.
   await ensureRecordingAudio();
-  await new Promise((r) => setTimeout(r, 80));
+  await new Promise((r) => setTimeout(r, 180));
 
   let backRec: Recorder | null = null;
   let frontRec: Recorder | null = null;
@@ -98,6 +98,7 @@ export async function startDualRecording(opts: StartOpts): Promise<DualRecording
 
   try {
     session.setPhase('recording');
+    await ensureRecordingAudio();
     backRec = await backVideo.createRecorder({ maxDuration: maxDurationSec });
     frontRec = await frontVideo.createRecorder({ maxDuration: maxDurationSec });
     session.bindRecorders(backRec, frontRec);

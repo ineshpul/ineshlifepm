@@ -23,6 +23,7 @@ import {
   enterRecording,
   ensureRecordingAudio,
 } from '../camera/audioSessionGate';
+import { prepareForVideoRecording } from '../camera/prepareForVideoRecording';
 import { DualCameraRecorder, type DualCameraController } from '../components/DualCameraRecorder';
 import { LeapLoadingFrog } from '../components/LeapLoadingFrog';
 import { RecordClipPreview } from '../components/RecordClipPreview';
@@ -52,7 +53,7 @@ import { canConcatVideosNatively } from '../services/concatVideos';
 import { removeGhostLeapVideoIfOpenLedger } from '../services/deleteVideo';
 import { useHasSoloPostedToday } from '../state/posting';
 import { useBackgroundPostUpload } from '../state/backgroundPostUpload';
-import { showError, showInfo } from '../utils/ui';
+import { showCameraRecordingError, showError, showInfo } from '../utils/ui';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import {
   BONUS_ATTEMPT_BASE_REDUCTION_INCHES,
@@ -81,8 +82,10 @@ function openCameraSettingsAlert() {
  * from CameraView and freezes the preview on TestFlight/production builds.
  */
 async function ensureMicrophonePermissionForRecording(): Promise<boolean> {
-  const audioPerm = await Audio.requestPermissionsAsync();
-  return audioPerm.granted;
+  const current = await Audio.getPermissionsAsync();
+  if (current.granted) return true;
+  const next = await Audio.requestPermissionsAsync();
+  return next.granted;
 }
 
 export function RecordScreen() {
@@ -687,17 +690,22 @@ export function RecordScreen() {
   );
 
   React.useEffect(() => {
-    if (!isFocused || clipUri) {
+    if (clipUri) {
       const release = releaseRecordAudioRef.current;
       releaseRecordAudioRef.current = null;
       release?.();
-      if (clipUri) {
-        void enterPlayback().catch(() => undefined);
-      }
+      void enterPlayback().catch(() => undefined);
       return;
     }
-    // Single (expo-camera) and dual (vision-camera) both need a record-capable
-    // AVAudioSession while the capture surface is live.
+    if (!isFocused) {
+      if (isRecordingRef.current || preRecordCountdown != null) {
+        return;
+      }
+      const release = releaseRecordAudioRef.current;
+      releaseRecordAudioRef.current = null;
+      release?.();
+      return;
+    }
     let cancelled = false;
     void (async () => {
       const release = await enterRecording();
@@ -711,17 +719,28 @@ export function RecordScreen() {
     return () => {
       cancelled = true;
     };
-  }, [isFocused, cameraMode, clipUri]);
+  }, [isFocused, cameraMode, clipUri, preRecordCountdown, isRecording]);
 
   React.useEffect(() => {
     if (!isFocused) return;
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (next !== 'active') return;
-      void getCameraPermission();
-      void getMicPermission();
+      if (next === 'active') {
+        void getCameraPermission();
+        void getMicPermission();
+        return;
+      }
+      if (next !== 'background' && next !== 'inactive') return;
+      if (!isRecordingRef.current && preRecordCountdown == null) return;
+      recordingAbortRef.current = true;
+      setPreRecordCountdown(null);
+      setRecordingSecondsLeft(null);
+      void stopActiveRecording();
+      setIsRecording(false);
+      isRecordingRef.current = false;
+      setCameraSessionKey((k) => k + 1);
     });
     return () => sub.remove();
-  }, [isFocused, getCameraPermission, getMicPermission]);
+  }, [isFocused, getCameraPermission, getMicPermission, stopActiveRecording]);
 
   const startDualRecordingSession = async () => {
     recordingAbortRef.current = false;
@@ -775,18 +794,24 @@ export function RecordScreen() {
       } catch {
         /* stale native session */
       }
+      await new Promise((r) => setTimeout(r, 400));
     }
 
-    setRecordingSecondsLeft(maxSec);
-    setIsRecording(true);
-    isRecordingRef.current = true;
     try {
+      await prepareForVideoRecording();
       await controller.start();
+      if (!controller.isRecording) {
+        throw new Error('Camera not ready');
+      }
+      setRecordingSecondsLeft(maxSec);
+      setIsRecording(true);
+      isRecordingRef.current = true;
     } catch (e) {
-      showError('Recording failed', e);
+      showCameraRecordingError(e, 'Recording failed');
       setIsRecording(false);
       isRecordingRef.current = false;
       setRecordingSecondsLeft(null);
+      setCameraSessionKey((k) => k + 1);
     }
   };
 
@@ -835,18 +860,24 @@ export function RecordScreen() {
       } catch {
         /* stale native session */
       }
+      await new Promise((r) => setTimeout(r, 400));
     }
 
-    setRecordingSecondsLeft(maxSec);
-    setIsRecording(true);
-    isRecordingRef.current = true;
     try {
+      await prepareForVideoRecording();
       await controller.start();
+      if (!controller.isRecording) {
+        throw new Error('Camera not ready');
+      }
+      setRecordingSecondsLeft(maxSec);
+      setIsRecording(true);
+      isRecordingRef.current = true;
     } catch (e) {
-      showError('Recording failed', e);
+      showCameraRecordingError(e, 'Recording failed');
       setIsRecording(false);
       isRecordingRef.current = false;
       setRecordingSecondsLeft(null);
+      setCameraSessionKey((k) => k + 1);
     }
   };
 
@@ -877,10 +908,11 @@ export function RecordScreen() {
 
   const handleSingleError = React.useCallback((e: unknown) => {
     if (__DEV__) console.log('[Record] single camera error:', e);
-    showError('Camera error', e);
+    showCameraRecordingError(e);
     setIsRecording(false);
     isRecordingRef.current = false;
     setRecordingSecondsLeft(null);
+    setCameraSessionKey((k) => k + 1);
   }, []);
 
   // Flip works mid-record via expo-camera segment stitch (production quality path).
@@ -890,7 +922,6 @@ export function RecordScreen() {
     }
     // Avoid label/camera desync when the binary cannot stitch mid-take flips yet.
     if (isRecordingRef.current && !canConcatVideosNatively()) return;
-    setCameraFacing((prev) => (prev === 'front' ? 'back' : 'front'));
     singleControllerRef.current?.flip();
   }, [recordingBlocked, playerFacing.canRecord, preRecordCountdown, canUseCamera]);
 
@@ -947,14 +978,16 @@ export function RecordScreen() {
     recordTapBusyRef.current = true;
     try {
       if (cameraMode === 'single') {
-        const micOk = await ensureMicrophonePermissionForRecording();
-        if (!micOk) {
-          showError(
-            'Microphone needed',
-            new Error('Allow the microphone to record video with sound, or change this in Settings.')
-          );
-          restorePreviewAfterRecording();
-          return;
+        if (!micPermission?.granted) {
+          const micOk = await ensureMicrophonePermissionForRecording();
+          if (!micOk) {
+            showError(
+              'Microphone needed',
+              new Error('Allow the microphone to record video with sound, or change this in Settings.')
+            );
+            restorePreviewAfterRecording();
+            return;
+          }
         }
         if (!releaseRecordAudioRef.current) {
           releaseRecordAudioRef.current = await enterRecording();
@@ -1047,9 +1080,19 @@ export function RecordScreen() {
     submitPost();
   };
 
-  const cameraActive = isFocused && canUseCamera && !clipUri && !recordingBlocked;
+  const captureSessionLive =
+    isRecording || preRecordCountdown != null || isRecordingRef.current;
+  const cameraActive =
+    canUseCamera &&
+    !clipUri &&
+    !recordingBlocked &&
+    (isFocused || captureSessionLive);
   const dualActive =
-    cameraMode === 'dual' && isFocused && canUseCamera && !clipUri && !recordingBlocked;
+    cameraMode === 'dual' &&
+    canUseCamera &&
+    !clipUri &&
+    !recordingBlocked &&
+    (isFocused || captureSessionLive);
 
   const handleDualCapture = React.useCallback(
     (clip: { primaryUri: string; secondaryUri: string; frontIsPrimary: boolean }) => {
@@ -1080,10 +1123,11 @@ export function RecordScreen() {
 
   const handleDualError = React.useCallback((e: unknown) => {
     if (__DEV__) console.log('[Record] dual camera error:', e);
-    showError('Dual camera error', e);
+    showCameraRecordingError(e, 'Dual camera error');
     setIsRecording(false);
     isRecordingRef.current = false;
     setRecordingSecondsLeft(null);
+    setCameraSessionKey((k) => k + 1);
   }, []);
 
   const handleRecordingTick = React.useCallback((left: number) => {
@@ -1214,6 +1258,7 @@ export function RecordScreen() {
                 initialFacing={cameraFacing}
                 maxDurationSec={maxSec}
                 controllerRef={singleControllerRef}
+                onFacingChange={setCameraFacing}
                 onRecordingTick={handleRecordingTick}
                 onCapture={handleSingleCapture}
                 onError={handleSingleError}
