@@ -1,12 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Suspense } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { Suspense, useEffect, useState, useTransition } from "react";
 import type { Area } from "@/lib/types";
 import { areaHex } from "@/lib/area-styles";
+import { AREA_HINTS } from "@/lib/constants";
 import { VIEW_HEADINGS, viewForPath } from "@/lib/nesh-pages";
+import { upsertArea } from "@/app/settings/actions";
 import { AreaFocusProvider, useAreaFocus } from "./AreaFocusProvider";
+import { CommandPalette } from "./CommandPalette";
+import { QuickAddDialog } from "./QuickAddDialog";
+import { btnPrimary, btnSecondary, fieldInput } from "./nesh-ui";
 
 type NavItem = {
   href: string;
@@ -47,7 +52,11 @@ function NavSection({ title, items, pathname }: { title: string; items: NavItem[
 }
 
 function SectorStrip({ areas }: { areas: Area[] }) {
+  const router = useRouter();
   const { focusAreaId, setFocusAreaId, isAllAreas } = useAreaFocus();
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [isPending, startTransition] = useTransition();
   const sorted = [...areas].sort((a, b) => a.sortOrder - b.sortOrder);
 
   const chip = (active: boolean) =>
@@ -57,6 +66,22 @@ function SectorStrip({ areas }: { areas: Area[] }) {
         ? "border-[#17181f] bg-[#17181f] text-white"
         : "border-[#e6e6ee] bg-white text-[#6b6f7d] hover:border-[#cdbce6]",
     ].join(" ");
+
+  const saveArea = () => {
+    const name = newName.trim();
+    if (!name) return;
+    startTransition(async () => {
+      await upsertArea({
+        name,
+        colorToken: "violet",
+        sortOrder: areas.length,
+        isCadenceOnly: false,
+      });
+      setNewName("");
+      setAdding(false);
+      router.refresh();
+    });
+  };
 
   return (
     <div className="flex flex-wrap items-center gap-2 px-8 pb-3">
@@ -86,12 +111,42 @@ function SectorStrip({ areas }: { areas: Area[] }) {
                 : undefined
             }
             onClick={() => setFocusAreaId(a.id)}
+            title={AREA_HINTS[a.id]}
           >
             <span className="h-2 w-2 rounded-[3px]" style={{ background: hex }} />
             {a.name}
           </button>
         );
       })}
+      {adding ? (
+        <span className="inline-flex items-center gap-2">
+          <input
+            className={`${fieldInput} !w-36 !py-1.5 text-[12.5px]`}
+            placeholder="Area name"
+            value={newName}
+            autoFocus
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveArea();
+              if (e.key === "Escape") setAdding(false);
+            }}
+          />
+          <button type="button" className={btnPrimary + " !px-3 !py-1.5 text-xs"} disabled={isPending} onClick={saveArea}>
+            Save
+          </button>
+          <button type="button" className={btnSecondary + " !px-3 !py-1.5 text-xs"} onClick={() => setAdding(false)}>
+            Cancel
+          </button>
+        </span>
+      ) : (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-full border border-dashed border-[#d6d6e0] px-3 py-1.5 text-[12.5px] font-semibold text-[#9a9aa8] hover:border-[#6d4aff] hover:text-[#6d4aff]"
+          onClick={() => setAdding(true)}
+        >
+          ＋ Add area
+        </button>
+      )}
     </div>
   );
 }
@@ -103,57 +158,89 @@ function ShellHeader({ areas }: { areas: Area[] }) {
   const { focusAreaId, isAllAreas } = useAreaFocus();
   const area = areas.find((a) => a.id === focusAreaId);
   const subheading = isAllAreas ? defaultSub : `Focused on ${area?.name ?? "area"}`;
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
-    <div className="sticky top-0 z-20 border-b border-[#ececf1] bg-[rgba(244,244,248,0.86)] backdrop-blur-md">
-      <div className="flex flex-wrap items-center gap-4 px-8 py-3.5">
-        <h1 className="font-display text-[19px] font-bold tracking-tight text-[#17181f]">{title}</h1>
-        <p className="text-[13px] font-medium text-[#9a9aa8]">{subheading}</p>
-        <div className="ml-auto flex items-center gap-2.5">
-          <div className="hidden items-center gap-2 rounded-[10px] border border-[#ececf1] bg-white px-3 py-2 text-[13px] text-[#a7a7b3] sm:flex sm:w-[210px]">
-            <span className="h-1.5 w-1.5 rounded-full bg-[#c9c9d4]" />
-            Search anything…
-            <span className="ml-auto text-[11px] font-semibold text-[#c9c9d4]">⌘K</span>
+    <>
+      <div className="sticky top-0 z-20 border-b border-[#ececf1] bg-[rgba(244,244,248,0.86)] backdrop-blur-md">
+        <div className="flex flex-wrap items-center gap-4 px-8 py-3.5">
+          <h1 className="font-display text-[19px] font-bold tracking-tight text-[#17181f]">{title}</h1>
+          <p className="text-[13px] font-medium text-[#9a9aa8]">{subheading}</p>
+          <div className="ml-auto flex items-center gap-2.5">
+            <button
+              type="button"
+              className="hidden items-center gap-2 rounded-[10px] border border-[#ececf1] bg-white px-3 py-2 text-left text-[13px] text-[#a7a7b3] transition-colors hover:border-[#cdbce6] sm:flex sm:w-[210px]"
+              onClick={() => setSearchOpen(true)}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-[#c9c9d4]" />
+              Search anything…
+              <span className="ml-auto text-[11px] font-semibold text-[#c9c9d4]">⌘K</span>
+            </button>
+            <button type="button" className={btnPrimary} onClick={() => setQuickOpen(true)}>
+              <span className="mr-1 text-[15px] leading-none">＋</span>
+              Quick add
+            </button>
           </div>
-          <Link
-            href="/triage"
-            className="flex items-center gap-1.5 rounded-[10px] bg-[#17181f] px-4 py-2 text-[13px] font-semibold text-white"
-          >
-            <span className="text-[15px] leading-none">＋</span>
-            Quick add
-          </Link>
         </div>
+        <SectorStrip areas={areas} />
       </div>
-      <SectorStrip areas={areas} />
-    </div>
+      <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <QuickAddDialog
+        open={quickOpen}
+        onClose={() => setQuickOpen(false)}
+        areas={areas}
+        defaultAreaId={isAllAreas ? undefined : focusAreaId}
+      />
+    </>
   );
 }
 
-function ShellInner({ areas, children }: { areas: Area[]; children: React.ReactNode }) {
+function ShellInner({
+  areas,
+  triageCount,
+  children,
+}: {
+  areas: Area[];
+  triageCount: number;
+  children: React.ReactNode;
+}) {
   const pathname = usePathname();
+  const inboxBadge = triageCount > 0 ? String(triageCount) : undefined;
 
-  const daily: NavItem[] = [{ href: "/today", label: "Today", dot: "#6d4aff" }];
+  const daily: NavItem[] = [
+    { href: "/today", label: "Today", dot: "#6d4aff", badge: inboxBadge },
+    { href: "/weekly", label: "Weekly", dot: "#12a594" },
+    { href: "/reviews/weekly", label: "Weekly review", dot: "#94a3b8" },
+    { href: "/reviews/monthly", label: "Monthly review", dot: "#94a3b8" },
+  ];
   const workspace: NavItem[] = [
     { href: "/goals", label: "Goals", dot: "#2f6bff" },
-    { href: "/triage", label: "Tasks", dot: "#e8952b" },
-    { href: "/calendar", label: "Calendar", dot: "#12a594" },
+    { href: "/triage", label: "Tasks", dot: "#e8952b", badge: inboxBadge },
     { href: "/knowledge", label: "Documents", dot: "#4f57e8" },
-    { href: "/initiatives", label: "Initiatives", dot: "#8b5cf6" },
+    { href: "/initiatives", label: "Sectors", dot: "#8b5cf6" },
     { href: "/metrics", label: "Metrics", dot: "#14b8a6" },
     { href: "/learning", label: "Learning", dot: "#22c55e" },
   ];
   const vision: NavItem[] = [{ href: "/vision", label: "Vision board", dot: "linear-gradient(135deg,#e5449b,#f2683c)" }];
   const team: NavItem[] = [{ href: "/delegated", label: "Delegated", dot: "linear-gradient(135deg,#2f6bff,#12a594)" }];
-  const more: NavItem[] = [
-    { href: "/reviews/weekly", label: "Weekly review", dot: "#94a3b8" },
-    { href: "/reviews/monthly", label: "Monthly review", dot: "#94a3b8" },
-    { href: "/settings", label: "Settings", dot: "#94a3b8" },
-  ];
+  const more: NavItem[] = [{ href: "/settings", label: "Settings", dot: "#94a3b8" }];
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[#f4f4f8]">
       <aside className="flex w-[252px] shrink-0 flex-col border-r border-[#ececf1] bg-white px-3.5 py-5">
-        <div className="mb-5 flex items-center gap-2.5 px-2">
+        <Link href="/today" className="mb-5 flex items-center gap-2.5 px-2 transition-opacity hover:opacity-90">
           <div
             className="flex h-[34px] w-[34px] items-center justify-center rounded-[11px] shadow-[0_6px_16px_-6px_rgba(109,74,255,0.7)]"
             style={{ background: "linear-gradient(135deg,#6d4aff,#e5449b 90%)" }}
@@ -164,7 +251,7 @@ function ShellInner({ areas, children }: { areas: Area[]; children: React.ReactN
             <div className="font-display text-[21px] font-extrabold tracking-tight">nesh</div>
             <div className="mt-0.5 text-[10.5px] font-medium text-[#9a9aa8]">your life, shipped</div>
           </div>
-        </div>
+        </Link>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <NavSection title="DAILY" items={daily} pathname={pathname} />
@@ -174,7 +261,10 @@ function ShellInner({ areas, children }: { areas: Area[]; children: React.ReactN
           <NavSection title="MORE" items={more} pathname={pathname} />
         </div>
 
-        <div className="mt-auto flex items-center gap-2.5 border-t border-[#f0f0f4] px-2.5 pt-3.5">
+        <Link
+          href="/settings"
+          className="mt-auto flex items-center gap-2.5 border-t border-[#f0f0f4] px-2.5 pt-3.5 transition-colors hover:bg-[#f8f8fb] rounded-lg"
+        >
           <div
             className="flex h-[30px] w-[30px] items-center justify-center rounded-full text-xs font-bold text-white"
             style={{ background: "linear-gradient(135deg,#2f6bff,#12a594)" }}
@@ -185,7 +275,7 @@ function ShellInner({ areas, children }: { areas: Area[]; children: React.ReactN
             <div className="text-[13px] font-semibold">Inesh</div>
             <div className="text-[11px] text-[#9a9aa8]">founder · student · athlete</div>
           </div>
-        </div>
+        </Link>
       </aside>
 
       <main className="relative min-w-0 flex-1 overflow-y-auto">
@@ -196,11 +286,21 @@ function ShellInner({ areas, children }: { areas: Area[]; children: React.ReactN
   );
 }
 
-export function NeshShell({ areas, children }: { areas: Area[]; children: React.ReactNode }) {
+export function NeshShell({
+  areas,
+  triageCount,
+  children,
+}: {
+  areas: Area[];
+  triageCount: number;
+  children: React.ReactNode;
+}) {
   return (
     <Suspense fallback={<div className="min-h-screen bg-[#f4f4f8]" />}>
       <AreaFocusProvider>
-        <ShellInner areas={areas}>{children}</ShellInner>
+        <ShellInner areas={areas} triageCount={triageCount}>
+          {children}
+        </ShellInner>
       </AreaFocusProvider>
     </Suspense>
   );

@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { AREA_COLOR_HEX } from "@/lib/constants";
 import type { Area, Goal, VisionItem } from "@/lib/types";
-import { promoteVisionItemToGoal, upsertVisionItem } from "./actions";
+import { promoteVisionItemToGoal, removeVisionItem, upsertVisionItem } from "./actions";
 
 export function VisionClient({
   areas, visionItems, goals,
@@ -15,6 +17,7 @@ export function VisionClient({
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
 
   const areaById = new Map(areas.map((a) => [a.id, a]));
   const itemsByArea = new Map<string, VisionItem[]>();
@@ -42,7 +45,8 @@ export function VisionClient({
             Active when you&apos;re ready to make it real.
           </p>
           <button
-            className="mt-4 rounded-full border border-[#ececf1] bg-white px-4 py-2 text-sm font-semibold shadow-sm"
+            type="button"
+            className="mt-4 rounded-full border border-[#ececf1] bg-white px-4 py-2 text-sm font-semibold shadow-sm hover:border-[#cdbce6]"
             onClick={() => setCreating(true)}
           >
             + New vision
@@ -52,11 +56,13 @@ export function VisionClient({
         <div className="space-y-10 pb-12">
         {areas.map((area) => {
           const items = itemsByArea.get(area.id) ?? [];
-          if (!items.length) return null;
           const hex = AREA_COLOR_HEX[area.colorToken] ?? "#71717a";
           return (
             <section key={area.id}>
               <h2 className="mb-3 text-sm font-semibold" style={{ color: hex }}>{area.name}</h2>
+              {items.length === 0 ? (
+                <p className="text-sm text-[#a7a7b3]">No dream written down for {area.name} yet.</p>
+              ) : (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {items.map((v) => (
                   <button
@@ -88,6 +94,7 @@ export function VisionClient({
                   </button>
                 ))}
               </div>
+              )}
             </section>
           );
         })}
@@ -105,14 +112,46 @@ export function VisionClient({
             <div className="mt-4">
               <div className="mb-1 text-xs muted">Linked active goals</div>
               {linkedGoals.length === 0 ? (
-                <PromoteForm visionId={open.id} pending={isPending} startTransition={startTransition} />
+                <PromoteForm
+                  visionId={open.id}
+                  pending={isPending}
+                  startTransition={startTransition}
+                  onPromoted={() => {
+                    setOpenId(null);
+                    router.refresh();
+                  }}
+                />
               ) : (
                 <ul className="space-y-1 text-sm">
-                  {linkedGoals.map((g) => <li key={g.id}>{g.title}</li>)}
+                  {linkedGoals.map((g) => (
+                    <li key={g.id}>
+                      <Link href="/goals" className="font-semibold text-[#6d4aff] hover:underline">
+                        {g.title}
+                      </Link>
+                    </li>
+                  ))}
                 </ul>
               )}
             </div>
-            <button className="mt-4 text-xs muted hover:underline" onClick={() => setOpenId(null)}>Close</button>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button className="text-xs muted hover:underline" onClick={() => setOpenId(null)}>Close</button>
+              <button
+                type="button"
+                className="text-xs font-semibold text-[#9a9aa8] hover:text-[#c95a2b] hover:underline"
+                disabled={isPending}
+                onClick={() => {
+                  if (confirm(`Delete vision “${open.title}”?`)) {
+                    startTransition(async () => {
+                      await removeVisionItem(open.id);
+                      setOpenId(null);
+                      router.refresh();
+                    });
+                  }
+                }}
+              >
+                Delete vision
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -122,11 +161,12 @@ export function VisionClient({
 }
 
 function PromoteForm({
-  visionId, pending, startTransition,
+  visionId, pending, startTransition, onPromoted,
 }: {
   visionId: string;
   pending: boolean;
   startTransition: (fn: () => void) => void;
+  onPromoted: () => void;
 }) {
   const [title, setTitle] = useState("");
   return (
@@ -139,9 +179,15 @@ function PromoteForm({
         onChange={(e) => setTitle(e.target.value)}
       />
       <button
-        className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs text-[var(--bg)]"
+        type="button"
+        className="btn-accent"
         disabled={pending || !title.trim()}
-        onClick={() => startTransition(() => { promoteVisionItemToGoal(visionId, title.trim()); })}
+        onClick={() =>
+          startTransition(async () => {
+            await promoteVisionItemToGoal(visionId, title.trim());
+            onPromoted();
+          })
+        }
       >
         Promote to Active
       </button>
@@ -150,6 +196,7 @@ function PromoteForm({
 }
 
 function NewVisionModal({ areas, onClose }: { areas: Area[]; onClose: () => void }) {
+  const router = useRouter();
   const [areaId, setAreaId] = useState(areas[0]?.id ?? "");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -188,12 +235,14 @@ function NewVisionModal({ areas, onClose }: { areas: Area[]; onClose: () => void
         />
         <div className="flex gap-2">
           <button
-            className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs text-[var(--bg)]"
+            type="button"
+            className="btn-accent"
             disabled={isPending || !title.trim()}
             onClick={() =>
               startTransition(async () => {
                 await upsertVisionItem({ areaId, title: title.trim(), body, imageUrl: imageUrl || null });
                 onClose();
+                router.refresh();
               })
             }
           >

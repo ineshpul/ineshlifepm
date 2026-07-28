@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { saveVisionItem, saveGoal, getVisionItem, newId, nowIso } from "@/lib/repo";
+import { saveVisionItem, saveGoal, getVisionItem, deleteVisionItem, newId, nowIso } from "@/lib/repo";
+import { normalizeGoal } from "@/lib/goal-utils";
 import type { VisionItem } from "@/lib/types";
 
 export async function upsertVisionItem(input: {
@@ -34,7 +35,7 @@ export async function promoteVisionItemToGoal(visionItemId: string, goalTitle: s
   const vision = await getVisionItem(visionItemId);
   if (!vision) throw new Error("Vision item not found.");
 
-  const goal = {
+  const goal = normalizeGoal({
     id: newId("goal"),
     areaId: vision.areaId,
     initiativeId: null,
@@ -44,7 +45,13 @@ export async function promoteVisionItemToGoal(visionItemId: string, goalTitle: s
     priority: 3,
     status: "not_started" as const,
     visionItemId: vision.id,
-  };
+    currentState: "",
+    actionItems: "",
+    solution: "",
+    isQuantifiable: false,
+    trackUnit: "",
+    trackTargetPerDay: null,
+  });
   await saveGoal(goal);
   await saveVisionItem({
     ...vision,
@@ -55,4 +62,9 @@ export async function promoteVisionItemToGoal(visionItemId: string, goalTitle: s
   revalidatePath("/vision");
   revalidatePath("/goals");
   return goal;
+}
+
+export async function removeVisionItem(id: string) {
+  await deleteVisionItem(id);
+  revalidatePath("/vision");
 }

@@ -2,11 +2,12 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { AREA_COLOR_HEX } from "@/lib/constants";
-import type { Area, Assignee, CadenceRule, Settings, TaskSize } from "@/lib/types";
+import type { Area, Assignee, CadenceRule, Settings, TaskSize, WorkspaceInvite } from "@/lib/types";
 import {
   addRecurringBlock, removeRecurringBlock, rotateCalendarToken, updateGeneralSettings,
   upsertArea, upsertAssignee, upsertCadenceRule,
 } from "./actions";
+import { createWorkspaceInvite, revokeInvite, updateWorkspaceName } from "./team-actions";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -21,12 +22,13 @@ function timeToMinutes(t: string) {
 }
 
 export function SettingsClient({
-  settings, areas, assignees, cadenceRules,
+  settings, areas, assignees, cadenceRules, pendingInvites,
 }: {
   settings: Settings;
   areas: Area[];
   assignees: Assignee[];
   cadenceRules: CadenceRule[];
+  pendingInvites: WorkspaceInvite[];
 }) {
   const [isPending, startTransition] = useTransition();
   const [focusFactor, setFocusFactor] = useState(settings.focusFactor);
@@ -35,6 +37,11 @@ export function SettingsClient({
   const [workEnd, setWorkEnd] = useState(minutesToTime(settings.workDayEndMinute));
   const [origin, setOrigin] = useState("");
   const [token, setToken] = useState(settings.calendarToken);
+  const [copied, setCopied] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [workspaceName, setWorkspaceName] = useState(settings.workspaceName ?? "My workspace");
+  const [teamError, setTeamError] = useState<string | null>(null);
 
   useEffect(() => { setOrigin(window.location.origin); }, []);
 
@@ -63,7 +70,8 @@ export function SettingsClient({
             ))}
           </div>
           <button
-            className="mt-3 rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs text-[var(--bg)]"
+            type="button"
+            className="btn-accent mt-3"
             disabled={isPending}
             onClick={() => startTransition(() => updateGeneralSettings({
               focusFactor, sizeMinutes,
@@ -79,13 +87,29 @@ export function SettingsClient({
           <h2 className="mb-3 text-sm font-medium">Calendar feed</h2>
           <p className="mb-2 text-xs muted">Unauthenticated — anyone with this URL can read task titles. Rotate if it leaks.</p>
           <code className="block break-all rounded-md bg-black/5 p-2 text-xs dark:bg-white/5">{origin}/api/calendar/{token}.ics</code>
-          <button
-            className="mt-2 rounded-md border hairline px-3 py-1.5 text-xs"
-            disabled={isPending}
-            onClick={() => startTransition(async () => { const t = await rotateCalendarToken(); setToken(t); })}
-          >
-            Rotate token
-          </button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-md border hairline px-3 py-1.5 text-xs"
+              disabled={!origin}
+              onClick={() => {
+                const url = `${origin}/api/calendar/${token}.ics`;
+                void navigator.clipboard.writeText(url);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+            >
+              {copied ? "Copied!" : "Copy URL"}
+            </button>
+            <button
+              type="button"
+              className="rounded-md border hairline px-3 py-1.5 text-xs"
+              disabled={isPending}
+              onClick={() => startTransition(async () => { const t = await rotateCalendarToken(); setToken(t); })}
+            >
+              Rotate token
+            </button>
+          </div>
         </section>
 
         <section className="card p-4">
@@ -106,6 +130,85 @@ export function SettingsClient({
         <section className="card p-4">
           <h2 className="mb-3 text-sm font-medium">Cadence rules</h2>
           <CadenceEditor areas={areas} rules={cadenceRules} pending={isPending} startTransition={startTransition} />
+        </section>
+
+        <section className="card p-4">
+          <h2 className="mb-2 text-sm font-medium">Team & workspace</h2>
+          <p className="mb-3 text-xs text-[#6b6f7d]">
+            Invite a small group — each person gets their own areas, sectors, goals, tasks, and documents in a separate
+            workspace. They sign in with the email you invite.
+          </p>
+          <label className="mb-2 block text-xs font-semibold text-[#9a9aa8]">Workspace name</label>
+          <div className="mb-4 flex gap-2">
+            <input
+              className="flex-1 rounded-md border hairline bg-transparent px-2 py-1.5 text-sm"
+              value={workspaceName}
+              onChange={(e) => setWorkspaceName(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn-accent text-xs"
+              disabled={isPending}
+              onClick={() => startTransition(() => updateWorkspaceName(workspaceName))}
+            >
+              Save name
+            </button>
+          </div>
+          <label className="mb-2 block text-xs font-semibold text-[#9a9aa8]">Invite by email</label>
+          <div className="flex flex-wrap gap-2">
+            <input
+              type="email"
+              className="min-w-[200px] flex-1 rounded-md border hairline bg-transparent px-2 py-1.5 text-sm"
+              placeholder="teammate@school.edu"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn-accent text-xs"
+              disabled={isPending || !inviteEmail.trim()}
+              onClick={() =>
+                startTransition(async () => {
+                  setTeamError(null);
+                  const res = await createWorkspaceInvite(inviteEmail);
+                  if (!res.ok) setTeamError(res.message);
+                  else {
+                    setInviteUrl(res.inviteUrl);
+                    setInviteEmail("");
+                  }
+                })
+              }
+            >
+              Create invite link
+            </button>
+          </div>
+          {teamError ? <p className="mt-2 text-xs text-red-600">{teamError}</p> : null}
+          {inviteUrl ? (
+            <p className="mt-2 break-all text-xs text-[#2fae5b]">
+              Share: {inviteUrl}
+            </p>
+          ) : null}
+          {pendingInvites.length > 0 ? (
+            <ul className="mt-4 space-y-1 text-xs text-[#6b6f7d]">
+              {pendingInvites.map((inv) => (
+                <li key={inv.id} className="flex items-center justify-between gap-2">
+                  <span>{inv.email} · expires {new Date(inv.expiresAt).toLocaleDateString()}</span>
+                  <button
+                    type="button"
+                    className="text-[#9a9aa8] hover:underline"
+                    onClick={() => startTransition(() => revokeInvite(inv.id))}
+                  >
+                    Revoke
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <p className="mt-3 text-xs text-[#9a9aa8]">
+            Teammates open the link → <a href="/login" className="text-[#6d4aff] hover:underline">/login</a>. Full
+            per-user auth uses Supabase — add <code className="text-[10px]">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> to enable
+            hosted sign-in.
+          </p>
         </section>
       </div>
     </div>

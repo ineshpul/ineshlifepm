@@ -59,15 +59,14 @@ Fixed list, user-editable. Every object belongs to exactly one area.
 |---|---|
 | Leap B2C | Consumer app, retention, product |
 | Leap B2B | Pipeline, partnerships, schools and companies |
+| Investor relations | Fundraising, investor updates, data room, meetings |
 | FinDi | Employer commitments only. Deadlines and obligations. No product detail. |
 | PM recruiting | Sub-threads: job applications, outreach, study with Brady |
 | Personal brand | Substack, X, public writing |
 | Campus | Student orgs, campus growth |
 | School | Coursework, assignments |
-| Admin | Study abroad application, logistics, misc |
 | Health and sport | Gym, soccer |
 | Hobbies | Football Manager, personal interests |
-| Product knowledge base | Reference and decision log, see §9.9 |
 
 **Initiatives** are the level between Area and Goal. An Initiative is a named plan with a written body: the IU outreach plan, the UIUC handoff, the Substack plan, the B2B pipeline build. It holds its own strategy, its own goals, its own metrics, and a record of how it went. See §5.11.
 

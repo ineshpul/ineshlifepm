@@ -1,14 +1,16 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { AreaTag } from "@/components/AreaTag";
 import type { Area, Task } from "@/lib/types";
-import { activateLearningItem, closeLearningItem, createLearningItem, returnToBacklog } from "./actions";
+import { activateLearningItem, closeLearningItem, createLearningItem, deleteLearningItem, returnToBacklog } from "./actions";
 
 export function LearningClient({ areas, tasks }: { areas: Area[]; tasks: Task[] }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const router = useRouter();
   const areaById = new Map(areas.map((a) => [a.id, a]));
 
   const active = tasks.filter((t) => t.status === "active");
@@ -34,7 +36,7 @@ export function LearningClient({ areas, tasks }: { areas: Area[]; tasks: Task[] 
         </button>
       </div>
       {error && <div className="mb-4 text-sm text-red-600">{error}</div>}
-      {creating && <NewLearningForm areas={areas} onDone={() => setCreating(false)} run={run} pending={isPending} />}
+      {creating && <NewLearningForm areas={areas} onDone={() => { setCreating(false); router.refresh(); }} run={run} pending={isPending} />}
 
       <div className="grid gap-6 md:grid-cols-2">
         <section>
@@ -45,10 +47,23 @@ export function LearningClient({ areas, tasks }: { areas: Area[]; tasks: Task[] 
                 <div className="text-sm font-medium">{t.title}</div>
                 {areaById.get(t.areaId) && <div className="mt-1"><AreaTag name={areaById.get(t.areaId)!.name} colorToken={areaById.get(t.areaId)!.colorToken} /></div>}
                 <div className="mt-2 text-xs muted">Artifact: {t.artifactDefinition}</div>
-                <div className="mt-3 flex gap-2 text-xs">
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
                   <button className="muted hover:underline" onClick={() => run(() => returnToBacklog(t.id))}>Return to backlog</button>
                   <button className="text-emerald-600 hover:underline dark:text-emerald-400" onClick={() => run(() => closeLearningItem(t.id))}>
                     Artifact produced — close
+                  </button>
+                  <button
+                    className="text-[#9a9aa8] hover:text-[#c95a2b] hover:underline"
+                    onClick={() => {
+                      if (confirm("Delete this learning item?")) {
+                        run(async () => {
+                          await deleteLearningItem(t.id);
+                          router.refresh();
+                        });
+                      }
+                    }}
+                  >
+                    Delete
                   </button>
                 </div>
               </div>
@@ -65,13 +80,27 @@ export function LearningClient({ areas, tasks }: { areas: Area[]; tasks: Task[] 
                 <div className="text-sm font-medium">{t.title}</div>
                 {areaById.get(t.areaId) && <div className="mt-1"><AreaTag name={areaById.get(t.areaId)!.name} colorToken={areaById.get(t.areaId)!.colorToken} /></div>}
                 {t.artifactDefinition && <div className="mt-2 text-xs muted">Artifact: {t.artifactDefinition}</div>}
-                <div className="mt-3">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     className="rounded-md border hairline px-2 py-1 text-xs disabled:opacity-40"
                     disabled={isPending || active.length >= 2}
                     onClick={() => run(() => activateLearningItem(t.id))}
                   >
                     Move to active
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs text-[#9a9aa8] hover:text-[#c95a2b] hover:underline"
+                    onClick={() => {
+                      if (confirm("Delete this learning item?")) {
+                        run(async () => {
+                          await deleteLearningItem(t.id);
+                          router.refresh();
+                        });
+                      }
+                    }}
+                  >
+                    Delete
                   </button>
                 </div>
               </div>

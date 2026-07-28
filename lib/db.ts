@@ -33,6 +33,10 @@ export const TABLES = {
   userChats: "user_chats",
   initiatives: "initiatives",
   settings: "settings",
+  workspaces: "workspaces",
+  workspaceMembers: "workspace_members",
+  workspaceInvites: "workspace_invites",
+  goalProgressLogs: "goal_progress_logs",
 } as const;
 
 export const SETTINGS_DOC_ID = "singleton";

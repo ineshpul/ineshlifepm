@@ -1,5 +1,6 @@
 export type NeshViewId =
   | "today"
+  | "weekly"
   | "goals"
   | "tasks"
   | "calendar"
@@ -15,6 +16,8 @@ export type NeshViewId =
 
 export const ROUTE_VIEW: { prefix: string; id: NeshViewId }[] = [
   { prefix: "/today", id: "today" },
+  { prefix: "/weekly", id: "weekly" },
+  { prefix: "/calendar", id: "weekly" },
   { prefix: "/goals", id: "goals" },
   { prefix: "/triage", id: "tasks" },
   { prefix: "/calendar", id: "calendar" },
@@ -36,9 +39,10 @@ export function viewForPath(pathname: string): NeshViewId {
 
 export const VIEW_HEADINGS: Record<NeshViewId, [string, string]> = {
   today: ["Today", "Your committed plan for the day"],
+  weekly: ["Weekly", "Your week — classes, tasks, and where things land"],
   goals: ["Goals", "In play this quarter — each with a definition of done"],
   tasks: ["Tasks", "Inbox and backlog — triage before it becomes real work"],
-  calendar: ["Calendar", "This week — committed blocks and free time"],
+  calendar: ["Weekly", "Your week — classes, tasks, and where things land"],
   docs: ["Documents", "Decisions, frameworks, and reference by area"],
   vision: ["Vision", "The life you're building"],
   members: ["Delegated", "People you're waiting on — outside your capacity"],

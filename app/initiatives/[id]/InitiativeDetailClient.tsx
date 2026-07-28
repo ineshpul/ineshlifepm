@@ -1,11 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { AreaTag } from "@/components/AreaTag";
 import { formatDate } from "@/lib/dates";
 import { Sparkline } from "@/app/metrics/Sparkline";
 import type { Area, Assignee, Goal, Initiative, InitiativeStatus, Metric, MetricReading, Task } from "@/lib/types";
-import { addOutcomeNote, linkGoalToInitiative, linkMetricToInitiative, updateInitiativeStatus, updatePlanBody } from "../actions";
+import { addOutcomeNote, createSectorTask, linkGoalToInitiative, linkMetricToInitiative, updateInitiativeStatus, updatePlanBody } from "../actions";
 
 const STATUSES: InitiativeStatus[] = ["planning", "running", "handing_off", "complete", "parked"];
 
@@ -26,6 +27,7 @@ export function InitiativeDetailClient({
   const [planBody, setPlanBody] = useState(initiative.planBody);
   const [planDirty, setPlanDirty] = useState(false);
   const [note, setNote] = useState("");
+  const [newTask, setNewTask] = useState("");
   const area = areas.find((a) => a.id === initiative.areaId);
   const owner = initiative.ownerId ? assignees.find((a) => a.id === initiative.ownerId) : null;
 
@@ -33,11 +35,18 @@ export function InitiativeDetailClient({
     .filter((t) => t.closedAt)
     .sort((a, b) => (a.closedAt! < b.closedAt! ? 1 : -1));
 
+  const openSectorTasks = tasks.filter(
+    (t) => t.initiativeId === initiative.id && !t.closedAt && t.status !== "shipped" && t.status !== "accepted"
+  );
+
   const unlinkedGoals = allGoals.filter((g) => g.areaId === initiative.areaId && !goals.some((lg) => lg.id === g.id));
   const unlinkedMetrics = allMetrics.filter((m) => m.areaId === initiative.areaId && !metrics.some((lm) => lm.id === m.id));
 
   return (
     <div className="nesh-page">
+      <Link href="/initiatives" className="mb-4 inline-block text-sm font-semibold text-[#6d4aff] hover:underline">
+        ← Back to initiatives
+      </Link>
       <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
         <select
           className="rounded-md border hairline bg-transparent px-2 py-1.5 text-sm"
@@ -90,8 +99,55 @@ export function InitiativeDetailClient({
           </section>
 
           <section className="card p-4">
+            <h2 className="mb-2 text-sm font-medium">Ongoing tasks in this sector</h2>
+            <p className="mb-3 text-xs text-[#9a9aa8]">
+              Tasks live in triage until you schedule or commit them. They stay tied to this sector.
+            </p>
+            <ul className="mb-3 space-y-1.5">
+              {openSectorTasks.map((t) => (
+                <li key={t.id} className="flex items-center justify-between gap-2 text-sm">
+                  <Link href="/triage" className="font-medium text-[#6d4aff] hover:underline">
+                    {t.title}
+                  </Link>
+                  <span className="text-xs text-[#9a9aa8]">{t.status}</span>
+                </li>
+              ))}
+              {openSectorTasks.length === 0 ? <li className="text-sm text-[#a7a7b3]">No open tasks yet.</li> : null}
+            </ul>
+            <div className="flex gap-2">
+              <input
+                className="flex-1 rounded-md border hairline bg-transparent px-2 py-1.5 text-sm"
+                placeholder="New task for this sector…"
+                value={newTask}
+                onChange={(e) => setNewTask(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newTask.trim()) {
+                    startTransition(async () => {
+                      await createSectorTask(initiative.id, newTask.trim());
+                      setNewTask("");
+                    });
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="rounded-md border hairline px-3 py-1.5 text-xs font-semibold"
+                disabled={isPending || !newTask.trim()}
+                onClick={() =>
+                  startTransition(async () => {
+                    await createSectorTask(initiative.id, newTask.trim());
+                    setNewTask("");
+                  })
+                }
+              >
+                Add
+              </button>
+            </div>
+          </section>
+
+          <section className="card p-4">
             <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-sm font-medium">Linked goals</h2>
+              <h2 className="text-sm font-medium">Goals in this sector</h2>
               {unlinkedGoals.length > 0 && (
                 <select
                   className="rounded-md border hairline bg-transparent px-2 py-1 text-xs"
@@ -133,7 +189,7 @@ export function InitiativeDetailClient({
                 {metrics.map((m) => (
                   <div key={m.id} className="flex items-center justify-between">
                     <span className="text-sm">{m.name}</span>
-                    <Sparkline readings={readingsByMetric[m.id] ?? []} target={m.targetValue} />
+                    <Sparkline readings={readingsByMetric[m.id] ?? []} target={m.targetValue ?? undefined} />
                   </div>
                 ))}
               </div>

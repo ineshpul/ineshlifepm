@@ -28,7 +28,9 @@ export async function rotateCalendarToken() {
 export async function upsertArea(input: { id?: string; name: string; colorToken: string; sortOrder: number; isCadenceOnly: boolean }) {
   const area: Area = { id: input.id ?? newId("area"), ...input };
   await saveArea(area);
+  revalidatePath("/", "layout");
   revalidatePath("/settings");
+  revalidatePath("/today");
 }
 
 export async function upsertAssignee(input: { id?: string; name: string; reliability: "reliable" | "variable" }) {

@@ -12,20 +12,26 @@ export const DEFAULT_MAX_NUDGES = 3;
 export const SEED_AREAS = [
   { id: "leap-b2c", name: "Leap B2C", colorToken: "violet", sortOrder: 0, isCadenceOnly: false },
   { id: "leap-b2b", name: "Leap B2B", colorToken: "indigo", sortOrder: 1, isCadenceOnly: false },
-  { id: "findi", name: "FinDi", colorToken: "slate", sortOrder: 2, isCadenceOnly: false },
-  { id: "pm-recruiting", name: "PM recruiting", colorToken: "amber", sortOrder: 3, isCadenceOnly: false },
-  { id: "personal-brand", name: "Personal brand", colorToken: "rose", sortOrder: 4, isCadenceOnly: false },
-  { id: "campus", name: "Campus", colorToken: "teal", sortOrder: 5, isCadenceOnly: false },
-  { id: "school", name: "School", colorToken: "blue", sortOrder: 6, isCadenceOnly: false },
-  { id: "admin", name: "Admin", colorToken: "stone", sortOrder: 7, isCadenceOnly: false },
+  { id: "investor-relations", name: "Investor relations", colorToken: "ir", sortOrder: 2, isCadenceOnly: false },
+  { id: "findi", name: "FinDi", colorToken: "slate", sortOrder: 3, isCadenceOnly: false },
+  { id: "pm-recruiting", name: "PM recruiting", colorToken: "amber", sortOrder: 4, isCadenceOnly: false },
+  { id: "personal-brand", name: "Personal brand", colorToken: "rose", sortOrder: 5, isCadenceOnly: false },
+  { id: "campus", name: "Campus", colorToken: "teal", sortOrder: 6, isCadenceOnly: false },
+  { id: "school", name: "School", colorToken: "blue", sortOrder: 7, isCadenceOnly: false },
   { id: "health-sport", name: "Health and sport", colorToken: "emerald", sortOrder: 8, isCadenceOnly: false },
   { id: "hobbies", name: "Hobbies", colorToken: "fuchsia", sortOrder: 9, isCadenceOnly: false },
-  { id: "product-kb", name: "Product knowledge base", colorToken: "cyan", sortOrder: 10, isCadenceOnly: true },
 ] as const;
+
+/** Short tooltip for FOCUS ON chips (life areas, not app roles). */
+export const AREA_HINTS: Record<string, string> = {
+  "investor-relations":
+    "Fundraising: investor updates, meetings, deck, and data room—not the same as Admin logistics.",
+};
 
 export const AREA_COLOR_HEX: Record<string, string> = {
   violet: "#7c3aed",
   indigo: "#4f46e5",
+  ir: "#4f57e8",
   slate: "#475569",
   amber: "#d97706",
   rose: "#e11d48",

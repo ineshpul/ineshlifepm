@@ -204,8 +204,85 @@ export async function quickAddToTriage(title: string, areaId: string) {
   revalidatePath("/triage");
 }
 
+/** Add a task from Today — inbox, today's plan, or miscellaneous. */
+export async function createTaskFromToday(input: {
+  title: string;
+  areaId: string;
+  size?: "S" | "M" | "L";
+  miscellaneous?: boolean;
+  addToTodayPlan?: boolean;
+}): Promise<{ ok: boolean; message: string }> {
+  const title = input.title.trim();
+  if (!title) return { ok: false, message: "Enter a task title." };
+
+  const settings = await getSettings();
+  const day = await currentDay();
+  if (input.addToTodayPlan && day.lockedAt) {
+    return { ok: false, message: "Day is locked — new work goes to inbox only." };
+  }
+
+  const areaId = input.areaId;
+  const size = input.size ?? "M";
+  const estimateMinutes = settings.sizeMinutes[size];
+
+  const task: Task = {
+    id: newId("task"),
+    areaId,
+    goalId: null,
+    initiativeId: null,
+    type: "build",
+    subtype: input.miscellaneous ? "issue" : null,
+    title: input.miscellaneous ? `Misc · ${title}` : title,
+    definitionOfDone: input.miscellaneous ? "Done when handled or filed." : null,
+    size,
+    estimateMinutes,
+    actualMinutes: null,
+    priority: input.miscellaneous ? 4 : 3,
+    severity: null,
+    dueAt: null,
+    scheduledAt: null,
+    assigneeId: null,
+    status: input.addToTodayPlan && !day.lockedAt ? "specced" : "triage",
+    createdAt: nowIso(),
+    closedAt: null,
+    lastTouchedAt: nowIso(),
+    hypothesis: null,
+    targetMetric: null,
+    artifactDefinition: null,
+    cadenceRuleId: null,
+    committedForDate: input.addToTodayPlan && !day.lockedAt ? day.date : null,
+    droppedReason: null,
+  };
+
+  await saveTask(task);
+
+  if (input.addToTodayPlan && !day.lockedAt) {
+    await saveDay({
+      ...day,
+      committedTaskIds: [...new Set([...day.committedTaskIds, task.id])],
+    });
+  }
+
+  revalidatePath("/today");
+  revalidatePath("/triage");
+
+  const where = input.addToTodayPlan && !day.lockedAt ? "today's plan" : "inbox";
+  const kind = input.miscellaneous ? "Miscellaneous task" : "Task";
+  return { ok: true, message: `${kind} added to ${where}.` };
+}
+
 export async function dismissNudge(nudgeId: string) {
   const day = await currentDay();
   await saveDay({ ...day, dismissedNudgeIds: [...new Set([...day.dismissedNudgeIds, nudgeId])] });
+  revalidatePath("/today");
+}
+
+export async function incrementCadenceRule(ruleId: string) {
+  const rules = await listCadenceRules();
+  const rule = rules.find((r) => r.id === ruleId);
+  if (!rule) return;
+  const week = startOfWeek();
+  const count = rule.weekOf === week ? rule.currentWeekCount + 1 : 1;
+  await saveCadenceRule({ ...rule, currentWeekCount: count, weekOf: week });
   revalidatePath("/today");
 }

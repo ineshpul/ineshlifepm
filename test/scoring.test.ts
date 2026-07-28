@@ -143,7 +143,20 @@ test("cadence nudge only fires Thursday or later", () => {
 
 test("goal past target_date with no movement produces a nudge", () => {
   const goals: Goal[] = [
-    { id: "g1", areaId: "area-1", initiativeId: null, title: "Ship it", successDefinition: "x", targetDate: "2020-01-01", priority: 3, status: "active", visionItemId: null },
+    {
+      id: "g1",
+      areaId: "area-1",
+      initiativeId: null,
+      title: "Ship it",
+      successDefinition: "x",
+      targetDate: "2020-01-01",
+      priority: 3,
+      status: "active",
+      visionItemId: null,
+      currentState: "",
+      actionItems: "",
+      solution: "",
+    },
   ];
   const all = computeAllNudges({ initiatives: [], cadenceRules: [], delegatedTasks: [], goals, metrics: [] });
   assert.ok(all.some((n) => n.trigger === "goal_past_target"));

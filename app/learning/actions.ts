@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { listTasks, getTask, saveTask, newId, nowIso } from "@/lib/repo";
+import { listTasks, getTask, saveTask, deleteTask, newId, nowIso } from "@/lib/repo";
 import type { Task } from "@/lib/types";
 
 export async function createLearningItem(title: string, areaId: string, artifactDefinition: string) {
@@ -67,5 +67,12 @@ export async function closeLearningItem(taskId: string) {
     throw new Error("Closes only when the artifact exists — define it first.");
   }
   await saveTask({ ...task, status: "artifact_produced", closedAt: nowIso(), lastTouchedAt: nowIso() });
+  revalidatePath("/learning");
+}
+
+export async function deleteLearningItem(taskId: string) {
+  const task = await getTask(taskId);
+  if (!task || task.type !== "learning") return;
+  await deleteTask(taskId);
   revalidatePath("/learning");
 }

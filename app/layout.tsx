@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Bricolage_Grotesque, Figtree } from "next/font/google";
 import { NeshShell } from "@/components/nesh/NeshShell";
-import { listAreas } from "@/lib/repo";
+import { listAreas, listTasks } from "@/lib/repo";
 import "./globals.css";
 
 export const dynamic = "force-dynamic";
@@ -24,12 +24,15 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const areas = await listAreas();
+  const [areas, tasks] = await Promise.all([listAreas(), listTasks()]);
+  const triageCount = tasks.filter((t) => t.status === "triage").length;
 
   return (
     <html lang="en" className={`${figtree.variable} ${bricolage.variable}`} suppressHydrationWarning>
       <body className="font-sans antialiased">
-        <NeshShell areas={areas}>{children}</NeshShell>
+        <NeshShell areas={areas} triageCount={triageCount}>
+          {children}
+        </NeshShell>
       </body>
     </html>
   );

@@ -55,6 +55,7 @@ export async function assignGoalAndAdvance(taskId: string, input: {
     lastTouchedAt: nowIso(),
   });
   revalidatePath("/triage");
+  revalidatePath("/today");
   revalidatePath("/goals");
 }
 
@@ -79,6 +80,7 @@ export async function sendToBacklog(taskId: string, fields: {
     lastTouchedAt: nowIso(),
   });
   revalidatePath("/triage");
+  revalidatePath("/today");
 }
 
 export async function delegateFromTriage(taskId: string, assigneeId: string, definitionOfDone: string) {
@@ -96,9 +98,11 @@ export async function delegateFromTriage(taskId: string, assigneeId: string, def
   });
   revalidatePath("/triage");
   revalidatePath("/delegated");
+  revalidatePath("/today");
 }
 
 export async function deleteFromTriage(taskId: string) {
   await deleteTask(taskId);
   revalidatePath("/triage");
+  revalidatePath("/today");
 }

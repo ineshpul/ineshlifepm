@@ -11,6 +11,7 @@ import type {
   Area,
   VisionItem,
   Goal,
+  GoalProgressLog,
   Task,
   Assignee,
   Metric,
@@ -21,7 +22,12 @@ import type {
   UserChat,
   Initiative,
   Settings,
+  Workspace,
+  WorkspaceInvite,
+  WorkspaceMember,
 } from "./types";
+import { DEFAULT_WORKSPACE_ID } from "./types";
+import { normalizeKnowledgeEntry } from "./goal-utils";
 
 type DocRow = { document: unknown };
 
@@ -53,6 +59,7 @@ async function remove(table: string, id: string): Promise<void> {
 export const listAreas = () => all<Area>(TABLES.areas);
 export const getArea = (id: string) => one<Area>(TABLES.areas, id);
 export const saveArea = (item: Area) => put(TABLES.areas, item);
+export const deleteArea = (id: string) => remove(TABLES.areas, id);
 
 // ---- Vision items ----
 export const listVisionItems = () => all<VisionItem>(TABLES.visionItems);
@@ -81,6 +88,7 @@ export const saveAssignee = (item: Assignee) => put(TABLES.assignees, item);
 export const listMetrics = () => all<Metric>(TABLES.metrics);
 export const getMetric = (id: string) => one<Metric>(TABLES.metrics, id);
 export const saveMetric = (item: Metric) => put(TABLES.metrics, item);
+export const deleteMetric = (id: string) => remove(TABLES.metrics, id);
 
 export async function listReadingsForMetric(metricId: string): Promise<MetricReading[]> {
   const { data, error } = await supabase()
@@ -119,7 +127,8 @@ export const getCadenceRule = (id: string) => one<CadenceRule>(TABLES.cadenceRul
 export const saveCadenceRule = (item: CadenceRule) => put(TABLES.cadenceRules, item);
 
 // ---- Knowledge entries ----
-export const listKnowledgeEntries = () => all<KnowledgeEntry>(TABLES.knowledgeEntries);
+export const listKnowledgeEntries = () =>
+  all<KnowledgeEntry>(TABLES.knowledgeEntries).then((rows) => rows.map(normalizeKnowledgeEntry));
 export const saveKnowledgeEntry = (item: KnowledgeEntry) => put(TABLES.knowledgeEntries, item);
 export const deleteKnowledgeEntry = (id: string) => remove(TABLES.knowledgeEntries, id);
 
@@ -131,11 +140,63 @@ export const saveUserChat = (item: UserChat) => put(TABLES.userChats, item);
 export const listInitiatives = () => all<Initiative>(TABLES.initiatives);
 export const getInitiative = (id: string) => one<Initiative>(TABLES.initiatives, id);
 export const saveInitiative = (item: Initiative) => put(TABLES.initiatives, item);
+export const deleteInitiative = (id: string) => remove(TABLES.initiatives, id);
+
+// ---- Goal progress (daily quantifiable tracking) ----
+export async function listGoalProgressLogs(goalId: string): Promise<GoalProgressLog[]> {
+  const { data, error } = await supabase()
+    .from(TABLES.goalProgressLogs)
+    .select("document")
+    .eq("goal_id", goalId)
+    .order("logged_on", { ascending: false });
+  throwIfError(error);
+  return (data ?? []).map((row) => (row as DocRow).document as GoalProgressLog);
+}
+
+export async function saveGoalProgressLog(log: GoalProgressLog): Promise<GoalProgressLog> {
+  const { error } = await supabase().from(TABLES.goalProgressLogs).upsert({
+    id: log.id,
+    goal_id: log.goalId,
+    logged_on: log.date,
+    document: log,
+  });
+  throwIfError(error);
+  return log;
+}
+
+export async function deleteGoalProgressLog(id: string): Promise<void> {
+  const { error } = await supabase().from(TABLES.goalProgressLogs).delete().eq("id", id);
+  throwIfError(error);
+}
+
+// ---- Workspaces (multi-user) ----
+export const listWorkspaces = () => all<Workspace>(TABLES.workspaces);
+export const getWorkspace = (id: string) => one<Workspace>(TABLES.workspaces, id);
+export const saveWorkspace = (item: Workspace) => put(TABLES.workspaces, item);
+
+export const listWorkspaceMembers = () => all<WorkspaceMember>(TABLES.workspaceMembers);
+export const saveWorkspaceMember = (item: WorkspaceMember) =>
+  put(TABLES.workspaceMembers, { ...item, id: item.id });
+
+export const listWorkspaceInvites = () => all<WorkspaceInvite>(TABLES.workspaceInvites);
+export const saveWorkspaceInvite = (item: WorkspaceInvite) => put(TABLES.workspaceInvites, item);
+export const deleteWorkspaceInvite = (id: string) => remove(TABLES.workspaceInvites, id);
+
+export async function getWorkspaceInviteByToken(token: string): Promise<WorkspaceInvite | null> {
+  const allInvites = await listWorkspaceInvites();
+  return allInvites.find((i) => i.token === token) ?? null;
+}
 
 // ---- Settings (singleton) ----
 export async function getSettings(): Promise<Settings> {
   const existing = await one<Settings>(TABLES.settings, SETTINGS_DOC_ID);
-  if (existing) return existing;
+  if (existing) {
+    return {
+      ...existing,
+      activeWorkspaceId: existing.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID,
+      workspaceName: existing.workspaceName ?? "My workspace",
+    };
+  }
 
   const defaults: Settings = {
     focusFactor: DEFAULT_FOCUS_FACTOR,
@@ -145,6 +206,8 @@ export async function getSettings(): Promise<Settings> {
     recurringBlocks: [],
     workDayStartMinute: 540,
     workDayEndMinute: 1260,
+    activeWorkspaceId: DEFAULT_WORKSPACE_ID,
+    workspaceName: "My workspace",
   };
   const { error } = await supabase()
     .from(TABLES.settings)

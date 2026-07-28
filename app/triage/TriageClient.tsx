@@ -9,7 +9,8 @@ import { areaHex } from "@/lib/area-styles";
 import { SEVERITY_LABELS } from "@/lib/constants";
 import type { Area, Assignee, Goal, Task } from "@/lib/types";
 import { assignGoalAndAdvance, sendToBacklog, delegateFromTriage, deleteFromTriage } from "./actions";
-import { quickAddToTriage } from "@/app/today/actions";
+import { completeTask, quickAddToTriage } from "@/app/today/actions";
+import { btnDangerGhost, btnGhost, btnPrimary } from "@/components/nesh/nesh-ui";
 
 const TERMINAL = ["shipped", "accepted", "submitted", "artifact_produced", "done", "logged"];
 
@@ -101,7 +102,7 @@ export function TriageClient({
           />
           <button
             type="button"
-            className="rounded-[10px] bg-[#17181f] px-4 py-2 text-[13px] font-semibold text-white"
+            className={btnPrimary}
             disabled={!newTitle.trim() || isPending}
             onClick={() =>
               startTransition(async () => {
@@ -168,6 +169,40 @@ export function TriageClient({
   );
 }
 
+function ActiveTaskRow({ task, area }: { task: Task; area: Area | undefined }) {
+  const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+  const done = TERMINAL.includes(task.status);
+  const hex = area ? areaHex(area.colorToken) : "#6d4aff";
+
+  return (
+    <div className="flex items-center gap-2 px-4 py-2.5 text-sm">
+      <button
+        type="button"
+        className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border-2 text-[10px]"
+        style={{
+          borderColor: done ? hex : "#d8d8e2",
+          background: done ? hex : "transparent",
+          color: done ? "#fff" : "transparent",
+        }}
+        disabled={isPending || done}
+        onClick={() =>
+          startTransition(async () => {
+            await completeTask(task.id);
+            router.refresh();
+          })
+        }
+      >
+        {done ? "✓" : ""}
+      </button>
+      <span className={`min-w-0 flex-1 font-medium ${done ? "text-[#a7a7b3] line-through" : "text-[#2a2a33]"}`}>
+        {task.title}
+      </span>
+      <span className="rounded-md bg-[#f4f4f8] px-2 py-0.5 text-[10px] font-bold text-[#9a9aa8]">P{task.priority}</span>
+    </div>
+  );
+}
+
 function TriageItem({
   task,
   area,
@@ -179,13 +214,10 @@ function TriageItem({
   goals: Goal[];
   assignees: Assignee[];
 }) {
+  const router = useRouter();
+
   if (task.status !== "triage") {
-    return (
-      <div className="flex items-center gap-2 px-4 py-2.5 text-sm">
-        <span className="min-w-0 flex-1 font-medium text-[#2a2a33]">{task.title}</span>
-        <span className="rounded-md bg-[#f4f4f8] px-2 py-0.5 text-[10px] font-bold text-[#9a9aa8]">P{task.priority}</span>
-      </div>
-    );
+    return <ActiveTaskRow task={task} area={area} />;
   }
 
   const [mode, setMode] = useState<"none" | "goal" | "delegate">("none");
@@ -219,17 +251,22 @@ function TriageItem({
           )}
         </div>
         <div className="flex gap-2 text-xs">
-          <button type="button" className="font-semibold text-[#6d4aff] hover:underline" onClick={() => setMode(mode === "goal" ? "none" : "goal")}>
+          <button type="button" className={btnGhost} onClick={() => setMode(mode === "goal" ? "none" : "goal")}>
             Assign
           </button>
-          <button type="button" className="font-semibold text-[#6d4aff] hover:underline" onClick={() => setMode(mode === "delegate" ? "none" : "delegate")}>
+          <button type="button" className={btnGhost} onClick={() => setMode(mode === "delegate" ? "none" : "delegate")}>
             Delegate
           </button>
           <button
             type="button"
-            className="text-[#9a9aa8] hover:underline"
+            className={btnDangerGhost}
             onClick={() => {
-              if (confirm("Delete this item?")) startTransition(() => deleteFromTriage(task.id));
+              if (confirm("Delete this item?")) {
+                startTransition(async () => {
+                  await deleteFromTriage(task.id);
+                  router.refresh();
+                });
+              }
             }}
           >
             Delete
@@ -303,7 +340,7 @@ function TriageItem({
             </select>
             <button
               type="button"
-              className="rounded-md bg-[#17181f] px-3 py-1.5 text-xs font-semibold text-white"
+              className={btnPrimary + " !px-3 !py-1.5 text-xs"}
               disabled={isPending}
               onClick={() => {
                 setError(null);
@@ -318,6 +355,7 @@ function TriageItem({
                     if (goalId) await assignGoalAndAdvance(task.id, { goalId, ...payload });
                     else await sendToBacklog(task.id, payload);
                     setMode("none");
+                    router.refresh();
                   } catch (e) {
                     setError(e instanceof Error ? e.message : "Could not save.");
                   }
@@ -352,7 +390,7 @@ function TriageItem({
           />
           <button
             type="button"
-            className="rounded-md bg-[#17181f] px-3 py-1.5 text-xs font-semibold text-white"
+            className={btnPrimary + " !px-3 !py-1.5 text-xs"}
             disabled={isPending || !assigneeId}
             onClick={() => {
               setError(null);
@@ -360,6 +398,7 @@ function TriageItem({
                 try {
                   await delegateFromTriage(task.id, assigneeId, definitionOfDone);
                   setMode("none");
+                  router.refresh();
                 } catch (e) {
                   setError(e instanceof Error ? e.message : "Could not delegate.");
                 }

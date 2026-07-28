@@ -1,8 +1,15 @@
 // Core data model — Personal PM System PRD §5
 
+export const DEFAULT_WORKSPACE_ID = "ws-default";
+
 export type ID = string;
 
-export interface Area {
+/** All tenant-owned records carry a workspace id (multi-user). */
+export interface WorkspaceScoped {
+  workspaceId?: ID;
+}
+
+export interface Area extends WorkspaceScoped {
   id: ID;
   name: string;
   colorToken: string;
@@ -36,6 +43,27 @@ export interface Goal {
   priority: number; // 1-5
   status: GoalStatus;
   visionItemId: ID | null;
+  /** Where things stand right now — editable narrative. */
+  currentState: string;
+  /** Concrete next moves (one per line is fine). */
+  actionItems: string;
+  /** What you shipped / learned when the goal is resolved. */
+  solution: string;
+  /** When true, use daily progress log below (e.g. DAU, posts shipped). */
+  isQuantifiable: boolean;
+  trackUnit: string;
+  trackTargetPerDay: number | null;
+  workspaceId?: ID;
+}
+
+export interface GoalProgressLog {
+  id: ID;
+  goalId: ID;
+  /** YYYY-MM-DD */
+  date: string;
+  value: number | null;
+  note: string;
+  workspaceId?: ID;
 }
 
 export type TaskType =
@@ -104,8 +132,8 @@ export interface Metric {
   name: string;
   isNorthStar: boolean;
   parentMetricId: ID | null; // driver tree: north star has null, drivers point up to it
-  currentValue: number;
-  targetValue: number;
+  currentValue: number | null;
+  targetValue: number | null;
   unit: string;
   updatedAt: string;
 }
@@ -143,17 +171,23 @@ export type KnowledgeEntryType =
   | "decision"
   | "user_insight"
   | "framework"
-  | "competitor";
+  | "competitor"
+  | "document";
 
 export interface KnowledgeEntry {
   id: ID;
   type: KnowledgeEntryType;
   title: string;
   body: string;
+  areaId: ID | null;
+  initiativeId: ID | null;
   linkedGoalIds: ID[];
   linkedTaskIds: ID[];
+  /** Link or file URL for document type */
   source: string | null;
+  fileUrl: string | null;
   createdAt: string;
+  workspaceId?: ID;
 }
 
 export interface UserChat {
@@ -175,6 +209,7 @@ export type InitiativeStatus =
 export interface Initiative {
   id: ID;
   areaId: ID;
+  /** Sector / workstream name within the area (e.g. IU engagement, Technical tickets). */
   title: string;
   planBody: string;
   status: InitiativeStatus;
@@ -185,6 +220,8 @@ export interface Initiative {
   outcomeNotes: OutcomeNote[];
   metricIds: ID[];
   goalIds: ID[];
+  sortOrder: number;
+  workspaceId?: ID;
 }
 
 export interface OutcomeNote {
@@ -198,11 +235,10 @@ export interface Settings {
   calendarToken: string;
   maxNudges: number; // default 3
   recurringBlocks: RecurringBlock[];
-  // No inbound Apple Calendar read exists (§11 is export-only, no OAuth/CalDAV).
-  // "Free calendar minutes" is therefore derived from this configured work
-  // window minus recurring blocks and already-scheduled tasks for the day.
   workDayStartMinute: number; // default 540 = 9:00am
   workDayEndMinute: number; // default 1260 = 9:00pm
+  activeWorkspaceId: ID;
+  workspaceName: string;
 }
 
 export interface RecurringBlock {
@@ -211,6 +247,36 @@ export interface RecurringBlock {
   dayOfWeek: number; // 0-6, Sunday=0
   startMinute: number; // minutes from midnight
   endMinute: number;
+  areaId?: ID | null;
+  source?: "manual" | "school";
+}
+
+export interface Workspace {
+  id: ID;
+  name: string;
+  createdAt: string;
+  ownerUserId: string | null;
+}
+
+export type WorkspaceMemberRole = "owner" | "member";
+
+export interface WorkspaceMember {
+  id: ID;
+  workspaceId: ID;
+  userId: string | null;
+  email: string;
+  role: WorkspaceMemberRole;
+  joinedAt: string;
+}
+
+export interface WorkspaceInvite {
+  id: ID;
+  workspaceId: ID;
+  email: string;
+  token: string;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt: string | null;
 }
 
 export interface Nudge {

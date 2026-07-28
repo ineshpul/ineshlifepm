@@ -24,7 +24,19 @@ import {
   dropCommittedTask,
   quickAddToTriage,
   dismissNudge,
+  createTaskFromToday,
+  incrementCadenceRule,
 } from "./actions";
+import { recordReading } from "@/app/metrics/actions";
+import { btnPrimary, btnSecondary } from "@/components/nesh/nesh-ui";
+import {
+  calibrationTicker,
+  capacityTicker,
+  mainMetricTicker,
+  openTasksInFocus,
+  primaryMetricForFocus,
+  usualMinutesForFocus,
+} from "@/lib/today-dashboard";
 
 function isTerminal(status: string) {
   return ["shipped", "accepted", "submitted", "artifact_produced", "done", "logged"].includes(status);
@@ -65,7 +77,17 @@ function MiniSparkline({ readings, color }: { readings: MetricReading[]; color: 
   );
 }
 
-function CadenceRow({ rule, area }: { rule: CadenceRule; area?: Area }) {
+function CadenceRow({
+  rule,
+  area,
+  onLog,
+  pending,
+}: {
+  rule: CadenceRule;
+  area?: Area;
+  onLog: () => void;
+  pending: boolean;
+}) {
   const token = area?.colorToken ?? "emerald";
   const hex = areaHex(token);
   const pct = rule.targetPerWeek > 0 ? Math.min(1, rule.currentWeekCount / rule.targetPerWeek) : 0;
@@ -78,6 +100,14 @@ function CadenceRow({ rule, area }: { rule: CadenceRule; area?: Area }) {
           {rule.currentWeekCount}/{rule.targetPerWeek}
           {rule.minPerWeek ? ` (range ${rule.minPerWeek}–${rule.targetPerWeek})` : ""}
         </span>
+        <button
+          type="button"
+          className="rounded-md border border-[#e6e6ee] px-2 py-0.5 text-[11px] font-bold text-[#6d4aff] hover:bg-[#f4f4f8]"
+          disabled={pending || rule.currentWeekCount >= rule.targetPerWeek}
+          onClick={onLog}
+        >
+          +1
+        </button>
       </div>
       <div className="h-1.5 overflow-hidden rounded bg-[#f2f2f6]">
         <div className="h-full rounded" style={{ width: `${pct * 100}%`, background: hex }} />
@@ -101,13 +131,15 @@ export function TodayClient({
   areas,
   assignees,
   committedTasks,
+  allTasks,
+  recentDays,
   delegatedChecks,
   triageCount,
   cadenceRules,
   calibration14d,
   realCapacity,
-  northStar,
-  northStarReadings,
+  metrics,
+  readingsByMetricId,
   nudges,
   sizeMinutes,
 }: {
@@ -116,13 +148,15 @@ export function TodayClient({
   areas: Area[];
   assignees: Assignee[];
   committedTasks: Task[];
+  allTasks: Task[];
+  recentDays: Day[];
   delegatedChecks: Task[];
   triageCount: number;
   cadenceRules: CadenceRule[];
   calibration14d: number | null;
   realCapacity: number;
-  northStar: Metric | null;
-  northStarReadings: MetricReading[];
+  metrics: Metric[];
+  readingsByMetricId: Record<string, MetricReading[]>;
   nudges: Nudge[];
   sizeMinutes: Record<"S" | "M" | "L", number>;
 }) {
@@ -131,13 +165,21 @@ export function TodayClient({
   const router = useRouter();
   const [quickAddTitle, setQuickAddTitle] = useState("");
   const [quickAddArea, setQuickAddArea] = useState(areas[0]?.id ?? "");
+  const [addTitle, setAddTitle] = useState("");
+  const [addArea, setAddArea] = useState(areas[0]?.id ?? "");
+  const [addSize, setAddSize] = useState<"S" | "M" | "L">("M");
+  const [addToPlan, setAddToPlan] = useState(true);
+  const [addMisc, setAddMisc] = useState(false);
+  const [addNote, setAddNote] = useState<string | null>(null);
+  const [metricLogOpen, setMetricLogOpen] = useState(false);
+  const [metricDraft, setMetricDraft] = useState("");
   const { focusAreaId, isAllAreas } = useAreaFocus();
 
   const areaById = new Map(areas.map((a) => [a.id, a]));
   const assigneeById = new Map(assignees.map((a) => [a.id, a]));
 
   const matchesFocus = (areaId: string) => isAllAreas || focusAreaId === areaId;
-  const focusArea = isAllAreas ? null : areaById.get(focusAreaId);
+  const focusArea = isAllAreas ? null : areaById.get(focusAreaId) ?? null;
 
   const filteredCommitted = committedTasks.filter((t) => matchesFocus(t.areaId));
   const filteredDelegated = delegatedChecks.filter((t) => matchesFocus(t.areaId));
@@ -148,11 +190,29 @@ export function TodayClient({
   const doneToday = filteredCommitted.filter((t) => isTerminal(t.status)).length;
 
   const plannedMinutes = filteredCommitted.reduce((s, t) => s + taskMinutes(t, sizeMinutes), 0);
-  const usualMinutes = Math.round(realCapacity * (sizeMinutes.M || 90));
+  const usualMinutes = usualMinutesForFocus(
+    isAllAreas ? "all" : focusAreaId,
+    recentDays,
+    allTasks,
+    sizeMinutes,
+    realCapacity
+  );
   const overPlan = plannedMinutes > usualMinutes && usualMinutes > 0;
 
-  const northStarArea = northStar ? areaById.get(northStar.areaId) : undefined;
-  const northStarHex = northStarArea ? areaHex(northStarArea.colorToken) : "#e5449b";
+  const effectiveFocus = isAllAreas ? "all" : focusAreaId;
+  const primaryMetric = primaryMetricForFocus(metrics, effectiveFocus);
+  const primaryArea = primaryMetric ? areaById.get(primaryMetric.areaId) : undefined;
+  const primaryReadings = primaryMetric ? readingsByMetricId[primaryMetric.id] ?? [] : [];
+  const mainTicker = mainMetricTicker(primaryMetric, primaryArea, primaryReadings);
+  const calTicker = calibrationTicker(calibration14d, focusArea, doneToday, total);
+  const openInFocus = openTasksInFocus(allTasks, effectiveFocus);
+  const capTicker = capacityTicker(
+    focusArea,
+    plannedMinutes,
+    usualMinutes,
+    realCapacity,
+    openInFocus
+  );
 
   const calPct = calibration14d === null ? null : Math.round(calibration14d * 100);
   const calGood = calPct !== null && calPct >= 70;
@@ -185,52 +245,94 @@ export function TodayClient({
         </div>
       )}
 
-      {/* Metric row */}
+      {/* Metric row — updates with FOCUS ON (mockup METRIC[area]) */}
       <div className="mb-6 grid gap-4 lg:grid-cols-[1fr_1fr_1.15fr]">
         <div className="card p-5">
-          <div className="text-xs font-semibold text-[#9a9aa8]">
-            How often you finish what you plan · last 14 days
-          </div>
+          <div className="text-xs font-semibold text-[#9a9aa8]">{calTicker.label}</div>
           <div className="mt-2 flex items-baseline gap-2">
             <div
               className={`font-display text-[40px] font-extrabold tracking-tight ${calGood ? "calibration-good" : "calibration-neutral"}`}
             >
-              {calPct === null ? "—" : `${calPct}%`}
+              {calTicker.value}
+              {calTicker.unitSuffix}
             </div>
             {calGood ? (
               <div className="text-[13px] font-semibold text-[#2fae5b]">on target</div>
             ) : null}
           </div>
-          <p className="mt-1 text-[13px] leading-snug text-[#6b6f7d]">
-            You finish what you plan.{" "}
-            <strong className="font-semibold text-[#17181f]">
-              {doneToday} of {total || "—"}
-            </strong>{" "}
-            done today.
-          </p>
+          <p className="mt-1 text-[13px] leading-snug text-[#6b6f7d]">{calTicker.sub}</p>
         </div>
 
         <div className="card p-5">
-          {northStar ? (
+          {mainTicker ? (
             <>
               <div className="flex items-center gap-2 text-xs font-semibold text-[#9a9aa8]">
-                <span className="h-2 w-2 rounded-[3px]" style={{ background: northStarHex }} />
-                North star · {northStar.name}
+                <span className="h-2 w-2 rounded-[3px]" style={{ background: mainTicker.color }} />
+                {mainTicker.label}
               </div>
               <div className="mt-2 flex items-baseline gap-2">
                 <div className="font-display text-[40px] font-extrabold tracking-tight">
-                  {northStar.currentValue}
-                  <span className="text-[22px] text-[#9a9aa8]">{northStar.unit ? ` ${northStar.unit}` : ""}</span>
+                  {mainTicker.value}
+                  <span className="text-[22px] text-[#9a9aa8]">{mainTicker.unitSuffix}</span>
                 </div>
               </div>
-              <div className="text-[13px] font-semibold text-[#9a9aa8]">
-                target {northStar.targetValue}
-                {northStar.unit ? ` ${northStar.unit}` : ""}
-              </div>
-              <MiniSparkline readings={northStarReadings} color={northStarHex} />
+              <div className="text-[13px] font-semibold text-[#9a9aa8]">{mainTicker.sub}</div>
+              {mainTicker.sparkline && mainTicker.sparkline.length > 1 ? (
+                <MiniSparkline readings={mainTicker.sparkline} color={mainTicker.color} />
+              ) : null}
+              {primaryMetric ? (
+                metricLogOpen ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <input
+                      type="number"
+                      step="any"
+                      className="w-24 rounded-[10px] border border-[#e6e6ee] px-2 py-1 text-sm"
+                      value={metricDraft}
+                      onChange={(e) => setMetricDraft(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className={btnPrimary + " !px-3 !py-1 text-xs"}
+                      disabled={isPending || !metricDraft.trim()}
+                      onClick={() =>
+                        startTransition(async () => {
+                          const v = Number(metricDraft);
+                          if (Number.isNaN(v)) return;
+                          await recordReading(primaryMetric.id, v);
+                          setMetricLogOpen(false);
+                          router.refresh();
+                        })
+                      }
+                    >
+                      Save
+                    </button>
+                    <button type="button" className="text-xs text-[#9a9aa8] hover:underline" onClick={() => setMetricLogOpen(false)}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="mt-3 text-[12px] font-semibold text-[#6d4aff] hover:underline"
+                    onClick={() => {
+                      setMetricDraft(
+                        primaryMetric.currentValue === null ? "" : String(primaryMetric.currentValue)
+                      );
+                      setMetricLogOpen(true);
+                    }}
+                  >
+                    ＋ Log reading
+                  </button>
+                )
+              ) : null}
             </>
           ) : (
-            <p className="text-sm text-[#9a9aa8]">Pin a north star metric in Metrics to see it here.</p>
+            <p className="text-sm text-[#9a9aa8]">
+              <Link href="/metrics" className="font-semibold text-[#6d4aff] hover:underline">
+                Add a metric
+              </Link>{" "}
+              for {focusArea?.name ?? "this area"} — you choose the name, current value, and target.
+            </p>
           )}
         </div>
 
@@ -239,15 +341,17 @@ export function TodayClient({
           style={{ background: "linear-gradient(120deg,#fff,#fffaf3)" }}
         >
           <div className="flex items-center gap-2 text-xs font-semibold text-[#9a9aa8]">
-            What you usually get done
+            {capTicker.label}
             <span className="rounded bg-[#fbefd6] px-1.5 py-0.5 text-[10px] font-bold text-[#c98a1e]">LAST 14 DAYS</span>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <div className="font-display text-[40px] font-extrabold tracking-tight">
-              {usualMinutes}
-              <span className="text-[20px] text-[#9a9aa8]"> min</span>
+              {capTicker.value}
+              <span className="text-[20px] text-[#9a9aa8]">{capTicker.unitSuffix}</span>
             </div>
-            <div className="text-[13px] font-semibold text-[#9a9aa8]">≈ {realCapacity.toFixed(1)} tasks / day</div>
+            {isAllAreas ? (
+              <div className="text-[13px] font-semibold text-[#9a9aa8]">≈ {realCapacity.toFixed(1)} tasks / day</div>
+            ) : null}
           </div>
           <div className="relative mb-2 mt-2 h-2 overflow-visible rounded-md bg-[#f0ead9]">
             <div
@@ -258,14 +362,11 @@ export function TodayClient({
               }}
             />
           </div>
-          {overPlan ? (
-            <p className="text-[12.5px] font-semibold leading-snug text-[#b5731a]">
-              You planned <strong>{plannedMinutes} min</strong> today, {plannedMinutes - usualMinutes} more than you
-              usually finish. Not a wall, just the number.
-            </p>
-          ) : (
-            <p className="text-[12.5px] text-[#9a9aa8]">Today&apos;s plan fits your recent pace.</p>
-          )}
+          <p
+            className={`text-[12.5px] leading-snug ${overPlan ? "font-semibold text-[#b5731a]" : "text-[#9a9aa8]"}`}
+          >
+            {capTicker.sub}
+          </p>
         </div>
       </div>
 
@@ -282,7 +383,7 @@ export function TodayClient({
               <div className="flex gap-2">
                 <button
                   type="button"
-                  className="rounded-[10px] border border-[#e6e6ee] bg-white px-3 py-1.5 text-[13px] font-semibold"
+                  className={btnSecondary}
                   disabled={isPending}
                   onClick={() =>
                   startTransition(async () => {
@@ -296,7 +397,7 @@ export function TodayClient({
                 </button>
                 <button
                   type="button"
-                  className="rounded-[10px] bg-[#17181f] px-3 py-1.5 text-[13px] font-semibold text-white"
+                  className={btnPrimary}
                   disabled={isPending || total === 0}
                   onClick={() => startTransition(() => lockDay())}
                 >
@@ -382,6 +483,9 @@ export function TodayClient({
           <div className="mb-3 mt-6 flex flex-wrap items-center gap-2">
             <div className="font-display text-[15px] font-bold">Check on</div>
             <span className="text-xs text-[#9a9aa8]">waiting on other people — doesn&apos;t count against your day</span>
+            <Link href="/delegated" className="ml-auto text-xs font-semibold text-[#6d4aff] hover:underline">
+              Open delegated →
+            </Link>
           </div>
           <div className="flex flex-col gap-2">
             {filteredDelegated.length === 0 ? (
@@ -428,7 +532,18 @@ export function TodayClient({
                 <p className="text-[13px] text-[#a7a7b3]">No weekly habits for this focus.</p>
               ) : (
                 filteredCadence.map((r) => (
-                  <CadenceRow key={r.id} rule={r} area={areaById.get(r.areaId)} />
+                  <CadenceRow
+                    key={r.id}
+                    rule={r}
+                    area={areaById.get(r.areaId)}
+                    pending={isPending}
+                    onLog={() =>
+                      startTransition(async () => {
+                        await incrementCadenceRule(r.id);
+                        router.refresh();
+                      })
+                    }
+                  />
                 ))
               )}
             </div>
@@ -453,6 +568,77 @@ export function TodayClient({
           </div>
 
           <div className="card p-4">
+            <div className="mb-2 text-xs font-bold uppercase tracking-wide text-[#9a9aa8]">Add a task</div>
+            {addNote ? (
+              <p className="mb-2 text-[13px] text-[#2fae5b]">{addNote}</p>
+            ) : null}
+            <input
+              className="mb-2 w-full rounded-[10px] border border-[#e6e6ee] px-3 py-2 text-sm"
+              placeholder="What needs doing?"
+              value={addTitle}
+              onChange={(e) => setAddTitle(e.target.value)}
+            />
+            <div className="mb-2 flex flex-col gap-2 sm:flex-row">
+              <select
+                className="flex-1 rounded-[10px] border border-[#e6e6ee] bg-white px-2 py-2 text-sm disabled:opacity-50"
+                value={addArea}
+                onChange={(e) => setAddArea(e.target.value)}
+              >
+                {areas.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="rounded-[10px] border border-[#e6e6ee] bg-white px-2 py-2 text-sm"
+                value={addSize}
+                onChange={(e) => setAddSize(e.target.value as "S" | "M" | "L")}
+              >
+                <option value="S">S</option>
+                <option value="M">M</option>
+                <option value="L">L</option>
+              </select>
+            </div>
+            <label className="mb-1 flex cursor-pointer items-center gap-2 text-[13px] text-[#3d3d47]">
+              <input
+                type="checkbox"
+                checked={addToPlan}
+                disabled={locked}
+                onChange={(e) => setAddToPlan(e.target.checked)}
+              />
+              Add to today&apos;s plan
+            </label>
+            <label className="mb-3 flex cursor-pointer items-center gap-2 text-[13px] text-[#3d3d47]">
+              <input type="checkbox" checked={addMisc} onChange={(e) => setAddMisc(e.target.checked)} />
+              Miscellaneous <span className="text-[#9a9aa8]">(tags as Misc · … in the area you pick)</span>
+            </label>
+            <button
+              type="button"
+              className={btnPrimary + " w-full"}
+              disabled={isPending || !addTitle.trim()}
+              onClick={() =>
+                startTransition(async () => {
+                  const res = await createTaskFromToday({
+                    title: addTitle.trim(),
+                    areaId: addArea,
+                    size: addSize,
+                    miscellaneous: addMisc,
+                    addToTodayPlan: addToPlan,
+                  });
+                  setAddNote(res.message);
+                  if (res.ok) {
+                    setAddTitle("");
+                    router.refresh();
+                  }
+                })
+              }
+            >
+              Add task
+            </button>
+          </div>
+
+          <div className="card p-4">
             <div className="mb-2 text-xs font-bold uppercase tracking-wide text-[#9a9aa8]">Quick capture</div>
             <div className="flex flex-col gap-2 sm:flex-row">
               <select
@@ -473,11 +659,28 @@ export function TodayClient({
                 onChange={(e) => setQuickAddTitle(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && quickAddTitle.trim()) {
-                    startTransition(() => quickAddToTriage(quickAddTitle.trim(), quickAddArea));
-                    setQuickAddTitle("");
+                    startTransition(async () => {
+                      await quickAddToTriage(quickAddTitle.trim(), quickAddArea);
+                      setQuickAddTitle("");
+                      router.refresh();
+                    });
                   }
                 }}
               />
+              <button
+                type="button"
+                className={btnPrimary + " shrink-0"}
+                disabled={!quickAddTitle.trim() || isPending}
+                onClick={() =>
+                  startTransition(async () => {
+                    await quickAddToTriage(quickAddTitle.trim(), quickAddArea);
+                    setQuickAddTitle("");
+                    router.refresh();
+                  })
+                }
+              >
+                Add
+              </button>
             </div>
           </div>
         </div>

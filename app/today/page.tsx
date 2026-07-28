@@ -3,8 +3,9 @@ import {
   listMetrics, listDays, listAssignees, listReadingsForMetric, getSettings,
 } from "@/lib/repo";
 import { todayDateString, startOfWeek } from "@/lib/dates";
-import { commitmentKeptPct, estimateAccuracyPct, realCapacity } from "@/lib/scoring";
+import { realCapacity } from "@/lib/scoring";
 import { computeAllNudges, topNudges } from "@/lib/nudges";
+import type { MetricReading } from "@/lib/types";
 import { TodayClient } from "./TodayClient";
 
 export default async function TodayPage() {
@@ -37,7 +38,6 @@ export default async function TodayPage() {
   const week = startOfWeek();
   const thisWeekRules = cadenceRules.filter((r) => r.weekOf === week || !r.weekOf);
 
-  // Calibration 14d
   const last14 = recentDays
     .filter((d) => d.commitmentKeptPct !== null)
     .sort((a, b) => (a.date < b.date ? 1 : -1))
@@ -54,8 +54,12 @@ export default async function TodayPage() {
       .map((d) => d.committedTaskIds.length)
   );
 
-  const northStar = metrics.find((m) => m.isNorthStar);
-  const northStarReadings = northStar ? await listReadingsForMetric(northStar.id) : [];
+  const readingsEntries = await Promise.all(
+    metrics.map(async (m) => [m.id, await listReadingsForMetric(m.id)] as const)
+  );
+  const readingsByMetricId = Object.fromEntries(readingsEntries) as Record<string, MetricReading[]>;
+
+  const sortedRecentDays = recentDays.sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 14);
 
   const activeInitiatives = initiatives.filter(
     (i) => i.status !== "parked" || (i.restartAt && new Date(i.restartAt) <= new Date())
@@ -79,13 +83,15 @@ export default async function TodayPage() {
       areas={areas}
       assignees={assignees}
       committedTasks={committedTasks}
+      allTasks={tasks}
+      recentDays={sortedRecentDays}
       delegatedChecks={delegatedChecks}
       triageCount={triageCount}
       cadenceRules={thisWeekRules}
       calibration14d={calibration14d}
       realCapacity={realCap}
-      northStar={northStar ?? null}
-      northStarReadings={northStarReadings}
+      metrics={metrics}
+      readingsByMetricId={readingsByMetricId}
       nudges={visibleNudges}
       sizeMinutes={settings.sizeMinutes}
     />

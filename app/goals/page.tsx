@@ -1,5 +1,6 @@
-import { listAreas, listGoals, listTasks, listVisionItems, listInitiatives } from "@/lib/repo";
+import { listAreas, listGoals, listTasks, listVisionItems, listInitiatives, listGoalProgressLogs } from "@/lib/repo";
 import { GoalsClient } from "./GoalsClient";
+import type { GoalProgressLog } from "@/lib/types";
 
 export default async function GoalsPage() {
   const [areas, goals, tasks, visionItems, initiatives] = await Promise.all([
@@ -10,6 +11,13 @@ export default async function GoalsPage() {
     listInitiatives(),
   ]);
 
+  const progressByGoal: Record<string, GoalProgressLog[]> = {};
+  await Promise.all(
+    goals.map(async (g) => {
+      progressByGoal[g.id] = await listGoalProgressLogs(g.id);
+    })
+  );
+
   return (
     <GoalsClient
       areas={areas}
@@ -17,6 +25,7 @@ export default async function GoalsPage() {
       tasks={tasks}
       visionItems={visionItems}
       initiatives={initiatives}
+      progressByGoal={progressByGoal}
     />
   );
 }
