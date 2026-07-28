@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { PageHeader } from "@/components/PageHeader";
 import { AreaTag } from "@/components/AreaTag";
 import { formatDate } from "@/lib/dates";
 import { Sparkline } from "@/app/metrics/Sparkline";
@@ -38,22 +37,24 @@ export function InitiativeDetailClient({
   const unlinkedMetrics = allMetrics.filter((m) => m.areaId === initiative.areaId && !metrics.some((lm) => lm.id === m.id));
 
   return (
-    <div>
-      <PageHeader
-        title={initiative.title}
-        subtitle={area?.name}
-        actions={
-          <div className="flex items-center gap-2 text-sm">
-            <select
-              className="rounded-md border hairline bg-transparent px-2 py-1.5"
-              value={initiative.status}
-              onChange={(e) => startTransition(() => updateInitiativeStatus(initiative.id, e.target.value as InitiativeStatus))}
-            >
-              {STATUSES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
-            </select>
-          </div>
-        }
-      />
+    <div className="nesh-page">
+      <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+        <select
+          className="rounded-md border hairline bg-transparent px-2 py-1.5 text-sm"
+          value={initiative.status}
+          onChange={(e) => startTransition(() => updateInitiativeStatus(initiative.id, e.target.value as InitiativeStatus))}
+        >
+          {STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s.replace("_", " ")}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="mb-6">
+        <h1 className="font-display text-2xl font-bold">{initiative.title}</h1>
+        {area && <p className="mt-1 text-sm text-[#9a9aa8]">{area.name}</p>}
+      </div>
 
       <div className="grid gap-6 p-6 md:p-8 lg:grid-cols-[1fr_320px]">
         <div className="space-y-6">

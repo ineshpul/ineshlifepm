@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { PageHeader } from "@/components/PageHeader";
 import { AREA_COLOR_HEX } from "@/lib/constants";
 import type { Area, RecurringBlock, Task } from "@/lib/types";
 import { rescheduleTask } from "./actions";
@@ -58,20 +57,17 @@ export function CalendarClient({
   }
 
   return (
-    <div>
-      <PageHeader
-        title="Calendar"
-        subtitle="Week view. Drag a task from the sidebar onto a slot to schedule it."
-        actions={
-          <div className="flex gap-2 text-sm">
-            <button className="rounded-md border hairline px-2 py-1" onClick={() => setWeekStart(new Date(weekStart.getTime() - 7 * 86_400_000))}>← Prev</button>
-            <button className="rounded-md border hairline px-2 py-1" onClick={() => setWeekStart(mondayOf(new Date()))}>Today</button>
-            <button className="rounded-md border hairline px-2 py-1" onClick={() => setWeekStart(new Date(weekStart.getTime() + 7 * 86_400_000))}>Next →</button>
-          </div>
-        }
-      />
+    <div className="nesh-page">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <p className="text-sm text-[#6b6f7d]">Week view — drag tasks onto a slot to schedule.</p>
+        <div className="ml-auto flex gap-2 text-sm">
+          <button className="rounded-md border hairline px-2 py-1" onClick={() => setWeekStart(new Date(weekStart.getTime() - 7 * 86_400_000))}>← Prev</button>
+          <button className="rounded-md border hairline px-2 py-1" onClick={() => setWeekStart(mondayOf(new Date()))}>Today</button>
+          <button className="rounded-md border hairline px-2 py-1" onClick={() => setWeekStart(new Date(weekStart.getTime() + 7 * 86_400_000))}>Next →</button>
+        </div>
+      </div>
 
-      <div className="flex gap-4 p-6 md:p-8">
+      <div className="flex gap-4">
         <aside className="w-56 shrink-0">
           <h2 className="mb-2 text-sm font-medium">Unscheduled</h2>
           <ul className="space-y-1.5">

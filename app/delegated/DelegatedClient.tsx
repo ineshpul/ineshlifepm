@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { PageHeader } from "@/components/PageHeader";
 import { AreaTag } from "@/components/AreaTag";
 import { daysSince, formatDate } from "@/lib/dates";
 import type { Area, Assignee, Goal, Task } from "@/lib/types";
@@ -30,9 +29,26 @@ export function DelegatedClient({
   }
 
   return (
-    <div>
-      <PageHeader title="Delegated" subtitle="Excluded from capacity and the daily score." />
-      <div className="space-y-8 p-6 md:p-8">
+    <div className="nesh-page">
+      <div className="card mb-6 p-5">
+        <div className="font-display text-base font-bold">People you delegate to</div>
+        <p className="mt-1 text-[13px] text-[#6b6f7d]">
+          V1 is single-user — assignees are Rohan, Ronin, and Andre. Delegated work never counts against your daily
+          capacity.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {assignees.map((a) => (
+            <span
+              key={a.id}
+              className="rounded-full bg-[#f4f4f8] px-3 py-1 text-xs font-semibold text-[#6b6f7d]"
+            >
+              {a.name} · {a.reliability}
+            </span>
+          ))}
+        </div>
+      </div>
+      <p className="mb-6 text-sm text-[#6b6f7d]">Open delegated items grouped by assignee.</p>
+      <div className="space-y-8">
         {assignees.map((a) => {
           const items = byAssignee.get(a.id) ?? [];
           if (items.length === 0) return null;

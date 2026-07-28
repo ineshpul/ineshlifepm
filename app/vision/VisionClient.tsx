@@ -26,23 +26,30 @@ export function VisionClient({
   const linkedGoals = open ? goals.filter((g) => open.linkedGoalIds.includes(g.id)) : [];
 
   return (
-    <div>
-      <div className="flex items-start justify-between gap-4 px-6 py-6 md:px-8">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-fuchsia-500 via-violet-500 to-cyan-500 bg-clip-text text-transparent">
-            Vision
-          </h1>
-          <p className="mt-1 text-sm muted">Long-term shape. Reviewed monthly. Never on Today.</p>
+    <div
+      style={{
+        background:
+          "radial-gradient(1200px 500px at 70% -80px,#efe7ff 0%,rgba(239,231,255,0) 60%), radial-gradient(1000px 500px at 10% 0px,#ffe7f3 0%,rgba(255,231,243,0) 55%)",
+      }}
+    >
+      <div className="nesh-page !max-w-[1220px]">
+        <div className="mb-8">
+          <div className="font-display text-[34px] font-extrabold tracking-tight bg-gradient-to-r from-[#6d4aff] via-[#e5449b] to-[#f2683c] bg-clip-text text-transparent">
+            The life you&apos;re actually building.
+          </div>
+          <p className="mt-2 max-w-[660px] text-[14.5px] leading-relaxed text-[#6b6f7d]">
+            Dreams don&apos;t compete with your to-do list. They live here, and never nag you on Today. Move one into
+            Active when you&apos;re ready to make it real.
+          </p>
+          <button
+            className="mt-4 rounded-full border border-[#ececf1] bg-white px-4 py-2 text-sm font-semibold shadow-sm"
+            onClick={() => setCreating(true)}
+          >
+            + New vision
+          </button>
         </div>
-        <button
-          className="rounded-full border hairline px-4 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5"
-          onClick={() => setCreating(true)}
-        >
-          + New vision
-        </button>
-      </div>
 
-      <div className="space-y-10 px-6 pb-12 md:px-8">
+        <div className="space-y-10 pb-12">
         {areas.map((area) => {
           const items = itemsByArea.get(area.id) ?? [];
           if (!items.length) return null;
@@ -109,6 +116,7 @@ export function VisionClient({
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

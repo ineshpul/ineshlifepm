@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { PageHeader } from "@/components/PageHeader";
 import { AreaTag } from "@/components/AreaTag";
 import { daysSince, formatDate } from "@/lib/dates";
 import type { Area, Assignee, Goal, Initiative } from "@/lib/types";
@@ -34,16 +33,15 @@ export function InitiativesIndexClient({
   }
 
   return (
-    <div>
-      <PageHeader
-        title="Initiatives"
-        subtitle="What plans do I have running."
-        actions={<button className="rounded-md border hairline px-3 py-1.5 text-sm" onClick={() => setCreating(!creating)}>+ New initiative</button>}
-      />
+    <div className="nesh-page">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <p className="text-sm text-[#6b6f7d]">What plans do I have running.</p>
+        <button className="rounded-[10px] border border-[#e6e6ee] bg-white px-3 py-1.5 text-sm font-semibold" onClick={() => setCreating(!creating)}>+ New initiative</button>
+      </div>
 
       {creating && <NewInitiativeForm areas={areas} onDone={() => setCreating(false)} pending={isPending} startTransition={startTransition} />}
 
-      <div className="space-y-8 p-6 md:p-8">
+      <div className="space-y-8">
         {areas.map((area) => {
           const items = byArea.get(area.id) ?? [];
           if (!items.length) return null;

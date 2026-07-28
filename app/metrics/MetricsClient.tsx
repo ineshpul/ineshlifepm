@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { PageHeader } from "@/components/PageHeader";
 import { AreaTag } from "@/components/AreaTag";
 import { daysSince } from "@/lib/dates";
 import type { Area, Metric, MetricReading } from "@/lib/types";
@@ -31,9 +30,9 @@ export function MetricsClient({
   }
 
   return (
-    <div>
-      <PageHeader title="Metrics" subtitle="North star plus input drivers, per area. Manual entry." />
-      <div className="space-y-8 p-6 md:p-8">
+    <div className="nesh-page">
+      <p className="mb-6 text-sm text-[#6b6f7d]">North star plus input drivers, per area. Manual entry.</p>
+      <div className="space-y-8">
         {areas.map((area) => {
           const areaMetrics = metricsByArea.get(area.id) ?? [];
           const { northStars, children } = tree(areaMetrics);

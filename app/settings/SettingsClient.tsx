@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { PageHeader } from "@/components/PageHeader";
 import { AREA_COLOR_HEX } from "@/lib/constants";
 import type { Area, Assignee, CadenceRule, Settings, TaskSize } from "@/lib/types";
 import {
@@ -40,9 +39,8 @@ export function SettingsClient({
   useEffect(() => { setOrigin(window.location.origin); }, []);
 
   return (
-    <div>
-      <PageHeader title="Settings" />
-      <div className="space-y-6 p-6 md:p-8">
+    <div className="nesh-page">
+      <div className="space-y-6">
         <section className="card p-4">
           <h2 className="mb-3 text-sm font-medium">Capacity</h2>
           <div className="flex flex-wrap items-center gap-4 text-sm">

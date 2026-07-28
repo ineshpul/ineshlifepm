@@ -1,5 +1,15 @@
-import type { Task } from "./types";
+import type { Task, TaskSize } from "./types";
 import { daysSince } from "./dates";
+import { DEFAULT_SIZE_MINUTES } from "./constants";
+
+function taskMinutes(
+  task: Task,
+  sizeMinutes: Record<TaskSize, number> = DEFAULT_SIZE_MINUTES
+): number {
+  if (task.estimateMinutes != null && task.estimateMinutes > 0) return task.estimateMinutes;
+  if (task.size) return sizeMinutes[task.size];
+  return sizeMinutes.M;
+}
 
 // §7.1 Priority score — orders the backlog, does not decide the day.
 export function priorityScore(task: Task, now = new Date()): number {
@@ -43,6 +53,7 @@ export interface ProposalOptions {
   maxPerArea?: number; // default 2
   staleThresholdDays?: number; // default 14 (2x the +1/7day cap window)
   untouchedAreaDays?: number; // default 3
+  sizeMinutes?: Record<TaskSize, number>;
 }
 
 export interface ProposalResult {
@@ -60,6 +71,7 @@ export function buildMorningProposal(
   const maxPerArea = opts.maxPerArea ?? 2;
   const staleThresholdDays = opts.staleThresholdDays ?? 14;
   const untouchedAreaDays = opts.untouchedAreaDays ?? 3;
+  const sizeMinutes = opts.sizeMinutes ?? DEFAULT_SIZE_MINUTES;
 
   const delegatedChecks = candidateTasks.filter((t) => t.type === "delegated");
   const capacityCandidates = candidateTasks.filter((t) => t.type !== "delegated");
@@ -77,7 +89,7 @@ export function buildMorningProposal(
   const budget = opts.availableMinutes;
 
   const fits = (t: Task) => {
-    const mins = t.estimateMinutes ?? 0;
+    const mins = taskMinutes(t, sizeMinutes);
     if (totalMinutes + mins > budget) return false;
     const count = perAreaCount[t.areaId] ?? 0;
     if (count >= maxPerArea) return false;
@@ -86,7 +98,7 @@ export function buildMorningProposal(
 
   const take = (t: Task) => {
     proposed.push(t);
-    totalMinutes += t.estimateMinutes ?? 0;
+    totalMinutes += taskMinutes(t, sizeMinutes);
     perAreaCount[t.areaId] = (perAreaCount[t.areaId] ?? 0) + 1;
   };
 

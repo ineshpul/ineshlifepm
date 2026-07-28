@@ -1,6 +1,6 @@
 import {
   listAreas, listTasks, getDay, listCadenceRules, listInitiatives, listGoals,
-  listMetrics, listDays,
+  listMetrics, listDays, listAssignees, listReadingsForMetric, getSettings,
 } from "@/lib/repo";
 import { todayDateString, startOfWeek } from "@/lib/dates";
 import { commitmentKeptPct, estimateAccuracyPct, realCapacity } from "@/lib/scoring";
@@ -9,7 +9,7 @@ import { TodayClient } from "./TodayClient";
 
 export default async function TodayPage() {
   const date = todayDateString();
-  const [areas, tasks, day, cadenceRules, initiatives, goals, metrics, recentDays] =
+  const [areas, tasks, day, cadenceRules, initiatives, goals, metrics, recentDays, assignees, settings] =
     await Promise.all([
       listAreas(),
       listTasks(),
@@ -19,6 +19,8 @@ export default async function TodayPage() {
       listGoals(),
       listMetrics(),
       listDays(),
+      listAssignees(),
+      getSettings(),
     ]);
 
   const taskById = new Map(tasks.map((t) => [t.id, t]));
@@ -53,6 +55,7 @@ export default async function TodayPage() {
   );
 
   const northStar = metrics.find((m) => m.isNorthStar);
+  const northStarReadings = northStar ? await listReadingsForMetric(northStar.id) : [];
 
   const activeInitiatives = initiatives.filter(
     (i) => i.status !== "parked" || (i.restartAt && new Date(i.restartAt) <= new Date())
@@ -74,6 +77,7 @@ export default async function TodayPage() {
       date={date}
       day={day}
       areas={areas}
+      assignees={assignees}
       committedTasks={committedTasks}
       delegatedChecks={delegatedChecks}
       triageCount={triageCount}
@@ -81,7 +85,9 @@ export default async function TodayPage() {
       calibration14d={calibration14d}
       realCapacity={realCap}
       northStar={northStar ?? null}
+      northStarReadings={northStarReadings}
       nudges={visibleNudges}
+      sizeMinutes={settings.sizeMinutes}
     />
   );
 }

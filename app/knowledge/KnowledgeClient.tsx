@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { PageHeader } from "@/components/PageHeader";
 import { formatDate } from "@/lib/dates";
 import type { Goal, KnowledgeEntry, KnowledgeEntryType, Task } from "@/lib/types";
 import { createKnowledgeEntry, removeKnowledgeEntry } from "./actions";
@@ -27,6 +26,8 @@ export function KnowledgeClient({
 
   const goalById = new Map(goals.map((g) => [g.id, g]));
   const taskById = new Map(tasks.map((t) => [t.id, t]));
+  void goalById;
+  void taskById;
 
   const filtered = useMemo(() => {
     return entries
@@ -40,14 +41,15 @@ export function KnowledgeClient({
   }, [entries, filterType, query]);
 
   return (
-    <div>
-      <PageHeader
-        title="Knowledge base"
-        subtitle="Decisions, user insights, frameworks, competitors."
-        actions={<button className="rounded-md border hairline px-3 py-1.5 text-sm" onClick={() => setCreating(!creating)}>+ New entry</button>}
-      />
+    <div className="nesh-page">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-xl text-[13.5px] leading-relaxed text-[#6b6f7d]">
+          Decks, sheets, readouts and links — each tagged to an area so it surfaces when you focus there.
+        </p>
+        <button className="rounded-[10px] border border-[#e6e6ee] bg-white px-3 py-1.5 text-sm font-semibold" onClick={() => setCreating(!creating)}>+ New entry</button>
+      </div>
 
-      <div className="flex flex-wrap gap-2 px-6 pt-4 md:px-8">
+      <div className="mb-4 flex flex-wrap gap-2">
         <input
           className="min-w-[200px] flex-1 rounded-md border hairline bg-transparent px-2 py-1.5 text-sm"
           placeholder="Search…"
@@ -70,30 +72,72 @@ export function KnowledgeClient({
         />
       )}
 
-      <div className="space-y-3 p-6 md:p-8">
-        {filtered.length === 0 && <p className="muted text-sm">No entries yet.</p>}
-        {filtered.map((e) => (
-          <div key={e.id} className="card p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="rounded-full border hairline px-2 py-0.5 text-[10px] muted">{TYPE_LABELS[e.type]}</span>
-                  <span className="text-sm font-medium">{e.title}</span>
-                </div>
-                <p className="mt-2 whitespace-pre-wrap text-sm muted">{e.body}</p>
-                {e.source && <p className="mt-1 text-xs muted">Source: {e.source}</p>}
-                {(e.linkedGoalIds.length > 0 || e.linkedTaskIds.length > 0) && (
-                  <div className="mt-2 flex flex-wrap gap-1 text-xs muted">
-                    {e.linkedGoalIds.map((id) => goalById.get(id) && <span key={id} className="rounded-full border hairline px-2 py-0.5">{goalById.get(id)!.title}</span>)}
-                    {e.linkedTaskIds.map((id) => taskById.get(id) && <span key={id} className="rounded-full border hairline px-2 py-0.5">{taskById.get(id)!.title}</span>)}
-                  </div>
-                )}
-                <p className="mt-2 text-[11px] muted">{formatDate(e.createdAt)}</p>
-              </div>
-              <button className="text-xs muted hover:underline" onClick={() => startTransition(() => removeKnowledgeEntry(e.id))}>Delete</button>
-            </div>
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          className="flex min-h-[150px] flex-col items-start justify-center gap-3 rounded-[14px] border-[1.5px] border-dashed border-[#d6d6e0] p-4 text-left"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-[#f2f2f6] text-xl text-[#a7a7b3]">＋</div>
+          <div>
+            <div className="text-[13.5px] font-semibold text-[#6b6f7d]">New or upload</div>
+            <div className="mt-0.5 text-xs font-medium text-[#a7a7b3]">decision, insight, framework, link</div>
           </div>
-        ))}
+        </button>
+
+        {filtered.length === 0 && !creating ? (
+          <div className="col-span-full rounded-2xl border border-dashed border-[#dcdce4] bg-white py-10 text-center text-sm text-[#a7a7b3]">
+            No documents yet. Add your first entry.
+          </div>
+        ) : null}
+
+        {filtered.map((e) => {
+          const glyph =
+            e.type === "decision" ? "DEC" : e.type === "framework" ? "FWK" : e.type === "competitor" ? "CMP" : "INS";
+          const glyphBg =
+            e.type === "decision"
+              ? "#e8eeff"
+              : e.type === "framework"
+                ? "#e7f7ec"
+                : e.type === "competitor"
+                  ? "#fff4e5"
+                  : "#fbf1f6";
+          const glyphColor =
+            e.type === "decision"
+              ? "#2f6bff"
+              : e.type === "framework"
+                ? "#2fae5b"
+                : e.type === "competitor"
+                  ? "#e8952b"
+                  : "#e5449b";
+          return (
+            <div key={e.id} className="card flex min-h-[150px] flex-col gap-3 p-4">
+              <div className="flex items-center justify-between">
+                <div
+                  className="rounded-lg px-2 py-1 text-[10px] font-extrabold tracking-wide"
+                  style={{ background: glyphBg, color: glyphColor }}
+                >
+                  {glyph}
+                </div>
+                <span className="rounded-full bg-[#f4f4f8] px-2 py-0.5 text-[10px] font-semibold text-[#9a9aa8]">
+                  {TYPE_LABELS[e.type]}
+                </span>
+              </div>
+              <div className="text-sm font-semibold leading-snug text-[#1c1c24]">{e.title}</div>
+              <p className="line-clamp-3 flex-1 text-xs leading-relaxed text-[#8d8d99]">{e.body}</p>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11.5px] text-[#a7a7b3]">updated {formatDate(e.createdAt)}</span>
+                <button
+                  type="button"
+                  className="text-[11px] font-semibold text-[#9a9aa8] hover:text-[#6d4aff]"
+                  onClick={() => startTransition(() => removeKnowledgeEntry(e.id))}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

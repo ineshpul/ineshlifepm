@@ -1,13 +1,17 @@
-import { AREA_COLOR_HEX } from "@/lib/constants";
+import { areaStyles } from "@/lib/area-styles";
 
 export function AreaTag({ name, colorToken }: { name: string; colorToken: string }) {
-  const hex = AREA_COLOR_HEX[colorToken] ?? "#71717a";
+  const { hex, soft, border } = areaStyles(colorToken);
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs hairline"
-      style={{ color: hex, borderColor: hex + "40" }}
+      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
+      style={{
+        color: hex,
+        background: soft,
+        border: `1px solid ${border}`,
+      }}
     >
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: hex }} />
+      <span className="h-2 w-2 rounded-full" style={{ background: hex }} />
       {name}
     </span>
   );

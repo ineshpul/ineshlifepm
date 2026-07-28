@@ -12,4 +12,5 @@ npm-debug.log*
 next-env.d.ts
 .data
 
-.vercel
+_mockups/
+

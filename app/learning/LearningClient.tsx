@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { PageHeader } from "@/components/PageHeader";
 import { AreaTag } from "@/components/AreaTag";
 import type { Area, Task } from "@/lib/types";
 import { activateLearningItem, closeLearningItem, createLearningItem, returnToBacklog } from "./actions";
@@ -27,20 +26,17 @@ export function LearningClient({ areas, tasks }: { areas: Area[]; tasks: Task[] 
   }
 
   return (
-    <div>
-      <PageHeader
-        title="Learning"
-        subtitle="Active is capped at 2. Every item closes only when its artifact exists."
-        actions={
-          <button className="rounded-md border hairline px-3 py-1.5 text-sm" onClick={() => setCreating(!creating)}>
-            + New
-          </button>
-        }
-      />
-      {error && <div className="px-6 pt-4 text-sm text-red-600 md:px-8">{error}</div>}
+    <div className="nesh-page">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <p className="text-sm text-[#6b6f7d]">Active is capped at 2. Every item closes only when its artifact exists.</p>
+        <button className="rounded-[10px] border border-[#e6e6ee] bg-white px-3 py-1.5 text-sm font-semibold" onClick={() => setCreating(!creating)}>
+          + New
+        </button>
+      </div>
+      {error && <div className="mb-4 text-sm text-red-600">{error}</div>}
       {creating && <NewLearningForm areas={areas} onDone={() => setCreating(false)} run={run} pending={isPending} />}
 
-      <div className="grid gap-6 p-6 md:grid-cols-2 md:p-8">
+      <div className="grid gap-6 md:grid-cols-2">
         <section>
           <h2 className="mb-3 text-sm font-medium">Active ({active.length}/2)</h2>
           <div className="space-y-2">

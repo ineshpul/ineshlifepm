@@ -8,6 +8,7 @@ import {
   getDay, saveDay, listTasks, saveTask, getTask, getSettings, newId, nowIso,
   listCadenceRules, saveCadenceRule,
 } from "@/lib/repo";
+import { effectiveEstimateMinutes } from "@/lib/task-estimate";
 import type { Day, Task } from "@/lib/types";
 
 async function currentDay(): Promise<Day> {
@@ -29,9 +30,11 @@ async function currentDay(): Promise<Day> {
   return fresh;
 }
 
-export async function generateMorningProposal() {
+export async function generateMorningProposal(): Promise<{ ok: boolean; count: number; message: string }> {
   const day = await currentDay();
-  if (day.lockedAt) return; // locked days cannot be re-proposed
+  if (day.lockedAt) {
+    return { ok: false, count: 0, message: "Day is already locked." };
+  }
 
   const settings = await getSettings();
   const allTasks = await listTasks();
@@ -41,9 +44,21 @@ export async function generateMorningProposal() {
   const free = freeCalendarMinutesToday(settings, new Date(), scheduledToday);
   const avail = computeAvailableMinutes(free, settings.focusFactor);
 
-  const openTasks = allTasks.filter(
-    (t) => !["shipped", "accepted", "submitted", "artifact_produced", "done", "logged"].includes(t.status)
-  );
+  const terminal = ["shipped", "accepted", "submitted", "artifact_produced", "done", "logged"];
+  const openTasks = allTasks.filter((t) => !terminal.includes(t.status));
+
+  let candidates = openTasks.filter((t) => t.type !== "delegated" && t.status !== "triage");
+  if (candidates.length === 0) {
+    candidates = openTasks.filter((t) => t.type !== "delegated" && t.status === "triage");
+  }
+
+  if (candidates.length === 0) {
+    return {
+      ok: false,
+      count: 0,
+      message: "No tasks to propose. Add items in Tasks (inbox) or quick-add to triage first.",
+    };
+  }
 
   const areaLastTouched: Record<string, string> = {};
   for (const t of allTasks) {
@@ -52,7 +67,10 @@ export async function generateMorningProposal() {
     }
   }
 
-  const result = buildMorningProposal(openTasks, areaLastTouched, { availableMinutes: avail });
+  const result = buildMorningProposal(candidates, areaLastTouched, {
+    availableMinutes: avail,
+    sizeMinutes: settings.sizeMinutes,
+  });
 
   await saveDay({
     ...day,
@@ -60,7 +78,32 @@ export async function generateMorningProposal() {
     committedTaskIds: result.proposed.map((t) => t.id),
   });
 
+  for (const t of result.proposed) {
+    await saveTask({
+      ...t,
+      committedForDate: day.date,
+      lastTouchedAt: nowIso(),
+      estimateMinutes: t.estimateMinutes ?? effectiveEstimateMinutes(t, settings.sizeMinutes),
+      size: t.size ?? "M",
+    });
+  }
+
   revalidatePath("/today");
+  revalidatePath("/triage");
+
+  if (result.proposed.length === 0) {
+    return {
+      ok: false,
+      count: 0,
+      message: `No tasks fit in ${avail} minutes of focus time today. Try smaller tasks or adjust capacity in Settings.`,
+    };
+  }
+
+  return {
+    ok: true,
+    count: result.proposed.length,
+    message: `Proposed ${result.proposed.length} task${result.proposed.length === 1 ? "" : "s"} (${result.totalMinutes} min).`,
+  };
 }
 
 export async function toggleCommittedTask(taskId: string, committed: boolean) {

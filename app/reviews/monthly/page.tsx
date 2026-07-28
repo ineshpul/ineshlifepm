@@ -1,4 +1,3 @@
-import { PageHeader } from "@/components/PageHeader";
 import { AreaTag } from "@/components/AreaTag";
 import { listAreas, listVisionItems, listGoals, listMetrics, listReadingsForMetric } from "@/lib/repo";
 import { daysSince, formatDate } from "@/lib/dates";
@@ -25,9 +24,9 @@ export default async function MonthlyReviewPage() {
   const parkedGoals = goals.filter((g) => g.status === "parked");
 
   return (
-    <div>
-      <PageHeader title="Monthly review" subtitle="Vision pass, dormant items, goal state, 30-day metric trends." />
-      <div className="space-y-6 p-6 md:p-8">
+    <div className="nesh-page">
+      <p className="mb-6 text-sm text-[#6b6f7d]">Vision pass, dormant items, goal state, 30-day metric trends.</p>
+      <div className="space-y-6">
         <section className="card p-4">
           <h2 className="mb-3 text-sm font-medium">Dormant vision items, 90+ days, no active goal</h2>
           {dormantFlagged.length === 0 ? <p className="muted text-sm">Nothing to surface.</p> : (

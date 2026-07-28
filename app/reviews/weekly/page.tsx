@@ -1,4 +1,3 @@
-import { PageHeader } from "@/components/PageHeader";
 import {
   listAreas, listTasks, listDays, listCadenceRules, listInitiatives, listGoals, listMetrics,
 } from "@/lib/repo";
@@ -57,9 +56,9 @@ export default async function WeeklyReviewPage() {
   });
 
   return (
-    <div>
-      <PageHeader title="Weekly review" subtitle={`Week of ${formatDate(weekStart)}`} />
-      <div className="space-y-6 p-6 md:p-8">
+    <div className="nesh-page">
+      <p className="mb-6 text-sm text-[#6b6f7d]">Week of {formatDate(weekStart)}</p>
+      <div className="space-y-6">
         <div className="grid gap-4 sm:grid-cols-3">
           <Stat label="Calibration this week" value={weekCalibration === null ? "—" : `${Math.round(weekCalibration * 100)}%`} />
           <Stat label="Closed this week" value={String(closed.length)} />
