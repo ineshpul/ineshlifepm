@@ -382,9 +382,14 @@ export function RecordScreen() {
     challenge.maxRecordingAttempts,
     isStaffUser
   );
-  /** Block only when an active post exists AND the day ledger is spent (no tries left). */
-  const recordingBlocked =
-    postedForRecordingDay && attemptsRemaining <= 0 && !isStaffUser;
+  /**
+   * Block whenever an active solo post exists for the day. `useHasSoloPostedToday`
+   * already treats deleted/orphan leap docs as non-posts, so repost-after-delete
+   * stays unblocked without needing the day ledger as a second gate — that clause
+   * let anyone who posted with attempts to spare record over their own leap.
+   * Staff keep unlimited attempts for QA.
+   */
+  const recordingBlocked = postedForRecordingDay && !isStaffUser;
 
   const [permission, requestPermission, getCameraPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission, getMicPermission] = useMicrophonePermissions();

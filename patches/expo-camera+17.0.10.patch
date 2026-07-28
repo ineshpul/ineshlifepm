@@ -1,0 +1,18 @@
+diff --git a/node_modules/expo-camera/ios/Current/CameraVideoRecording.swift b/node_modules/expo-camera/ios/Current/CameraVideoRecording.swift
+index 0cf1b56..da0d2a6 100644
+--- a/node_modules/expo-camera/ios/Current/CameraVideoRecording.swift
++++ b/node_modules/expo-camera/ios/Current/CameraVideoRecording.swift
+@@ -33,7 +33,12 @@ class CameraVideoRecording: NSObject, AVCaptureFileOutputRecordingDelegate {
+       connection.videoOrientation = ExpoCameraUtils.videoOrientation(for: orientation)
+       await setVideoOptions(options: options, for: connection, videoFileOutput: videoFileOutput, promise: promise)
+ 
+-      if connection.isVideoOrientationSupported && delegate?.mirror == true {
++      // Upstream guarded on `isVideoOrientationSupported` (orientation, not mirroring) and
++      // never cleared `automaticallyAdjustsVideoMirroring`, which AVFoundation requires
++      // before `isVideoMirrored` can be assigned — so the `mirror` prop was a no-op and
++      // front-camera recordings came out unmirrored while the preview was mirrored.
++      if connection.isVideoMirroringSupported {
++        connection.automaticallyAdjustsVideoMirroring = false
+         connection.isVideoMirrored = delegate?.mirror ?? false
+       }
+     }
