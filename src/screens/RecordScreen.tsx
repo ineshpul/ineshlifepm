@@ -383,13 +383,14 @@ export function RecordScreen() {
     isStaffUser
   );
   /**
-   * Block whenever an active solo post exists for the day. `useHasSoloPostedToday`
-   * already treats deleted/orphan leap docs as non-posts, so repost-after-delete
-   * stays unblocked without needing the day ledger as a second gate — that clause
-   * let anyone who posted with attempts to spare record over their own leap.
-   * Staff keep unlimited attempts for QA.
+   * Block whenever an active solo post exists for the day — staff included, so one
+   * leap per day holds for every account. `useHasSoloPostedToday` already treats
+   * deleted/orphan leap docs as non-posts, so repost-after-delete stays unblocked
+   * without needing the day ledger as a second gate; that clause let anyone who
+   * posted with attempts to spare record over their own leap.
+   * `isStaffUser` still grants unlimited *attempts* before a post lands (QA).
    */
-  const recordingBlocked = postedForRecordingDay && !isStaffUser;
+  const recordingBlocked = postedForRecordingDay;
 
   const [permission, requestPermission, getCameraPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission, getMicPermission] = useMicrophonePermissions();
@@ -1012,7 +1013,13 @@ export function RecordScreen() {
   };
 
   const onPost = async () => {
-    if (recordingBlocked || backgroundUploadActive) return;
+    // Defensive: the blocked effect clears clipUri so this button normally unmounts,
+    // but a snapshot landing mid-tap could still get here. Say why instead of no-oping.
+    if (recordingBlocked) {
+      showInfo('You already posted today!', 'Wait for tomorrow’s leap.');
+      return;
+    }
+    if (backgroundUploadActive) return;
     if (!clipUri) return;
     if (!playerFacing.canRecord) {
       showInfo('Not yet', 'Today’s leap is not live yet.');
@@ -1234,10 +1241,8 @@ export function RecordScreen() {
           </View>
         ) : recordingBlocked ? (
           <View style={styles.demo}>
-            <Text style={styles.demoTitle}>Already posted today</Text>
-            <Text style={styles.demoBody}>
-              Delete today&apos;s leap from your feed to record again.
-            </Text>
+            <Text style={styles.demoTitle}>You already posted today!</Text>
+            <Text style={styles.demoBody}>Wait for tomorrow&apos;s leap.</Text>
           </View>
         ) : cameraPermissionPending ? (
           <View style={styles.cameraLoading}>
@@ -1459,6 +1464,7 @@ export function RecordScreen() {
               title="POST"
               variant="green"
               onPress={onPost}
+              disabled={recordingBlocked || backgroundUploadActive}
               style={styles.postBtn}
             />
             <PrimaryButton
