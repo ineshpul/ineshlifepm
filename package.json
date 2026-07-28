@@ -9,10 +9,10 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx --env-file=.env.local scripts/seed.ts"
   },
   "dependencies": {
-    "firebase-admin": "^13.0.2",
+    "@supabase/supabase-js": "^2.49.1",
     "next": "15.5.22",
     "react": "19.0.0",
     "react-dom": "19.0.0"

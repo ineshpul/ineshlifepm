@@ -1,6 +1,6 @@
 # Personal PM System
 
-A personal product-management system where your life is the product — built from the V1 PRD. Next.js on Vercel, Firestore, Apple Calendar via an ICS feed. Single user, no auth beyond what you optionally add.
+A personal product-management system where your life is the product — built from the V1 PRD. Next.js on Vercel, **Supabase (Postgres)**, Apple Calendar via an ICS feed. Single user, no auth beyond what you optionally add.
 
 ## What's here
 
@@ -21,12 +21,12 @@ A personal product-management system where your life is the product — built fr
 
 ## Local setup
 
-### 1. Firebase project
+### 1. Supabase project
 
-1. Create a project at [console.firebase.google.com](https://console.firebase.google.com).
-2. Enable **Firestore** (Native mode, any region close to you).
-3. Project settings → **Service accounts** → **Generate new private key**. This downloads a JSON file — keep it out of git.
-4. Copy `.env.example` to `.env.local` and fill in `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, and `FIREBASE_PRIVATE_KEY` from that JSON (`private_key` needs its `\n` sequences kept literal, wrapped in quotes).
+1. Create a project at [supabase.com](https://supabase.com).
+2. **SQL Editor** → run the migration in `supabase/migrations/001_initial.sql` (creates all tables + enables RLS).
+3. **Project Settings → API** — copy **Project URL** and **service_role** key (not the anon key).
+4. Copy `.env.example` to `.env.local` and set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
 
 ### 2. Install and run
 
@@ -64,17 +64,16 @@ npm install -g vercel
 vercel login
 vercel link          # creates/links a Vercel project for this repo
 
-# Push the three Firebase env vars into the Vercel project
-# (paste each value when prompted; do this for Production, Preview, and Development)
-vercel env add FIREBASE_PROJECT_ID
-vercel env add FIREBASE_CLIENT_EMAIL
-vercel env add FIREBASE_PRIVATE_KEY
+# Push Supabase env vars into the Vercel project
+# (mark as Sensitive; paste each value when prompted)
+vercel env add SUPABASE_URL
+vercel env add SUPABASE_SERVICE_ROLE_KEY
 
 # First deploy
 vercel --prod
 ```
 
-After that, connect the Vercel project to this GitHub repo (`ineshpul/ineshlifepm`, branch `claude/new-repo-vercel-setup-li69b9` for now, or `main` once merged) from the Vercel dashboard, or via:
+After that, connect the Vercel project to this GitHub repo (`ineshpul/ineshlifepm`, branch `main`) from the Vercel dashboard, or via:
 
 ```powershell
 vercel git connect
@@ -99,7 +98,7 @@ The URL is unauthenticated by necessity (calendar clients can't do OAuth) — an
 
 ## Security note on dependencies
 
-`npm audit` will show moderate/high advisories, all transitive: through `firebase-admin`'s Google Cloud SDK chain (`google-gax`, `uuid`, `retry-request` — a buffer-bounds issue in `uuid` that needs an attacker-controlled buffer, not reachable here) and through Next's optional `sharp`/`postcss` image pipeline. None are exploitable in this app's actual usage as a single-user server-rendered tool, but run `npm audit fix` / `npm update` periodically to pick up patches as upstream ships them.
+Run `npm audit` / `npm update` periodically for transitive advisories in Next and other deps. The app only uses Supabase on the server with the service role key — never ship that key to the browser.
 
 ## Out of scope for V1 (PRD §13)
 
