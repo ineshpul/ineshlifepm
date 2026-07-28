@@ -5,6 +5,8 @@ import { useThemedStyles } from '../theme/ThemeProvider';
 
 type Props = ViewProps & {
   contentContainerStyle?: any;
+  /** Spread onto KeyboardAvoidingView after the default, so callers can override it. */
+  keyboardVerticalOffset?: number;
 };
 
 export function KeyboardScreen({ style, contentContainerStyle, children, ...rest }: Props) {
