@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
     "seed": "tsx --env-file=.env.local scripts/seed.ts",
-    "seed:reset": "tsx --env-file=.env.local scripts/seed.ts --reset"
+    "seed:reset": "tsx --env-file=.env.local scripts/seed.ts --reset",
+    "verify:migration": "tsx --env-file=.env.local scripts/verify-migration.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

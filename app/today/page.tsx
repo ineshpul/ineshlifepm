@@ -1,11 +1,10 @@
 import {
   listAreas, listTasks, getDay, listCadenceRules, listInitiatives, listGoals,
-  listMetrics, listDays, listAssignees, listReadingsForMetric, getSettings,
+  listMetrics, listDays, listAssignees, getSettings,
 } from "@/lib/repo";
 import { todayDateString, startOfWeek } from "@/lib/dates";
 import { realCapacity } from "@/lib/scoring";
 import { computeAllNudges, topNudges } from "@/lib/nudges";
-import type { MetricReading } from "@/lib/types";
 import { TodayClient } from "./TodayClient";
 
 export default async function TodayPage() {
@@ -54,11 +53,6 @@ export default async function TodayPage() {
       .map((d) => d.committedTaskIds.length)
   );
 
-  const readingsEntries = await Promise.all(
-    metrics.map(async (m) => [m.id, await listReadingsForMetric(m.id)] as const)
-  );
-  const readingsByMetricId = Object.fromEntries(readingsEntries) as Record<string, MetricReading[]>;
-
   const sortedRecentDays = recentDays.sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 14);
 
   const activeInitiatives = initiatives.filter(
@@ -90,8 +84,6 @@ export default async function TodayPage() {
       cadenceRules={thisWeekRules}
       calibration14d={calibration14d}
       realCapacity={realCap}
-      metrics={metrics}
-      readingsByMetricId={readingsByMetricId}
       nudges={visibleNudges}
       sizeMinutes={settings.sizeMinutes}
     />

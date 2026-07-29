@@ -44,7 +44,30 @@ export function calibrationTicker(
   };
 }
 
-/** Card 2 — north star / main number for focus (mockup middle tile). */
+/** Card 2 — today's committed plan: completed vs total (focus-aware). */
+export function todayTasksTicker(
+  focusArea: Area | null,
+  doneToday: number,
+  totalToday: number
+): TodayTicker {
+  const scope = focusArea ? focusArea.name : "All areas";
+  const hex = focusArea ? areaHex(focusArea.colorToken) : "#6d4aff";
+  const remaining = Math.max(0, totalToday - doneToday);
+  return {
+    label: `Today's tasks · ${scope}`,
+    value: totalToday === 0 ? "0" : `${doneToday}`,
+    unitSuffix: totalToday === 0 ? "" : ` / ${totalToday}`,
+    sub:
+      totalToday === 0
+        ? "Nothing on today's plan yet — pull from inbox or add below."
+        : remaining === 0
+          ? "All tasks on today's plan are done."
+          : `${remaining} task${remaining === 1 ? "" : "s"} left on today's plan.`,
+    color: hex,
+  };
+}
+
+/** Card 2 (legacy) — north star / main number for focus. Used on Metrics, not Today middle tile. */
 export function mainMetricTicker(
   metric: Metric | null,
   area: Area | undefined,

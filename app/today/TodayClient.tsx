@@ -12,8 +12,6 @@ import type {
   Assignee,
   CadenceRule,
   Day,
-  Metric,
-  MetricReading,
   Nudge,
   Task,
 } from "@/lib/types";
@@ -27,14 +25,12 @@ import {
   createTaskFromToday,
   incrementCadenceRule,
 } from "./actions";
-import { recordReading } from "@/app/metrics/actions";
 import { btnPrimary, btnSecondary } from "@/components/nesh/nesh-ui";
 import {
   calibrationTicker,
   capacityTicker,
-  mainMetricTicker,
   openTasksInFocus,
-  primaryMetricForFocus,
+  todayTasksTicker,
   usualMinutesForFocus,
 } from "@/lib/today-dashboard";
 
@@ -46,35 +42,6 @@ function taskMinutes(t: Task, sizeMinutes: Record<"S" | "M" | "L", number>): num
   if (t.estimateMinutes) return t.estimateMinutes;
   if (t.size) return sizeMinutes[t.size];
   return 0;
-}
-
-function MiniSparkline({ readings, color }: { readings: MetricReading[]; color: string }) {
-  if (readings.length < 2) return <div className="h-7" />;
-  const values = readings.map((r) => r.value);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  const w = 220;
-  const h = 28;
-  const points = values
-    .map((v, i) => {
-      const x = (i / (values.length - 1)) * w;
-      const y = h - ((v - min) / range) * h;
-      return `${x},${y}`;
-    })
-    .join(" ");
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={28} preserveAspectRatio="none" className="mt-1">
-      <polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
 }
 
 function CadenceRow({
@@ -138,8 +105,6 @@ export function TodayClient({
   cadenceRules,
   calibration14d,
   realCapacity,
-  metrics,
-  readingsByMetricId,
   nudges,
   sizeMinutes,
 }: {
@@ -155,8 +120,6 @@ export function TodayClient({
   cadenceRules: CadenceRule[];
   calibration14d: number | null;
   realCapacity: number;
-  metrics: Metric[];
-  readingsByMetricId: Record<string, MetricReading[]>;
   nudges: Nudge[];
   sizeMinutes: Record<"S" | "M" | "L", number>;
 }) {
@@ -171,8 +134,6 @@ export function TodayClient({
   const [addToPlan, setAddToPlan] = useState(true);
   const [addMisc, setAddMisc] = useState(false);
   const [addNote, setAddNote] = useState<string | null>(null);
-  const [metricLogOpen, setMetricLogOpen] = useState(false);
-  const [metricDraft, setMetricDraft] = useState("");
   const { focusAreaId, isAllAreas } = useAreaFocus();
 
   const areaById = new Map(areas.map((a) => [a.id, a]));
@@ -200,10 +161,7 @@ export function TodayClient({
   const overPlan = plannedMinutes > usualMinutes && usualMinutes > 0;
 
   const effectiveFocus = isAllAreas ? "all" : focusAreaId;
-  const primaryMetric = primaryMetricForFocus(metrics, effectiveFocus);
-  const primaryArea = primaryMetric ? areaById.get(primaryMetric.areaId) : undefined;
-  const primaryReadings = primaryMetric ? readingsByMetricId[primaryMetric.id] ?? [] : [];
-  const mainTicker = mainMetricTicker(primaryMetric, primaryArea, primaryReadings);
+  const tasksTicker = todayTasksTicker(focusArea, doneToday, total);
   const calTicker = calibrationTicker(calibration14d, focusArea, doneToday, total);
   const openInFocus = openTasksInFocus(allTasks, effectiveFocus);
   const capTicker = capacityTicker(
@@ -264,76 +222,18 @@ export function TodayClient({
         </div>
 
         <div className="card p-5">
-          {mainTicker ? (
-            <>
-              <div className="flex items-center gap-2 text-xs font-semibold text-[#9a9aa8]">
-                <span className="h-2 w-2 rounded-[3px]" style={{ background: mainTicker.color }} />
-                {mainTicker.label}
-              </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <div className="font-display text-[40px] font-extrabold tracking-tight">
-                  {mainTicker.value}
-                  <span className="text-[22px] text-[#9a9aa8]">{mainTicker.unitSuffix}</span>
-                </div>
-              </div>
-              <div className="text-[13px] font-semibold text-[#9a9aa8]">{mainTicker.sub}</div>
-              {mainTicker.sparkline && mainTicker.sparkline.length > 1 ? (
-                <MiniSparkline readings={mainTicker.sparkline} color={mainTicker.color} />
-              ) : null}
-              {primaryMetric ? (
-                metricLogOpen ? (
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <input
-                      type="number"
-                      step="any"
-                      className="w-24 rounded-[10px] border border-[#e6e6ee] px-2 py-1 text-sm"
-                      value={metricDraft}
-                      onChange={(e) => setMetricDraft(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className={btnPrimary + " !px-3 !py-1 text-xs"}
-                      disabled={isPending || !metricDraft.trim()}
-                      onClick={() =>
-                        startTransition(async () => {
-                          const v = Number(metricDraft);
-                          if (Number.isNaN(v)) return;
-                          await recordReading(primaryMetric.id, v);
-                          setMetricLogOpen(false);
-                          router.refresh();
-                        })
-                      }
-                    >
-                      Save
-                    </button>
-                    <button type="button" className="text-xs text-[#9a9aa8] hover:underline" onClick={() => setMetricLogOpen(false)}>
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    className="mt-3 text-[12px] font-semibold text-[#6d4aff] hover:underline"
-                    onClick={() => {
-                      setMetricDraft(
-                        primaryMetric.currentValue === null ? "" : String(primaryMetric.currentValue)
-                      );
-                      setMetricLogOpen(true);
-                    }}
-                  >
-                    ＋ Log reading
-                  </button>
-                )
-              ) : null}
-            </>
-          ) : (
-            <p className="text-sm text-[#9a9aa8]">
-              <Link href="/metrics" className="font-semibold text-[#6d4aff] hover:underline">
-                Add a metric
-              </Link>{" "}
-              for {focusArea?.name ?? "this area"} — you choose the name, current value, and target.
-            </p>
-          )}
+          <div className="flex items-center gap-2 text-xs font-semibold text-[#9a9aa8]">
+            <span className="h-2 w-2 rounded-[3px]" style={{ background: tasksTicker.color }} />
+            {tasksTicker.label}
+          </div>
+          <div className="mt-2 flex items-baseline gap-1">
+            <div className="font-display text-[40px] font-extrabold tracking-tight">
+              {tasksTicker.value}
+              <span className="text-[28px] text-[#9a9aa8]">{tasksTicker.unitSuffix}</span>
+            </div>
+            <span className="text-[13px] font-semibold text-[#9a9aa8]">completed</span>
+          </div>
+          <p className="mt-1 text-[13px] leading-snug text-[#6b6f7d]">{tasksTicker.sub}</p>
         </div>
 
         <div
