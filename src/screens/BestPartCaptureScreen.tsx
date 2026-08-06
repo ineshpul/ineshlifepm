@@ -38,7 +38,7 @@ import {
   type SingleCameraController,
   type SingleCameraFacing,
 } from '../components/SingleCameraRecorder';
-import { canConcatVideosNatively } from '../services/concatVideos';
+import { canFlipMidRecording } from '../services/concatVideos';
 import { useAuth } from '../state/auth';
 import { useBackgroundBestPartUpload } from '../state/backgroundBestPartUpload';
 import { useSettingsPreferences } from '../state/settingsPreferences';
@@ -49,7 +49,7 @@ import {
   type BestPartMediaType,
 } from '../types/bestPart';
 import { nyDateKey } from '../utils/nyTime';
-import { showError, showInfo } from '../utils/ui';
+import { showCameraRecordingError, showError, showInfo } from '../utils/ui';
 
 type Stage = 'capture' | 'compose';
 type CaptureMode = BestPartMediaType;
@@ -81,6 +81,7 @@ export function BestPartCaptureScreen() {
   const [ready, setReady] = React.useState(false);
   const [dualReady, setDualReady] = React.useState(false);
   const [recording, setRecording] = React.useState(false);
+  const [singleRecorderKey, setSingleRecorderKey] = React.useState(0);
   const [recordSecs, setRecordSecs] = React.useState(0);
   const recordTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const recordSecsRef = React.useRef(0);
@@ -360,6 +361,16 @@ export function BestPartCaptureScreen() {
     }
   }, []);
 
+  const onCaptureCameraError = React.useCallback(
+    (err: unknown) => {
+      clearRecordTimer();
+      setRecording(false);
+      showCameraRecordingError(err);
+      setSingleRecorderKey((k) => k + 1);
+    },
+    [clearRecordTimer]
+  );
+
   React.useEffect(
     () => () => {
       clearRecordTimer();
@@ -438,11 +449,12 @@ export function BestPartCaptureScreen() {
       else dualVideoRef.current?.swap();
       return;
     }
-    // Mid-take video flip needs native stitch; photo/idle flip is always safe.
-    if (recording && mode === 'video' && !canConcatVideosNatively()) return;
-    // Same production Leap single path: expo-camera flip (segments + stitch mid-take).
+    if (mode === 'video') {
+      if (recording && !canFlipMidRecording()) return;
+      singleVideoRef.current?.flip();
+      return;
+    }
     setFacing((f) => (f === 'back' ? 'front' : 'back'));
-    if (mode === 'video') singleVideoRef.current?.flip();
   }, [dualMode, mode, recording]);
 
   const onPreviewTap = React.useCallback(() => {
@@ -820,10 +832,7 @@ export function BestPartCaptureScreen() {
             void enterPlayback().catch(() => undefined);
             setStage('compose');
           }}
-          onError={(err) => {
-            setRecording(false);
-            showError('Camera error', err);
-          }}
+          onError={onCaptureCameraError}
         />
       ) : dualMode ? (
         <DualCameraRecorder
@@ -848,19 +857,17 @@ export function BestPartCaptureScreen() {
             );
             setStage('compose');
           }}
-          onError={(err) => {
-            clearRecordTimer();
-            setRecording(false);
-            showError('Camera error', err);
-          }}
+          onError={onCaptureCameraError}
         />
       ) : mode === 'video' ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <SingleCameraRecorder
+            key={`best-part-single-${singleRecorderKey}`}
             active
             initialFacing={facing}
             maxDurationSec={BEST_PART_MAX_VIDEO_SECONDS}
             controllerRef={singleVideoRef}
+            onFacingChange={setFacing}
             onReadyChange={setReady}
             onRecordingTick={(left) => {
               const used = Math.max(0, BEST_PART_MAX_VIDEO_SECONDS - left);
@@ -868,11 +875,7 @@ export function BestPartCaptureScreen() {
               setRecordSecs(used);
             }}
             onCapture={onSingleVideoCapture}
-            onError={(err) => {
-              clearRecordTimer();
-              setRecording(false);
-              showError('Camera error', err);
-            }}
+            onError={onCaptureCameraError}
           />
           <Pressable
             style={{ position: 'absolute', top: 96, left: 0, right: 0, bottom: 168 }}
@@ -884,6 +887,7 @@ export function BestPartCaptureScreen() {
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <View style={StyleSheet.absoluteFill} pointerEvents="none">
             <CameraView
+              key={facing}
               ref={cameraRef}
               style={StyleSheet.absoluteFill}
               facing={facing}

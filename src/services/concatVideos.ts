@@ -21,6 +21,28 @@ export function canConcatVideosNatively(): boolean {
 }
 
 /**
+ * Mid-record camera flip splits a take into segments that must be stitched.
+ *
+ * The native concat inserts every segment into ONE composition track and assigns
+ * `preferredTransform` inside the loop, so the last segment's transform wins for
+ * the whole track — and it never builds an `AVMutableVideoComposition` with a
+ * fixed renderSize and per-segment layer instructions. Front and back segments
+ * carry different transforms (and can differ in dimensions), so a flipped take
+ * exports malformed: AVKit refuses the item and paints its crossed-out play
+ * placeholder, with neither video nor audio.
+ *
+ * Straight (unflipped) takes never enter this path, which is why only some posts
+ * break. Week-recap stitching still uses {@link canConcatVideosNatively} — those
+ * clips share one orientation, so they compose correctly.
+ *
+ * Re-enable once the native concat sets a proper videoComposition. That is a
+ * native change and needs a new build, not an OTA update.
+ */
+export function canFlipMidRecording(): boolean {
+  return false;
+}
+
+/**
  * Stitch local MP4 segments end-to-end (mid-record camera flips).
  * Requires a native build that includes `concatVideos` on ExpoVideoWatermark.
  */

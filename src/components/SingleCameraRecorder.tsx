@@ -3,7 +3,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { CameraView, type CameraRecordingOptions, type CameraType } from 'expo-camera';
 
 import { prepareForVideoRecording } from '../camera/prepareForVideoRecording';
-import { canConcatVideosNatively, concatVideos } from '../services/concatVideos';
+import { canFlipMidRecording, concatVideos } from '../services/concatVideos';
 import { MIN_TASK_DURATION_SECONDS } from '../state/challenge';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
@@ -280,7 +280,7 @@ export function SingleCameraRecorder({
           if (uri) segmentsRef.current.push(uri);
 
           const reason = segmentEndReasonRef.current;
-          if (reason === 'flip' && canConcatVideosNatively()) {
+          if (reason === 'flip' && canFlipMidRecording()) {
             setFacing((f) => (f === 'front' ? 'back' : 'front'));
             await new Promise<void>((r) => setTimeout(r, 280));
             await waitForCameraReady(4000).catch(() => undefined);
@@ -348,7 +348,7 @@ export function SingleCameraRecorder({
       return;
     }
 
-    if (!canConcatVideosNatively()) return;
+    if (!canFlipMidRecording()) return;
     if (segmentEndReasonRef.current != null) return;
     if (elapsedRef.current >= boundedMaxSec - 1) return;
 

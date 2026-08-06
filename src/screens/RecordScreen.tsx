@@ -49,7 +49,7 @@ import {
   resetRecordingAttemptsAfterVideoDelete,
   useAttemptsRemaining,
 } from '../state/postAttempts';
-import { canConcatVideosNatively } from '../services/concatVideos';
+import { canFlipMidRecording } from '../services/concatVideos';
 import { removeGhostLeapVideoIfOpenLedger } from '../services/deleteVideo';
 import { useHasSoloPostedToday } from '../state/posting';
 import { useBackgroundPostUpload } from '../state/backgroundPostUpload';
@@ -926,8 +926,8 @@ export function RecordScreen() {
     if (recordingBlocked || !playerFacing.canRecord || preRecordCountdown != null || !canUseCamera) {
       return;
     }
-    // Avoid label/camera desync when the binary cannot stitch mid-take flips yet.
-    if (isRecordingRef.current && !canConcatVideosNatively()) return;
+    // Avoid label/camera desync when mid-take flips cannot be stitched safely.
+    if (isRecordingRef.current && !canFlipMidRecording()) return;
     singleControllerRef.current?.flip();
   }, [recordingBlocked, playerFacing.canRecord, preRecordCountdown, canUseCamera]);
 
