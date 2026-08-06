@@ -46,6 +46,14 @@ export function ReelSinglePlayback({
   const shouldPlayRef = React.useRef(shouldPlay);
   shouldPlayRef.current = shouldPlay;
   const readyRef = React.useRef(false);
+  const retriedRef = React.useRef(false);
+
+  // `readyRef` would otherwise stay true from the previous clip when a recycled
+  // row swaps its url, making the next source look ready before it is.
+  React.useEffect(() => {
+    readyRef.current = false;
+    retriedRef.current = false;
+  }, [url]);
 
   const player = useVideoPlayer(url, (p) => {
     p.loop = false;
@@ -145,9 +153,29 @@ export function ReelSinglePlayback({
             // ignore
           }
         }
-      } else {
-        emitStatus();
+        return;
       }
+      /**
+       * A failed item never recovers on its own — AVKit paints its crossed-out
+       * play placeholder over the poster and the row stays stuck. Reload the
+       * source once before giving up.
+       */
+      if (status === 'error' && !retriedRef.current) {
+        retriedRef.current = true;
+        readyRef.current = false;
+        void player
+          .replaceAsync(url)
+          .then(() => {
+            if (!shouldPlayRef.current) return;
+            try {
+              player.play();
+            } catch {
+              // ignore
+            }
+          })
+          .catch(() => undefined);
+      }
+      emitStatus();
     });
     const playSub = player.addListener('playingChange', () => emitStatus());
     const timeSub = player.addListener('timeUpdate', () => {
@@ -178,7 +206,7 @@ export function ReelSinglePlayback({
       timeSub.remove();
       endSub.remove();
     };
-  }, [player, replayOnEnd, emitStatus, startIfNeeded]);
+  }, [player, url, replayOnEnd, emitStatus, startIfNeeded]);
 
   return (
     <View style={style ?? StyleSheet.absoluteFillObject}>
