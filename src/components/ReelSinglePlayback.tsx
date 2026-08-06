@@ -2,6 +2,8 @@ import * as React from 'react';
 import { StyleSheet, View, type ViewStyle } from 'react-native';
 import { useVideoPlayer, VideoView, type VideoContentFit } from 'expo-video';
 
+import { enterPlayback } from '../camera/audioSessionGate';
+
 export type ReelSinglePlaybackStatus = {
   isLoaded: boolean;
   isPlaying: boolean;
@@ -86,8 +88,6 @@ export function ReelSinglePlayback({
   const startIfNeeded = React.useCallback(() => {
     if (!shouldPlayRef.current) return;
     try {
-      const muted = false; // caller passes isMuted via effect; start unmuted path below
-      void muted;
       player.play();
       emitStatus();
     } catch {
@@ -96,11 +96,27 @@ export function ReelSinglePlayback({
   }, [player, emitStatus]);
 
   React.useEffect(() => {
+    let cancelled = false;
     try {
       const muted = isMuted || !shouldPlay;
       player.muted = muted;
       player.volume = muted ? 0 : 1;
       if (shouldPlay) {
+        /**
+         * Restore the playback audio category before this clip takes over. A capture
+         * surface (Record, Best Part, intro leap) leaves the session in record mode,
+         * and the Feed's `patchAudioMode` deliberately refuses to clear
+         * `allowsRecordingIOS` — so nothing else flips it back for a single-clip post.
+         * DualClipPlayback already did this, which is why only *some* feed videos
+         * stalled or played silent. Scoped to the clip becoming active so we don't
+         * serialize every mounted player behind a setAudioModeAsync call.
+         * No-ops while a capture surface still holds the record category.
+         */
+        void enterPlayback()
+          .catch(() => undefined)
+          .finally(() => {
+            if (!cancelled) startIfNeeded();
+          });
         if (readyRef.current || player.status === 'readyToPlay') {
           player.play();
         }
@@ -112,7 +128,10 @@ export function ReelSinglePlayback({
     } catch {
       // ignore
     }
-  }, [shouldPlay, isMuted, player, emitStatus]);
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldPlay, isMuted, player, emitStatus, startIfNeeded]);
 
   React.useEffect(() => {
     const statusSub = player.addListener('statusChange', ({ status }) => {
