@@ -17,6 +17,8 @@ export type BestPartDoc = {
   /** 720p feed derivative (preferred for playback when present). */
   feedUrl?: string;
   feedStoragePath?: string;
+  /** Generated still used for video previews. */
+  posterUrl?: string;
   /** Optional BeReal-style PIP companion (dual-camera photo or video). */
   secondaryUrl?: string;
   secondaryStoragePath?: string;

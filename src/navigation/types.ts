@@ -17,6 +17,7 @@ export type RootStackParamList = {
   /** Sunday-style playback of this week’s best-part moments. */
   BestPartWeekRecap: {
     username?: string;
+    weekStartKey?: string;
     posts: Array<{
       id: string;
       dateKey: string;

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import {
+  Image,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -14,13 +15,10 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { typography } from '../theme/typography';
 
-import { Brandmark } from '../components/Brandmark';
 import { LeapLoadingFrog } from '../components/LeapLoadingFrog';
 import { Screen } from '../components/Screen';
-import { PrimaryButton } from '../components/PrimaryButton';
 import { CreatePostSheet } from '../components/modern/CreatePostSheet';
 import { ModernActionRow } from '../components/modern/ModernActionRow';
-import { ModernHeroSurface } from '../components/modern/ModernHeroSurface';
 import {
   ModernPromptEyebrow,
   formatCountdownHMS,
@@ -30,7 +28,7 @@ import { getPlayerFacingChallenge, useTodayChallenge } from '../state/challenge'
 import { useLiveCount } from '../state/live';
 import { useCanViewOtherUsersVideos } from '../state/posting';
 import { useAuth } from '../state/auth';
-import { showInfo } from '../utils/ui';
+import { useAppState } from '../state/appState';
 import {
   navigateToLeaperboard,
   navigateToRecord,
@@ -39,9 +37,13 @@ import { shareReferralInvite } from '../utils/shareReferralInvite';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { activeLeapStreakFromUserProfile } from '../lib/profileLeapStats';
+import {
+  dailyLeapInchesFromUser,
+  formatLeapInchesDisplay,
+} from '../lib/verticalScore';
 import { computeFeedViewingFromNow } from '../utils/nyTime';
 
-/** Oversized Bricolage prompt that still fits long leaps (mockup 01 uses a clamp). */
+/** Oversized Bricolage prompt that still fits long leaps. */
 function promptTitleTypography(
   title: string
 ): Pick<TextStyle, 'fontSize' | 'lineHeight' | 'letterSpacing'> {
@@ -61,6 +63,12 @@ function leapedLabel(count: number | null): string {
   return `${count} people have leaped`;
 }
 
+function initialsFromUsername(username: string | undefined): string {
+  const t = (username ?? '').trim();
+  if (!t) return '?';
+  return t.slice(0, 2).toUpperCase();
+}
+
 export function TodayScreen() {
   const { colors } = useTheme();
   const styles = useThemedStyles((c) => ({
@@ -68,9 +76,8 @@ export function TodayScreen() {
       flexGrow: 1,
       paddingBottom: 12,
     },
-    hero: {
+    content: {
       paddingHorizontal: 22,
-      paddingBottom: 22,
     },
     header: {
       flexDirection: 'row' as const,
@@ -85,15 +92,25 @@ export function TodayScreen() {
       flexShrink: 1,
       minWidth: 0,
     },
-    brandTile: {
-      width: 38,
-      height: 38,
-      borderRadius: 14,
-      backgroundColor: c.card,
-      borderWidth: 1,
+    avatarBtn: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      overflow: 'hidden' as const,
+      backgroundColor: c.cardTint,
+      borderWidth: 2,
       borderColor: c.profileAccentBorder,
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
+    },
+    avatarImg: {
+      width: '100%' as const,
+      height: '100%' as const,
+    },
+    avatarInitials: {
+      fontFamily: typography.bodyBold,
+      fontSize: 16,
+      color: c.green,
     },
     adminBtn: {
       height: 34,
@@ -191,7 +208,6 @@ export function TodayScreen() {
       color: c.muted2,
     },
     body: {
-      paddingHorizontal: 22,
       paddingTop: 18,
       gap: 14,
     },
@@ -204,21 +220,9 @@ export function TodayScreen() {
       alignItems: 'center' as const,
       paddingTop: 2,
     },
-    leapBtn: {
-      width: '100%' as const,
-      maxWidth: 360,
-      borderRadius: 28,
-    },
-    bottomHint: {
-      marginTop: 10,
-      fontSize: 11,
-      letterSpacing: 2.2,
-      fontFamily: typography.bodyBold,
-      color: c.muted,
-    },
     inviteBtn: {
-      marginTop: 8,
-      paddingVertical: 8,
+      marginTop: 4,
+      paddingVertical: 10,
       paddingHorizontal: 12,
     },
     inviteBtnText: {
@@ -232,6 +236,7 @@ export function TodayScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { hasPostedToday } = useAppState();
   const { challenge, window } = useTodayChallenge();
   const facing = getPlayerFacingChallenge(challenge, window);
   const liveCount = useLiveCount({
@@ -245,11 +250,15 @@ export function TodayScreen() {
     experimentCohort: user?.experimentCohort,
   });
   const [streakDays, setStreakDays] = React.useState(0);
+  const [photoUrl, setPhotoUrl] = React.useState('');
+  const [dailyInches, setDailyInches] = React.useState(0);
   const [suggestOpen, setSuggestOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !user?.uid) {
       setStreakDays(0);
+      setPhotoUrl('');
+      setDailyInches(0);
       return;
     }
     const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
@@ -263,8 +272,14 @@ export function TodayScreen() {
             todayLeapDayKey: viewingChallengeDateKey,
           })
         );
+        setPhotoUrl(String(data.photoUrl ?? '').trim());
+        setDailyInches(dailyLeapInchesFromUser(data, viewingChallengeDateKey));
       },
-      () => setStreakDays(0)
+      () => {
+        setStreakDays(0);
+        setPhotoUrl('');
+        setDailyInches(0);
+      }
     );
     return unsub;
   }, [user?.uid]);
@@ -276,108 +291,136 @@ export function TodayScreen() {
     : `opens in ${formatCountdownHMS(countdownMs)}`;
   const showBeFirst = window.isLive && liveCount === 0;
 
+  const boardTitle = hasPostedToday
+    ? dailyInches > 0
+      ? `Today · ${formatLeapInchesDisplay(dailyInches)}`
+      : 'You’re on today’s board'
+    : 'Post Today to Earn Inches';
+  const boardSubtitle = hasPostedToday
+    ? 'See where you stand on the Leaperboard'
+    : window.isLive
+      ? 'Complete today’s leap to climb the board'
+      : 'Today’s board opens at noon ET';
+
+  const onBoardPress = () => {
+    if (!hasPostedToday && facing.canRecord) {
+      navigateToRecord(nav);
+      return;
+    }
+    if (!hasPostedToday && !facing.canRecord) {
+      navigateToLeaperboard(nav);
+      return;
+    }
+    navigateToLeaperboard(nav);
+  };
+
   return (
     <Screen edges={['left', 'right', 'bottom']} dismissKeyboardOnTap>
       <ScrollView
         contentContainerStyle={[
           styles.scroll,
-          { paddingBottom: floatingTabContentClearance(insets.bottom) + 12 },
+          styles.content,
+          { paddingTop: insets.top + 12, paddingBottom: floatingTabContentClearance(insets.bottom) + 12 },
         ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <ModernHeroSurface style={[styles.hero, { paddingTop: insets.top + 12 }]}>
-          <View style={styles.header}>
-            <View style={styles.headerGroup}>
-              <View style={styles.brandTile}>
-                <Brandmark size={24} />
-              </View>
-              {user?.isAdmin ? (
-                <TouchableOpacity
-                  onPress={() => nav.navigate('ChallengeAdmin')}
-                  style={styles.adminBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel="Set today's leap"
-                >
-                  <Text style={styles.adminBtnText}>SET</Text>
-                </TouchableOpacity>
-              ) : null}
-              {user?.isAdmin || user?.isModerator ? (
-                <TouchableOpacity
-                  onPress={() => nav.navigate('AdminVideoModeration')}
-                  style={styles.adminBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel="Video moderation"
-                >
-                  <Text style={styles.adminBtnText}>MOD</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-            <View style={styles.headerGroup}>
-              {streakDays > 0 ? (
-                <View
-                  style={styles.streakChip}
-                  accessibilityLabel={`Leap streak ${streakDays} days`}
-                >
-                  <Ionicons name="flame" size={15} color={colors.danger} />
-                  <Text style={styles.streakText}>{streakDays}</Text>
-                </View>
-              ) : null}
+        <View style={styles.header}>
+          <View style={styles.headerGroup}>
+            <TouchableOpacity
+              style={styles.avatarBtn}
+              onPress={() => nav.navigate('Me')}
+              accessibilityRole="button"
+              accessibilityLabel="Open your profile"
+            >
+              {photoUrl ? (
+                <Image source={{ uri: photoUrl }} style={styles.avatarImg} />
+              ) : (
+                <Text style={styles.avatarInitials}>{initialsFromUsername(user?.username)}</Text>
+              )}
+            </TouchableOpacity>
+            {user?.isAdmin ? (
               <TouchableOpacity
-                style={styles.iconBtn}
-                onPress={() => nav.navigate('Notifications')}
+                onPress={() => nav.navigate('ChallengeAdmin')}
+                style={styles.adminBtn}
                 accessibilityRole="button"
-                accessibilityLabel="Notifications"
+                accessibilityLabel="Set today's leap"
               >
-                <Ionicons name="notifications-outline" size={18} color={colors.text} />
+                <Text style={styles.adminBtnText}>SET</Text>
               </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.callout}>
-            <ModernLeaderboardCallout
-              title="The Leaperboard"
-              subtitle="Daily · Weekly · All-time"
-              onPress={() => navigateToLeaperboard(nav)}
-            />
-          </View>
-
-          <View style={styles.eyebrow}>
-            <ModernPromptEyebrow
-              label="TODAY'S LEAP"
-              timeLabel={countdownLabel}
-              live={window.isLive}
-            />
-          </View>
-
-          <View style={styles.promptWrap}>
-            <Text style={[styles.prompt, titleType]}>{facing.title}</Text>
-          </View>
-
-          <Text style={styles.instructions} numberOfLines={2}>
-            {facing.instructionsLine}
-          </Text>
-          <LeapLoadingFrog active={!facing.canRecord} />
-
-          <View style={styles.heroFooter}>
-            <Text style={styles.heroFooterText} numberOfLines={1}>
-              {window.isLive ? leapedLabel(liveCount) : 'Opens at noon ET'}
-            </Text>
-            {showBeFirst ? <Text style={styles.cheer}>Be first!</Text> : null}
-            {user?.uid ? (
-              <View style={styles.gatePill}>
-                <Ionicons
-                  name={feedUnlocked ? 'lock-open-outline' : 'lock-closed-outline'}
-                  size={13}
-                  color={feedUnlocked ? colors.green : colors.muted2}
-                />
-                <Text style={[styles.gateText, feedUnlocked && { color: colors.green }]}>
-                  {feedUnlocked ? 'Unlocked' : 'Locked'}
-                </Text>
-              </View>
+            ) : null}
+            {user?.isAdmin || user?.isModerator ? (
+              <TouchableOpacity
+                onPress={() => nav.navigate('AdminVideoModeration')}
+                style={styles.adminBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Video moderation"
+              >
+                <Text style={styles.adminBtnText}>MOD</Text>
+              </TouchableOpacity>
             ) : null}
           </View>
-        </ModernHeroSurface>
+          <View style={styles.headerGroup}>
+            {streakDays > 0 ? (
+              <View style={styles.streakChip} accessibilityLabel={`Streak ${streakDays}`}>
+                <Ionicons name="flame" size={15} color={colors.danger} />
+                <Text style={styles.streakText}>{streakDays}</Text>
+              </View>
+            ) : null}
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => nav.navigate('Notifications')}
+              accessibilityRole="button"
+              accessibilityLabel="Notifications"
+            >
+              <Ionicons name="notifications-outline" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.callout}>
+          <ModernLeaderboardCallout
+            title={boardTitle}
+            subtitle={boardSubtitle}
+            onPress={onBoardPress}
+          />
+        </View>
+
+        <View style={styles.eyebrow}>
+          <ModernPromptEyebrow
+            label="TODAY'S LEAP"
+            timeLabel={countdownLabel}
+            live={window.isLive}
+          />
+        </View>
+
+        <View style={styles.promptWrap}>
+          <Text style={[styles.prompt, titleType]}>{facing.title}</Text>
+        </View>
+
+        <Text style={styles.instructions} numberOfLines={2}>
+          {facing.instructionsLine}
+        </Text>
+        <LeapLoadingFrog active={!facing.canRecord} />
+
+        <View style={styles.heroFooter}>
+          <Text style={styles.heroFooterText} numberOfLines={1}>
+            {window.isLive ? leapedLabel(liveCount) : 'Opens at noon ET'}
+          </Text>
+          {showBeFirst ? <Text style={styles.cheer}>Be first!</Text> : null}
+          {user?.uid ? (
+            <View style={styles.gatePill}>
+              <Ionicons
+                name={feedUnlocked ? 'lock-open-outline' : 'lock-closed-outline'}
+                size={13}
+                color={feedUnlocked ? colors.green : colors.muted2}
+              />
+              <Text style={[styles.gateText, feedUnlocked && { color: colors.green }]}>
+                {feedUnlocked ? 'Unlocked' : 'Locked'}
+              </Text>
+            </View>
+          ) : null}
+        </View>
 
         <View style={styles.body}>
           <ModernActionRow
@@ -390,22 +433,6 @@ export function TodayScreen() {
           />
 
           <View style={styles.bottom}>
-            <PrimaryButton
-              title="Leap"
-              variant="green"
-              onPress={() => {
-                if (!facing.canRecord) {
-                  showInfo(
-                    'Not yet',
-                    'Today’s leap drops at 12:00 PM Eastern. The prompt stays hidden until then.'
-                  );
-                  return;
-                }
-                navigateToRecord(nav);
-              }}
-              style={styles.leapBtn}
-            />
-            <Text style={styles.bottomHint}>TAP TO RECORD</Text>
             {user?.uid ? (
               <TouchableOpacity
                 onPress={() => void shareReferralInvite(user?.username ?? '')}

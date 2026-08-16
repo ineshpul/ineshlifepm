@@ -16,8 +16,8 @@ import {
 
 const CHAT_INBOX_ROUTES = new Set(['ChatInbox']);
 
-/** Tabs left of the centered create button; the rest sit to its right. */
-const CREATE_BUTTON_AFTER_INDEX = 2;
+/** Tabs left of the centered create button (Today, Feed); Chat/Me sit to its right. */
+const CREATE_BUTTON_AFTER_INDEX = 1;
 
 export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTabBarProps) {
   const insets = useSafeAreaInsets();
@@ -167,11 +167,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTa
     });
 
     const showBadge = route.name === 'Chat' && chatUnread > 0;
-    // Creating is the centered + button, so the sun tab keeps its own destination label.
-    const label =
-      route.name === 'Best'
-        ? 'Best part of your day'
-        : options.tabBarAccessibilityLabel ?? options.title ?? route.name;
+    const label = options.tabBarAccessibilityLabel ?? options.title ?? route.name;
 
     return (
       <Pressable

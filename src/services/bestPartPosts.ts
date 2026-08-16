@@ -62,6 +62,7 @@ function mapDoc(id: string, data: Record<string, unknown>): BestPartPost | null 
     storagePath,
     feedUrl: typeof data.feedUrl === 'string' ? data.feedUrl : undefined,
     feedStoragePath: typeof data.feedStoragePath === 'string' ? data.feedStoragePath : undefined,
+    posterUrl: typeof data.posterUrl === 'string' ? data.posterUrl : undefined,
     secondaryUrl: typeof data.secondaryUrl === 'string' ? data.secondaryUrl : undefined,
     secondaryStoragePath:
       typeof data.secondaryStoragePath === 'string' ? data.secondaryStoragePath : undefined,

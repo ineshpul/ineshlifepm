@@ -77,9 +77,7 @@ export function ModernFeedModeSwitch({
         accessibilityRole="tab"
         accessibilityState={{ selected: active === 'best' }}
       >
-        <Text style={[styles.label, active === 'best' && styles.labelActive]}>
-          Best of the Day
-        </Text>
+        <Text style={[styles.label, active === 'best' && styles.labelActive]}>BPOTD</Text>
         {active === 'best' ? <View style={styles.indicator} /> : null}
       </Pressable>
     </View>

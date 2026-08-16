@@ -6,7 +6,6 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { useThemedStyles } from '../theme/ThemeProvider';
 import { TodayScreen } from '../screens/TodayScreen';
-import { BestPartScreen } from '../screens/BestPartScreen';
 import { FeedScreen } from '../screens/FeedScreen';
 import { MeScreen } from '../screens/MeScreen';
 import { ChatStackNavigator } from './ChatStack';
@@ -14,21 +13,13 @@ import type { ChatStackParamList } from './ChatStack';
 import { FloatingTabBar } from './FloatingTabBar';
 import { BackgroundUploadBar } from '../components/BackgroundUploadBar';
 import { ChatUnreadProvider } from '../chat/ChatUnreadContext';
-import type { BestPartTabSegment } from '../state/bestPartTabSession';
+
+export type FeedTabMode = 'daily' | 'bpotd';
 
 export type TabsParamList = {
   Today: undefined;
-  /** Everyone’s leaps (gated until you post). Same reel as before; lives on the play tab. */
-  Feed: undefined;
-  /** Best part of your day — ungated photo/video moments (sun tab, after Feed). */
-  Best:
-    | {
-        openCapture?: boolean;
-        segment?: BestPartTabSegment;
-        communityDateKey?: string;
-        focusBestPartId?: string;
-      }
-    | undefined;
+  /** Daily Leaps + BPOTD community — mode switch lives inside Feed. */
+  Feed: { mode?: FeedTabMode } | undefined;
   Chat: NavigatorScreenParams<ChatStackParamList> | undefined;
   Me: undefined;
 };
@@ -116,17 +107,6 @@ export function AppTabs() {
             tabBarAccessibilityLabel: "Everyone's leaps",
             tabBarIcon: ({ focused, color }) => (
               <TabIcon name="play-circle-outline" focused={focused} color={color} />
-            ),
-          }}
-        />
-        <Tab.Screen
-          name="Best"
-          component={BestPartScreen}
-          options={{
-            title: 'Best of the day',
-            tabBarAccessibilityLabel: 'Best part of your day',
-            tabBarIcon: ({ focused, color }) => (
-              <TabIcon name="sunny-outline" focused={focused} color={color} />
             ),
           }}
         />

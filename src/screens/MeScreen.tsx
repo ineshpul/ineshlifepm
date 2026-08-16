@@ -29,9 +29,13 @@ import { showError } from '../utils/ui';
 import { markAllNotificationsRead, subscribeFollowing, type FollowingRow } from '../services/social';
 import { setAppBadgeCount } from '../services/pushNotifications';
 import { formatLeapGainTodayBanner, formatLeapInchesDisplay } from '../lib/verticalScore';
-import { HighestLeapSheet } from '../components/profile/HighestLeapSheet';
 import { useProfileStats } from '../components/profile/useProfileStats';
+import { ProfileLeapsGrid } from '../components/profile/ProfileLeapsGrid';
+import { ProfileBpotdCalendar } from '../components/profile/ProfileBpotdCalendar';
+import { ProfileWeeklyRecapRail } from '../components/profile/ProfileWeeklyRecapRail';
 import { saveUserPublicProfile } from '../services/userProfile';
+import { subscribeMyBestParts } from '../services/bestPartPosts';
+import type { BestPartPost } from '../types/bestPart';
 import { UsernameTakenError } from '../services/usernameClaim';
 import { useChallengeWindow } from '../state/challenge';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
@@ -46,6 +50,7 @@ type MyVideo = {
   leapInches: number;
   likesCount: number;
   commentsCount: number;
+  posterUrl?: string;
 };
 
 export function MeScreen() {
@@ -233,7 +238,7 @@ export function MeScreen() {
   jumpBody: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   jumpBar: { width: 6, height: 56, borderRadius: 3, backgroundColor: '#D1FAE5' },
   jumpTitle: { fontSize: 14, fontWeight: '900', color: colors.text },
-  statsRow: { flexDirection: 'row', gap: 9, marginTop: 11 },
+  statsRow: { flexDirection: 'row', gap: 9, marginTop: 11, alignItems: 'stretch' },
   dailyBanner: {
     marginTop: 12,
     borderRadius: 16,
@@ -276,7 +281,8 @@ export function MeScreen() {
     backgroundColor: colors.card,
     paddingVertical: 13,
     paddingHorizontal: 10,
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 6,
   },
   statStreak: {
@@ -285,7 +291,13 @@ export function MeScreen() {
   },
   statTappable: { borderColor: 'rgba(39, 174, 96, 0.35)' },
   statPressed: { opacity: 0.92 },
-  statNum: { fontFamily: typography.displayExtraBold, fontSize: 20, color: colors.text },
+  statNum: {
+    fontFamily: typography.displayExtraBold,
+    fontSize: 20,
+    lineHeight: 25,
+    color: colors.text,
+    textAlign: 'center',
+  },
   statNumCoral: { color: colors.coral },
   statLabel: {
     fontFamily: typography.bodyBold,
@@ -293,6 +305,7 @@ export function MeScreen() {
     letterSpacing: 0.9,
     color: colors.muted,
     textAlign: 'center',
+    flexShrink: 0,
   },
   followingSection: {
     marginTop: 10,
@@ -388,6 +401,7 @@ export function MeScreen() {
   const { user, signOut } = useAuth();
   const [profile, setProfile] = React.useState<any>(null);
   const [myVideos, setMyVideos] = React.useState<MyVideo[]>([]);
+  const [bestParts, setBestParts] = React.useState<BestPartPost[]>([]);
   const [following, setFollowing] = React.useState<FollowingRow[]>([]);
   const [editProfileOpen, setEditProfileOpen] = React.useState(false);
   const [editSaving, setEditSaving] = React.useState(false);
@@ -431,6 +445,10 @@ export function MeScreen() {
               leapInches: Number.isFinite(leapInches) ? leapInches : 0,
               likesCount: Number(data?.likesCount ?? 0),
               commentsCount: Number(data?.commentsCount ?? 0),
+              posterUrl:
+                typeof data?.posterUrl === 'string' && data.posterUrl.trim()
+                  ? data.posterUrl.trim()
+                  : undefined,
             } satisfies MyVideo;
           })
           .sort((a, b) => b.createdAtMs - a.createdAtMs);
@@ -440,13 +458,20 @@ export function MeScreen() {
     );
   }, [user?.uid]);
 
+  React.useEffect(() => {
+    if (!isFirebaseConfigured() || !user?.uid) {
+      setBestParts([]);
+      return;
+    }
+    return subscribeMyBestParts(user.uid, setBestParts, () => setBestParts([]));
+  }, [user?.uid]);
+
   const username = String(profile?.username ?? user?.username ?? 'user');
   const bio = String(profile?.bio ?? '').trim();
   const photoUrl = String(profile?.photoUrl ?? '').trim();
   const schoolRaw =
     profile?.school != null && String(profile.school).trim() !== '' ? String(profile.school).trim() : '';
   useChallengeWindow();
-  const [highestLeapOpen, setHighestLeapOpen] = React.useState(false);
   const stats = useProfileStats(profile as Record<string, unknown> | undefined, myVideos);
 
   const initials =
@@ -576,22 +601,17 @@ export function MeScreen() {
         </View>
 
         <View style={styles.statsRow}>
-          <Pressable
-            style={({ pressed }) => [styles.stat, styles.statTappable, pressed && styles.statPressed]}
-            onPress={() => setHighestLeapOpen(true)}
-            accessibilityRole="button"
-            accessibilityLabel="View highest leap"
-          >
+          <View style={styles.stat}>
             <Text style={styles.statNum}>{formatLeapInchesDisplay(stats.highestDayIn)}</Text>
-            <Text style={styles.statLabel}>HIGHEST{'\n'}LEAP</Text>
-          </Pressable>
+            <Text style={styles.statLabel} numberOfLines={1}>BEST DAY</Text>
+          </View>
           <View style={styles.stat}>
             <Text style={styles.statNum}>{formatLeapInchesDisplay(stats.weeklyLeapIn)}</Text>
-            <Text style={styles.statLabel}>WEEKLY{'\n'}TOTAL</Text>
+            <Text style={styles.statLabel} numberOfLines={1}>THIS WEEK</Text>
           </View>
           <View style={[styles.stat, styles.statStreak]}>
             <Text style={[styles.statNum, styles.statNumCoral]}>{stats.streakDays}</Text>
-            <Text style={styles.statLabel}>DAY{'\n'}STREAK</Text>
+            <Text style={styles.statLabel} numberOfLines={1}>STREAK</Text>
           </View>
         </View>
 
@@ -613,7 +633,7 @@ export function MeScreen() {
                 accessibilityState={{ selected }}
               >
                 <Text style={[styles.profileTabText, selected && styles.profileTabTextOn]}>
-                  {section === 'leaps' ? 'Leaps' : 'Best of Day'}
+                  {section === 'leaps' ? 'Leaps' : 'BPOTD'}
                 </Text>
               </Pressable>
             );
@@ -622,37 +642,17 @@ export function MeScreen() {
 
         <View style={styles.tabPanel}>
           {profileSection === 'leaps' ? (
-            <TouchableOpacity
-              style={styles.openLeapsCta}
-              onPress={() => nav.navigate('MyLeaps')}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel="Open your leaps feed"
-            >
-              <Text style={styles.openLeapsCtaText}>
-                {myVideos.length > 0
-                  ? `Open feed · ${myVideos.length} leap${myVideos.length === 1 ? '' : 's'}`
-                  : 'Open your leaps'}
-              </Text>
-              <Ionicons name="chevron-forward" size={18} color={colors.green} />
-            </TouchableOpacity>
+            <ProfileLeapsGrid
+              videos={myVideos}
+              onOpen={(videoId) => nav.navigate('VideoPost', { videoId })}
+            />
           ) : (
             <>
-              <Text style={styles.tabHint}>
-                Your strongest recorded leap is ready to revisit with its original post details.
-              </Text>
-              <TouchableOpacity
-                style={styles.openLeapsCta}
-                onPress={() => setHighestLeapOpen(true)}
-                activeOpacity={0.85}
-                accessibilityRole="button"
-                accessibilityLabel="View best leap of the day"
-              >
-                <Text style={styles.openLeapsCtaText}>
-                  Best leap · {formatLeapInchesDisplay(stats.highestDayIn)}
-                </Text>
-                <Ionicons name="play-circle-outline" size={20} color={colors.coral} />
-              </TouchableOpacity>
+              <ProfileBpotdCalendar
+                posts={bestParts}
+                onOpenPost={(bestPartId) => nav.navigate('BestPartPost', { bestPartId })}
+              />
+              <ProfileWeeklyRecapRail posts={bestParts} username={username} />
             </>
           )}
         </View>
@@ -683,13 +683,6 @@ export function MeScreen() {
           </TouchableOpacity>
         )}
       </ScrollView>
-
-      <HighestLeapSheet
-        visible={highestLeapOpen}
-        onClose={() => setHighestLeapOpen(false)}
-        postId={stats.bestPostId}
-        fallbackInches={stats.highestDayIn}
-      />
 
       <Modal visible={editProfileOpen} animationType="slide" transparent>
         <KeyboardAvoidingView

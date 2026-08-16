@@ -1,4 +1,8 @@
-import { calendarWeekDateKeys, getCurrentWeekKeyFromMs } from './getCurrentWeekKey';
+import {
+  calendarWeekDateKeys,
+  getCurrentWeekKeyFromMs,
+  weekStartKeyFromChallengeDate,
+} from './getCurrentWeekKey';
 import type { BestPartPost } from '../types/bestPart';
 import { formatNyDateKeyShort } from '../utils/nyTime';
 
@@ -28,6 +32,18 @@ export function isNySunday(ms = Date.now()): boolean {
 /** Current Sun→Sat NY calendar keys for the active leap week window. */
 export function currentBestPartWeekDateKeys(ms = Date.now()): string[] {
   return calendarWeekDateKeys(getCurrentWeekKeyFromMs(ms));
+}
+
+/** Sun→Sat calendar keys for a requested archive week. */
+export function bestPartWeekDateKeys(weekStartKey?: string, ms = Date.now()): string[] {
+  const requested = String(weekStartKey ?? '').trim();
+  const keys = requested ? calendarWeekDateKeys(requested) : [];
+  return keys.length === 7 ? keys : currentBestPartWeekDateKeys(ms);
+}
+
+/** Sunday key for the calendar week containing a BPOTD date key. */
+export function bestPartWeekStartForDateKey(dateKey: string): string {
+  return weekStartKeyFromChallengeDate(dateKey);
 }
 
 export function filterPostsInWeek(posts: BestPartPost[], weekKeys: string[]): BestPartPost[] {

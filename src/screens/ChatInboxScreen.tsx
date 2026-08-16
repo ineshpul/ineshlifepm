@@ -37,12 +37,12 @@ function formatTime(ts: { toMillis?: () => number } | null | undefined) {
 export function ChatInboxScreen({ navigation }: Props) {
   const { colors } = useTheme();
   const styles = useThemedStyles((c) => ({
-    screen: { flex: 1, backgroundColor: c.bg, paddingHorizontal: 22 },
+    screen: { flex: 1, backgroundColor: c.bg, paddingHorizontal: 20 },
     center: { flex: 1, alignItems: 'center' as const, justifyContent: 'center' as const },
     offline: { padding: 24, textAlign: 'center' as const, color: c.muted, fontWeight: '600' as const },
     header: {
-      paddingTop: 10,
-      paddingBottom: 14,
+      paddingTop: 14,
+      paddingBottom: 18,
       flexDirection: 'row' as const,
       alignItems: 'center' as const,
       justifyContent: 'space-between' as const,
@@ -76,12 +76,12 @@ export function ChatInboxScreen({ navigation }: Props) {
       flexDirection: 'row' as const,
       alignItems: 'center' as const,
       gap: 10,
-      marginBottom: 14,
+      marginBottom: 20,
     },
     searchText: { fontFamily: typography.bodyMedium, fontSize: 14, color: c.muted2 },
     sectionLabel: {
       marginTop: 2,
-      marginBottom: 8,
+      marginBottom: 12,
       fontFamily: typography.bodyBold,
       fontSize: 11.5,
       letterSpacing: 1.5,
@@ -95,25 +95,25 @@ export function ChatInboxScreen({ navigation }: Props) {
     row: {
       flexDirection: 'row' as const,
       alignItems: 'center' as const,
-      paddingHorizontal: 12,
-      paddingVertical: 12,
-      gap: 12,
-      borderRadius: 18,
+      paddingHorizontal: 14,
+      paddingVertical: 16,
+      gap: 14,
+      borderRadius: 20,
       borderWidth: 1,
       borderColor: c.border2,
       backgroundColor: c.card,
-      marginBottom: 8,
+      marginBottom: 12,
     },
     avatar: {
-      width: 50,
-      height: 50,
-      borderRadius: 18,
+      width: 54,
+      height: 54,
+      borderRadius: 20,
       backgroundColor: c.cardTint,
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
       overflow: 'hidden' as const,
     },
-    avatarImg: { width: 50, height: 50 },
+    avatarImg: { width: 54, height: 54 },
     avatarInitial: { fontFamily: typography.bodyBold, fontSize: 18, color: c.moss },
     rowBody: {
       flex: 1,
@@ -214,6 +214,7 @@ export function ChatInboxScreen({ navigation }: Props) {
       ) : (
         <FlatList
           data={rows}
+          showsVerticalScrollIndicator={false}
           keyExtractor={(r) => r.conversationId}
           extraData={listVersion}
           ListHeaderComponent={<Text style={styles.sectionLabel}>MESSAGES</Text>}

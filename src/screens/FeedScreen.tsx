@@ -12,7 +12,13 @@ import {
   type ViewToken,
 } from 'react-native';
 import { FlatList } from 'react-native-gesture-handler';
-import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
+import {
+  useFocusEffect,
+  useIsFocused,
+  useNavigation,
+  useRoute,
+  type RouteProp,
+} from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
@@ -37,10 +43,12 @@ import { FeedReelRow } from '../components/FeedReelRow';
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ModernFeedModeSwitch } from '../components/modern/ModernFeedModeSwitch';
+import { BestPartScreen } from './BestPartScreen';
 import { deleteOwnedVideo } from '../services/deleteVideo';
 import { logEngagementScrollingThrottled, logExperimentEvent } from '../services/nativeAnalytics';
 import { staffNullVideo } from '../services/nullVideo';
-import { navigateToLeaperboard, navigateToRecord } from '../navigation/navigationHelpers';
+import { navigateToRecord } from '../navigation/navigationHelpers';
+import type { TabsParamList } from '../navigation/Tabs';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 import { useAppState } from '../state/appState';
 import { takeCameraRollSaveOffer, type CameraRollSaveOffer } from '../state/pendingCameraRollSave';
@@ -64,12 +72,9 @@ import { useLeapsSinceLastPostCount } from '../hooks/useLeapsSinceLastPostCount'
 import { useUserPostedDates } from '../hooks/useUserPostedDates';
 import { showError } from '../utils/ui';
 import {
-  markAllNotificationsRead,
   subscribeFollowing,
-  subscribeNotifications,
   type FollowingRow,
 } from '../services/social';
-import { setAppBadgeCount } from '../services/pushNotifications';
 import { isHiddenCoLeapCreditDoc, parseCoLeapInvitees } from '../lib/coLeapInvitees';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import { FEED_PREVIEW_SCROLL_LIMIT } from '../constants/feedPreview';
@@ -101,7 +106,6 @@ import {
 } from '../state/referralNudgeDay';
 import { resolveFeedPlaybackUrls } from '../lib/feedPlaybackUrls';
 import { useBackgroundPostUpload } from '../state/backgroundPostUpload';
-import { typography } from '../theme/typography';
 
 /**
  * Keep active ±1 mounted so the paging swipe stays painted (TikTok-style).
@@ -293,12 +297,6 @@ export function FeedScreen() {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  headerWrap: {
-    position: 'absolute',
-    top: 62,
-    right: 14,
-    zIndex: 24,
   },
   modeSwitch: {
     position: 'absolute',
@@ -506,58 +504,6 @@ export function FeedScreen() {
     color: colors.moss,
     letterSpacing: 0.4,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    padding: 4,
-    borderRadius: 18,
-    backgroundColor: 'rgba(15,24,18,0.44)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
-  },
-  notifBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.10)',
-  },
-  notifBadge: {
-    position: 'absolute',
-    right: 2,
-    top: 2,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    paddingHorizontal: 5,
-    backgroundColor: colors.coral,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  notifBadgeText: {
-    color: colors.white,
-    fontSize: 10,
-    fontFamily: typography.bodyExtraBold,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-    minWidth: 0,
-  },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: colors.text,
-  },
   list: {
     paddingBottom: 10,
     gap: 8,
@@ -661,7 +607,14 @@ export function FeedScreen() {
 }));
   const isFocused = useIsFocused();
   const nav = useNavigation<any>();
-  const { preferences, patch } = useSettingsPreferences();
+  const route = useRoute<RouteProp<TabsParamList, 'Feed'>>();
+  const [feedMode, setFeedMode] = React.useState<'daily' | 'bpotd'>(
+    () => route.params?.mode ?? 'daily'
+  );
+  React.useEffect(() => {
+    setFeedMode(route.params?.mode ?? 'daily');
+  }, [route.params?.mode]);
+  const { preferences } = useSettingsPreferences();
   const { clearPostedOverride, hasPostedToday } = useAppState();
   const { pendingFeedPlayback, clearPendingFeedPlayback } = useBackgroundPostUpload();
   const { user } = useAuth();
@@ -951,7 +904,6 @@ export function FeedScreen() {
   const [activeReadyId, setActiveReadyId] = React.useState<string | null>(null);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [nullingId, setNullingId] = React.useState<string | null>(null);
-  const [unreadNotifications, setUnreadNotifications] = React.useState(0);
   const [cameraRollSaveOffer, setCameraRollSaveOffer] = React.useState<CameraRollSaveOffer | null>(
     null
   );
@@ -1363,14 +1315,6 @@ export function FeedScreen() {
     return subscribeFollowing(user?.uid, setFollowingRows);
   }, [user?.uid]);
 
-  React.useEffect(() => {
-    return subscribeNotifications(user?.uid, (rows) => {
-      const n = rows.filter((r) => !r.read).length;
-      setUnreadNotifications(n);
-      void setAppBadgeCount(n);
-    });
-  }, [user?.uid]);
-
   const onViewableItemsChanged = React.useCallback(
     ({ viewableItems }: { viewableItems: ViewToken[]; changed: ViewToken[] }) => {
       const next = pickPrimaryViewable(viewableItems);
@@ -1772,6 +1716,10 @@ export function FeedScreen() {
     }, [feedHydrated])
   );
 
+  if (feedMode === 'bpotd') {
+    return <BestPartScreen embedded onRequestDaily={() => setFeedMode('daily')} />;
+  }
+
   if (!user?.uid) {
     return <TakeTheLeapGate variant="feed" />;
   }
@@ -1837,56 +1785,9 @@ export function FeedScreen() {
         <ModernFeedModeSwitch
           active="daily"
           onDailyPress={scrollToTop}
-          onBestPress={() => nav.navigate('Best')}
+          onBestPress={() => setFeedMode('bpotd')}
           style={styles.modeSwitch}
         />
-        {user?.uid ? (
-          <View style={styles.headerWrap}>
-            <View style={styles.header}>
-              <View style={styles.headerRight}>
-              <TouchableOpacity
-                style={styles.notifBtn}
-                onPress={() => navigateToLeaperboard(nav)}
-                accessibilityRole="button"
-                accessibilityLabel="Leaperboard"
-              >
-                <Ionicons name="trending-up-outline" size={19} color="#FFFFFF" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.notifBtn}
-                onPress={() => {
-                  if (user?.uid) {
-                    void markAllNotificationsRead(user.uid).then(() => {
-                      setUnreadNotifications(0);
-                      void setAppBadgeCount(0);
-                    });
-                  }
-                  nav.navigate('Notifications');
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Notifications"
-              >
-                <Ionicons name="notifications-outline" size={19} color="#FFFFFF" />
-                {unreadNotifications > 0 ? (
-                  <View style={styles.notifBadge}>
-                    <Text style={styles.notifBadgeText}>
-                      {unreadNotifications > 99 ? '99+' : String(unreadNotifications)}
-                    </Text>
-                  </View>
-                ) : null}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.notifBtn}
-                onPress={() => nav.navigate('Settings')}
-                accessibilityRole="button"
-                accessibilityLabel="Settings"
-              >
-                <Ionicons name="settings-outline" size={19} color="#FFFFFF" />
-              </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        ) : null}
         <FlatList
           ref={flatListRef}
           style={styles.reelList}

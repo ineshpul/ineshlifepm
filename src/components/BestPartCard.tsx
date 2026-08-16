@@ -98,6 +98,10 @@ type Props = {
   /** Own post — delete from Mine or Community. */
   onDelete?: () => void;
   actionsDisabled?: boolean;
+  /** Full-page reel height. When set, media becomes edge-to-edge. */
+  reelHeight?: number;
+  /** Keeps reel actions above the floating tab bar. */
+  bottomClearance?: number;
 };
 
 export function BestPartCard({
@@ -108,6 +112,8 @@ export function BestPartCard({
   onRetake,
   onDelete,
   actionsDisabled = false,
+  reelHeight,
+  bottomClearance = 0,
 }: Props) {
   const { colors } = useTheme();
   const { user } = useAuth();
@@ -239,6 +245,10 @@ export function BestPartCard({
     card: {
       marginBottom: 14,
     },
+    reelCard: {
+      marginBottom: 0,
+      backgroundColor: '#111',
+    },
     mediaWrap: {
       width: '100%' as const,
       aspectRatio: 9 / 15.5,
@@ -250,6 +260,13 @@ export function BestPartCard({
       shadowRadius: 18,
       shadowOffset: { width: 0, height: 8 },
       elevation: 8,
+    },
+    reelMediaWrap: {
+      aspectRatio: undefined,
+      borderRadius: 0,
+      shadowOpacity: 0,
+      shadowRadius: 0,
+      elevation: 0,
     },
     media: { width: '100%' as const, height: '100%' as const },
     touchLayer: {
@@ -401,8 +418,20 @@ export function BestPartCard({
   const playSecondaryUrl = (post.feedSecondaryUrl || post.secondaryUrl || '').trim();
 
   return (
-    <View style={styles.card}>
-      <View style={styles.mediaWrap}>
+    <View
+      style={[
+        styles.card,
+        reelHeight ? styles.reelCard : null,
+        reelHeight ? { height: reelHeight } : null,
+      ]}
+    >
+      <View
+        style={[
+          styles.mediaWrap,
+          reelHeight ? styles.reelMediaWrap : null,
+          reelHeight ? { height: reelHeight } : null,
+        ]}
+      >
         {post.mediaType === 'photo' ? (
           <Image source={{ uri: post.url }} style={styles.media} resizeMode="cover" />
         ) : playSecondaryUrl ? (
@@ -468,7 +497,7 @@ export function BestPartCard({
         ) : null}
         <View style={styles.mediaScrim} pointerEvents="none" />
 
-      <View style={styles.body}>
+      <View style={[styles.body, reelHeight ? { bottom: bottomClearance + 14 } : null]}>
         <View style={styles.metaRow}>
           <Text style={styles.day}>{dayLabel(post.dateKey)}</Text>
           <View style={styles.ownerActions}>

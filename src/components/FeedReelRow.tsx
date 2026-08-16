@@ -161,32 +161,15 @@ function FeedReelRowInner({
       <View style={styles.bottomScrim} pointerEvents="none" />
 
       <View
-        style={[styles.reelSheet, { paddingBottom: tabBarClearance }]}
+        style={[styles.overlayBottom, { paddingBottom: tabBarClearance }]}
         onLayout={onSheetLayout}
       >
-        <View style={styles.reelSheetTop}>
-          <View style={styles.reelAvatar}>
-            <Text style={styles.reelAvatarText}>{item.username[0]?.toUpperCase()}</Text>
-          </View>
-          <View style={styles.reelTextCol}>
+        <View style={styles.metaCol}>
+          <View style={styles.metaTopRow}>
+            <View style={styles.reelAvatar}>
+              <Text style={styles.reelAvatarText}>{item.username[0]?.toUpperCase()}</Text>
+            </View>
             <UsernameLink uid={item.ownerUid} username={item.username} style={styles.reelUser} />
-            {item.coLeapInvitees && item.coLeapInvitees.length > 0 ? (
-              <Text style={styles.reelCoLeap} numberOfLines={2}>
-                Co-Leap with{' '}
-                {item.coLeapInvitees
-                  .map((i) => {
-                    const handle = `@${i.username.replace(/^@+/u, '')}`;
-                    return i.status === 'confirmed' ? handle : `${handle} (pending)`;
-                  })
-                  .join(' · ')}
-              </Text>
-            ) : null}
-            {dayTag ? <Text style={styles.reelDayTag}>{dayTag}</Text> : null}
-            <Text style={styles.reelPrompt} numberOfLines={2}>
-              {item.prompt}
-            </Text>
-          </View>
-          <View style={styles.reelSheetActions}>
             {showFollowButton && viewerUid && viewerUsername ? (
               <FollowButton
                 viewerUid={viewerUid}
@@ -195,6 +178,23 @@ function FeedReelRowInner({
                 targetUsername={item.username}
               />
             ) : null}
+          </View>
+          {item.coLeapInvitees && item.coLeapInvitees.length > 0 ? (
+            <Text style={styles.reelCoLeap} numberOfLines={2}>
+              Co-Leap with{' '}
+              {item.coLeapInvitees
+                .map((i) => {
+                  const handle = `@${i.username.replace(/^@+/u, '')}`;
+                  return i.status === 'confirmed' ? handle : `${handle} (pending)`;
+                })
+                .join(' · ')}
+            </Text>
+          ) : null}
+          {dayTag ? <Text style={styles.reelDayTag}>{dayTag}</Text> : null}
+          <Text style={styles.reelPrompt} numberOfLines={3}>
+            {item.prompt}
+          </Text>
+          <View style={styles.metaActions}>
             {canStaffMod && item.ownerUid !== viewerUid ? (
               item.moderationStatus === 'nulled' ? (
                 <Text style={styles.nulledBadge}>Nulled</Text>
@@ -227,20 +227,22 @@ function FeedReelRowInner({
               </>
             ) : null}
           </View>
+          {showSwipeHint ? (
+            <View style={styles.reelSwipeRail} pointerEvents="none">
+              <Ionicons name="chevron-down" size={13} color="rgba(255,255,255,0.7)" />
+              <Text style={styles.reelSwipeRailText}>Swipe for more leaps</Text>
+              <Ionicons name="chevron-down" size={13} color="rgba(255,255,255,0.7)" />
+            </View>
+          ) : null}
         </View>
+
         {viewerUid && viewerUsername ? (
           <DeferredMount
             active={showEngagement && !showLockedOverlay}
             delayMs={ENGAGEMENT_MOUNT_DELAY_MS}
-            placeholder={
-              <View style={styles.reelEngagementPlaceholder}>
-                <Text style={styles.reelEngagementPlaceholderText}>
-                  Swipe to this leap — likes and comments load on the clip in view.
-                </Text>
-              </View>
-            }
+            placeholder={<View style={styles.railPlaceholder} />}
           >
-            <View style={[styles.reelEngagementScroll, styles.engagementGlass]}>
+            <View style={styles.actionRail}>
               <FeedPostEngagement
                 reelLayout
                 videoId={item.id}
@@ -256,21 +258,9 @@ function FeedReelRowInner({
               />
             </View>
           </DeferredMount>
-        ) : viewerUid ? (
-          <View style={styles.reelEngagementPlaceholder}>
-            <Text style={styles.reelEngagementPlaceholderText}>
-              Swipe to this leap — likes and comments load on the clip in view.
-            </Text>
-          </View>
-        ) : null}
-        {showSwipeHint ? (
-          <View style={styles.reelSwipeRail} pointerEvents="none">
-            <Ionicons name="chevron-down" size={13} color={colors.muted} />
-            <Text style={styles.reelSwipeRailText}>Swipe for more leaps</Text>
-            <Ionicons name="chevron-down" size={13} color={colors.muted} />
-          </View>
         ) : null}
       </View>
+
       {showPreviousLeapsChip ? (
         <View style={[styles.previousLeapsChip, { bottom: sheetBottom + 12 }]} pointerEvents="none">
           <Ionicons name="calendar-outline" size={15} color={colors.moss} />
@@ -337,91 +327,91 @@ const useStyles = () =>
       left: 0,
       right: 0,
       top: 0,
-      height: 172,
-      backgroundColor: 'rgba(5,10,7,0.25)',
+      height: 140,
+      backgroundColor: 'rgba(5,10,7,0.22)',
     },
     bottomScrim: {
       position: 'absolute' as const,
       left: 0,
       right: 0,
       bottom: 0,
-      height: 330,
-      backgroundColor: 'rgba(5,10,7,0.56)',
+      height: 280,
+      backgroundColor: 'rgba(5,10,7,0.5)',
     },
-    reelSheet: {
+    overlayBottom: {
       position: 'absolute' as const,
       left: 0,
       right: 0,
       bottom: 0,
-      flexDirection: 'column',
-      backgroundColor: 'transparent',
-      paddingHorizontal: 18,
+      flexDirection: 'row' as const,
+      alignItems: 'flex-end' as const,
+      paddingHorizontal: 14,
       paddingTop: 12,
-      paddingBottom: 10,
+      gap: 8,
     },
-    reelSheetTop: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: 10,
-      marginBottom: 4,
+    metaCol: {
+      flex: 1,
+      minWidth: 0,
+      paddingRight: 4,
+      paddingBottom: 6,
+      gap: 4,
+    },
+    metaTopRow: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 8,
+      marginBottom: 2,
     },
     reelAvatar: {
-      width: 38,
-      height: 38,
-      borderRadius: 13,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       backgroundColor: '#1C7C43',
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.34)',
-      alignItems: 'center',
-      justifyContent: 'center',
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
     },
     reelAvatarText: {
       fontFamily: typography.bodyBold,
       color: '#FFFFFF',
     },
-    reelTextCol: {
-      flex: 1,
-      minWidth: 0,
-      gap: 2,
-    },
     reelUser: {
       fontSize: 15,
       fontFamily: typography.bodyBold,
       color: '#FFFFFF',
+      flexShrink: 1,
     },
     reelCoLeap: {
       fontSize: 12,
       fontFamily: typography.bodySemiBold,
       color: '#8FE3A8',
-      marginTop: 1,
     },
     reelDayTag: {
       fontSize: 11,
       fontFamily: typography.bodyBold,
       color: '#8FE3A8',
-      marginBottom: 2,
     },
     reelPrompt: {
-      fontSize: 13,
-      lineHeight: 18,
+      fontSize: 14,
+      lineHeight: 19,
       fontFamily: typography.bodyMedium,
-      color: 'rgba(255,255,255,0.78)',
+      color: 'rgba(255,255,255,0.92)',
     },
-    reelSheetActions: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      flexShrink: 0,
+    metaActions: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 10,
+      marginTop: 2,
     },
     nullLink: {
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '800' as const,
       color: '#C0392B',
-      paddingTop: 2,
     },
     nulledBadge: {
       fontSize: 12,
-      fontWeight: '900',
+      fontWeight: '900' as const,
       color: colors.muted,
       letterSpacing: 0.4,
     },
@@ -433,40 +423,23 @@ const useStyles = () =>
     },
     deleteLink: {
       fontSize: 13,
-      fontWeight: '800',
+      fontWeight: '800' as const,
       color: colors.coral,
-      paddingTop: 2,
     },
-    reelEngagementScroll: {
-      alignSelf: 'stretch',
+    actionRail: {
+      width: 56,
+      alignItems: 'center' as const,
+      paddingBottom: 8,
     },
-    engagementGlass: {
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: 18,
-      backgroundColor: 'rgba(255,255,255,0.14)',
-      borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.18)',
-    },
-    reelEngagementPlaceholder: {
-      minHeight: 48,
-      justifyContent: 'center',
-      paddingVertical: 8,
-      paddingHorizontal: 4,
-    },
-    reelEngagementPlaceholderText: {
-      fontSize: 12,
-      fontFamily: typography.bodyMedium,
-      color: 'rgba(255,255,255,0.72)',
-      textAlign: 'center',
+    railPlaceholder: {
+      width: 56,
+      height: 180,
     },
     reelSwipeRail: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
       gap: 6,
       paddingTop: 6,
-      paddingBottom: 2,
       opacity: 0.85,
     },
     reelSwipeRailText: {
@@ -476,13 +449,13 @@ const useStyles = () =>
       letterSpacing: 0.3,
     },
     previousLeapsChip: {
-      position: 'absolute',
-      alignSelf: 'center',
+      position: 'absolute' as const,
+      alignSelf: 'center' as const,
       left: 0,
       right: 0,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
       gap: 8,
       marginHorizontal: 24,
       paddingVertical: 9,
@@ -499,7 +472,7 @@ const useStyles = () =>
     },
     previousLeapsChipText: {
       fontSize: 13,
-      fontWeight: '900',
+      fontWeight: '900' as const,
       color: colors.moss,
       letterSpacing: 0.4,
     },

@@ -26,10 +26,7 @@ export async function handleNotificationNavigation(
   const type = str(raw, 'type');
 
   if (kind === 'best_part_reminder') {
-    ref.navigate('Tabs', {
-      screen: 'Best',
-      params: { openCapture: true },
-    });
+    ref.navigate('BestPartCapture');
     return;
   }
 

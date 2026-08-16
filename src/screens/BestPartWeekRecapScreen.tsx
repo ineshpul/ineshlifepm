@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { enterPlayback } from '../camera/audioSessionGate';
 import { BestPartCaptionText } from '../components/BestPartCaptionText';
 import {
-  currentBestPartWeekDateKeys,
+  bestPartWeekDateKeys,
   filterPostsInWeek,
   weekdayLabelForDateKey,
   weekRangeLabel,
@@ -143,6 +143,10 @@ export function BestPartWeekRecapScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<MainStackParamList, 'BestPartWeekRecap'>>();
   const username = (route.params?.username ?? '').trim() || 'user';
+  const weekKeys = React.useMemo(
+    () => bestPartWeekDateKeys(route.params?.weekStartKey),
+    [route.params?.weekStartKey]
+  );
   const posts = React.useMemo(() => {
     const raw = Array.isArray(route.params?.posts) ? route.params.posts : [];
     const mapped = raw.map((p) => ({
@@ -155,16 +159,15 @@ export function BestPartWeekRecapScreen() {
       commentsCount: 0,
       storagePath: '',
     }));
-    const weekKeys = currentBestPartWeekDateKeys();
     return filterPostsInWeek(mapped, weekKeys);
-  }, [route.params?.posts, username]);
+  }, [route.params?.posts, username, weekKeys]);
 
   const [index, setIndex] = React.useState(0);
   const [saving, setSaving] = React.useState(false);
   const [buffering, setBuffering] = React.useState(true);
   const [resolvedUri, setResolvedUri] = React.useState<string | null>(null);
   const post = posts[index] ?? null;
-  const weekLabel = weekRangeLabel(currentBestPartWeekDateKeys());
+  const weekLabel = weekRangeLabel(weekKeys);
 
   const mediaFrameStyle = React.useMemo(() => {
     const { width: screenW, height: screenH } = Dimensions.get('window');

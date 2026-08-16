@@ -7,7 +7,8 @@ const FROG_W = 52;
 
 function FrogArt({ dark, styles }: { dark?: boolean; styles: ReturnType<typeof useFrogStyles> }) {
   const { colors } = useTheme();
-  const body = dark ? '#5AD98A' : colors.moss;
+  // Classic Material greens — independent of the modern forest `moss` token.
+  const body = dark ? '#5AD98A' : '#4CAF50';
   const belly = dark ? '#A7F3D0' : '#DCEDC8';
   const eyeWhite = colors.white;
   return (

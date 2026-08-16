@@ -8,42 +8,24 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
+  type LayoutChangeEvent,
+  type ViewToken,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useIsFocused, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BestPartCard } from '../components/BestPartCard';
-import { FeedCameraRollSaveBanner } from '../components/FeedCameraRollSaveBanner';
-import { Screen } from '../components/Screen';
 import { ModernFeedModeSwitch } from '../components/modern/ModernFeedModeSwitch';
+import { Screen } from '../components/Screen';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
-import {
-  navigateToBestPartCapture,
-  navigateToBestPartWeekRecap,
-} from '../navigation/navigationHelpers';
-import type { TabsParamList } from '../navigation/Tabs';
-import {
-  isNySunday,
-  weekPostsForRecap,
-  weekRangeLabel,
-  currentBestPartWeekDateKeys,
-  weekdayLabelForDateKey,
-} from '../lib/bestPartWeek';
-import { useAuth } from '../state/auth';
-import { useBackgroundBestPartUpload } from '../state/backgroundBestPartUpload';
-import {
-  subscribeCommunityBestParts,
-  subscribeMyBestParts,
-} from '../services/bestPartPosts';
+import { subscribeCommunityBestParts } from '../services/bestPartPosts';
 import { deleteOwnedBestPart } from '../services/deleteBestPart';
-import { prefetchWeekRecapClips } from '../services/bestPartWeekRecapCache';
-import {
-  takeCameraRollSaveOffer,
-  type CameraRollSaveOffer,
-} from '../state/pendingCameraRollSave';
+import { useAuth } from '../state/auth';
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import { typography } from '../theme/typography';
 import type { BestPartPost } from '../types/bestPart';
 import {
   formatNyDateKeyShort,
@@ -52,16 +34,14 @@ import {
   prevNyDateKey,
 } from '../utils/nyTime';
 import { showError, showInfo } from '../utils/ui';
-import {
-  patchBestPartTabSession,
-  readBestPartTabSession,
-  resetBestPartTabSessionToMine,
-} from '../state/bestPartTabSession';
-import { typography } from '../theme/typography';
-
-type Segment = 'mine' | 'community';
+import { weekdayLabelForDateKey } from '../lib/bestPartWeek';
 
 const COMMUNITY_DAY_WINDOW = 21;
+
+type Props = {
+  embedded?: boolean;
+  onRequestDaily?: () => void;
+};
 
 function communityDayLabel(dateKey: string, todayKey: string): string {
   const short = formatNyDateKeyShort(dateKey);
@@ -70,285 +50,101 @@ function communityDayLabel(dateKey: string, todayKey: string): string {
   return weekdayLabelForDateKey(dateKey);
 }
 
-export function BestPartScreen() {
+export function BestPartScreen({ embedded = false, onRequestDaily }: Props) {
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const route = useRoute<RouteProp<TabsParamList, 'Best'>>();
   const isFocused = useIsFocused();
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { user } = useAuth();
   const { preferences } = useSettingsPreferences();
-  const {
-    isActive: backgroundUploadActive,
-    pendingBestPart,
-    cancelBackgroundBestPart,
-  } = useBackgroundBestPartUpload();
-  const [deletingId, setDeletingId] = React.useState<string | null>(null);
-  const blockedUsernames = React.useMemo(
-    () => new Set(preferences.blockedUsernames.map((u) => u.toLowerCase())),
-    [preferences.blockedUsernames]
-  );
-  const hiddenIds = React.useMemo(
-    () => new Set(preferences.hiddenVideoIds),
-    [preferences.hiddenVideoIds]
-  );
-  const [segment, setSegment] = React.useState<Segment>(() => readBestPartTabSession().segment);
-  const [mine, setMine] = React.useState<BestPartPost[]>([]);
+  const todayKey = nyDateKey();
+
+  const [communityDateKey, setCommunityDateKey] = React.useState(todayKey);
   const [community, setCommunity] = React.useState<BestPartPost[]>([]);
-  const [communityDateKey, setCommunityDateKey] = React.useState(
-    () => readBestPartTabSession().communityDateKey
-  );
-  const [dayPickerOpen, setDayPickerOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
-  const [cameraRollSaveOffer, setCameraRollSaveOffer] =
-    React.useState<CameraRollSaveOffer | null>(null);
+  const [dayPickerOpen, setDayPickerOpen] = React.useState(false);
+  const [activePostId, setActivePostId] = React.useState<string | null>(null);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
+  const [slotHeight, setSlotHeight] = React.useState(0);
   const listRef = React.useRef<FlatList<BestPartPost>>(null);
-  const [visibleIds, setVisibleIds] = React.useState<Set<string>>(() => new Set());
-  const scrollOffsetRef = React.useRef(readBestPartTabSession().scrollOffset);
-  const pendingFocusIdRef = React.useRef<string | null>(readBestPartTabSession().focusBestPartId);
-  const restoreScrollPendingRef = React.useRef(true);
-  const segmentRef = React.useRef(segment);
-  const communityDateKeyRef = React.useRef(communityDateKey);
-  const visibleIdsRef = React.useRef(visibleIds);
-  segmentRef.current = segment;
-  communityDateKeyRef.current = communityDateKey;
-  visibleIdsRef.current = visibleIds;
-
-  const applyRouteParams = React.useCallback(() => {
-    const params = route.params;
-    if (!params) return;
-    if (params.segment === 'mine' || params.segment === 'community') {
-      setSegment(params.segment);
-    }
-    if (typeof params.communityDateKey === 'string' && params.communityDateKey.trim()) {
-      setCommunityDateKey(params.communityDateKey.trim());
-    }
-    if (typeof params.focusBestPartId === 'string' && params.focusBestPartId.trim()) {
-      pendingFocusIdRef.current = params.focusBestPartId.trim();
-      restoreScrollPendingRef.current = true;
-    }
-    if (params.openCapture) {
-      requestAnimationFrame(() => {
-        navigateToBestPartCapture(navigation as never);
-      });
-    }
-    navigation.setParams({
-      openCapture: undefined,
-      segment: undefined,
-      communityDateKey: undefined,
-      focusBestPartId: undefined,
-    } as never);
-  }, [navigation, route.params]);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      const offer = takeCameraRollSaveOffer();
-      if (offer) setCameraRollSaveOffer(offer);
-
-      const saved = readBestPartTabSession();
-      setSegment(saved.segment);
-      setCommunityDateKey(saved.communityDateKey);
-      scrollOffsetRef.current = saved.scrollOffset;
-      if (saved.focusBestPartId) {
-        pendingFocusIdRef.current = saved.focusBestPartId;
-        restoreScrollPendingRef.current = true;
-      }
-      applyRouteParams();
-
-      return () => {
-        const ids = visibleIdsRef.current;
-        const focusId =
-          ids.size > 0 ? Array.from(ids)[0] ?? null : pendingFocusIdRef.current;
-        patchBestPartTabSession({
-          segment: segmentRef.current,
-          communityDateKey: communityDateKeyRef.current,
-          scrollOffset: scrollOffsetRef.current,
-          focusBestPartId: focusId,
-        });
-        setVisibleIds(new Set());
-      };
-    }, [applyRouteParams])
-  );
-
-  React.useEffect(() => {
-    const nav = navigation as { addListener: (event: string, cb: () => void) => () => void };
-    const unsub = nav.addListener('tabPress', () => {
-      if (!navigation.isFocused()) return;
-      resetBestPartTabSessionToMine();
-      setSegment('mine');
-      setDayPickerOpen(false);
-      pendingFocusIdRef.current = null;
-      restoreScrollPendingRef.current = false;
-      requestAnimationFrame(() => {
-        listRef.current?.scrollToOffset({ offset: 0, animated: true });
-      });
-    });
-    return unsub;
-  }, [navigation]);
 
   const styles = useThemedStyles((c) => ({
     screen: { flex: 1, backgroundColor: '#101411' },
+    slot: { flex: 1, minHeight: 0, backgroundColor: '#101411' },
     list: { flex: 1 },
-    header: {
-      paddingTop: 8,
-      flexDirection: 'row' as const,
-      alignItems: 'center' as const,
-      justifyContent: 'center' as const,
-      marginBottom: 14,
-    },
-    brandRow: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10 },
-    titleBlock: { gap: 2 },
-    kicker: {
-      fontSize: 11,
-      fontWeight: '800' as const,
-      letterSpacing: 1.4,
-      color: c.moss,
-    },
-    title: { fontSize: 26, fontWeight: '900' as const, color: c.text, letterSpacing: -0.5 },
-    segments: {
-      flexDirection: 'row' as const,
-      backgroundColor: 'rgba(255,255,255,0.12)',
-      borderRadius: 18,
-      padding: 4,
-      marginBottom: 14,
-      borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.16)',
-    },
-    segBtn: {
-      flex: 1,
-      paddingVertical: 10,
-      borderRadius: 11,
-      alignItems: 'center' as const,
-    },
-    segBtnOn: { backgroundColor: 'rgba(255,255,255,0.94)' },
-    segText: { fontSize: 14, fontFamily: typography.bodySemiBold, color: 'rgba(255,255,255,0.66)' },
-    segTextOn: { color: '#1C7C43', fontFamily: typography.bodyBold },
-    empty: {
-      paddingVertical: 56,
-      paddingHorizontal: 12,
-      alignItems: 'center' as const,
-      gap: 10,
-    },
-    emptyTitle: {
-      fontSize: 18,
-      fontFamily: typography.displayBold,
-      color: '#FFFFFF',
-      textAlign: 'center' as const,
-    },
-    emptyBody: {
-      fontSize: 14,
-      lineHeight: 20,
-      color: 'rgba(255,255,255,0.62)',
-      textAlign: 'center' as const,
-      maxWidth: 280,
-    },
-    cta: {
-      alignSelf: 'stretch' as const,
-      backgroundColor: c.green,
-      borderRadius: 999,
-      paddingVertical: 15,
-      alignItems: 'center' as const,
-      justifyContent: 'center' as const,
-      flexDirection: 'row' as const,
-      gap: 8,
-      shadowColor: '#000',
-      shadowOpacity: 0.12,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 5,
-    },
-    ctaText: { color: '#fff', fontSize: 16, fontWeight: '800' as const },
-    listPad: {
-      paddingHorizontal: 10,
-      paddingBottom: floatingTabContentClearance(insets.bottom) + 16,
-    },
-    listPadWithFab: {
-      paddingHorizontal: 10,
-      paddingBottom: floatingTabContentClearance(insets.bottom) + 76,
-    },
-    fabWrap: {
+    modeSwitch: {
       position: 'absolute' as const,
-      left: 18,
-      right: 18,
-      bottom: floatingTabContentClearance(insets.bottom) + 8,
-    },
-    weekCard: {
-      borderRadius: 18,
-      backgroundColor: c.cardTint,
-      borderWidth: 1,
-      borderColor: c.profileAccentBorder,
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-      marginBottom: 18,
-      flexDirection: 'row' as const,
-      alignItems: 'center' as const,
-      gap: 12,
-    },
-    weekCopy: { flex: 1, gap: 3 },
-    weekKicker: {
-      fontSize: 11,
-      fontWeight: '800' as const,
-      letterSpacing: 1.1,
-      color: c.moss,
-    },
-    weekTitle: { fontSize: 16, fontWeight: '800' as const, color: c.text },
-    weekSub: { fontSize: 13, color: c.muted2, fontWeight: '600' as const },
-    weekPlay: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: c.green,
-      alignItems: 'center' as const,
-      justifyContent: 'center' as const,
+      top: 8,
+      left: '50%' as const,
+      width: 230,
+      transform: [{ translateX: -115 }],
+      zIndex: 30,
     },
     dayDropdown: {
-      alignSelf: 'flex-start' as const,
+      position: 'absolute' as const,
+      top: 64,
+      left: 14,
+      zIndex: 30,
+      maxWidth: '75%' as const,
       flexDirection: 'row' as const,
       alignItems: 'center' as const,
       gap: 6,
       paddingVertical: 8,
       paddingHorizontal: 12,
-      borderRadius: 12,
-      backgroundColor: 'rgba(255,255,255,0.12)',
+      borderRadius: 999,
+      backgroundColor: 'rgba(15,24,18,0.72)',
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.16)',
-      marginBottom: 14,
-      maxWidth: '100%' as const,
+      borderColor: 'rgba(255,255,255,0.18)',
     },
     dayDropdownText: {
-      fontSize: 14,
-      fontFamily: typography.bodySemiBold,
-      color: '#FFFFFF',
       flexShrink: 1,
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontFamily: typography.bodySemiBold,
     },
-    saveBanner: {
-      marginHorizontal: 0,
-      marginBottom: 12,
+    empty: {
+      flex: 1,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      paddingHorizontal: 28,
+      gap: 10,
+      backgroundColor: '#101411',
+    },
+    emptyTitle: {
+      color: '#FFFFFF',
+      fontSize: 18,
+      fontFamily: typography.displayBold,
+      textAlign: 'center' as const,
+    },
+    emptyBody: {
+      color: 'rgba(255,255,255,0.62)',
+      fontSize: 14,
+      lineHeight: 20,
+      textAlign: 'center' as const,
     },
     pickerRoot: {
       flex: 1,
       justifyContent: 'flex-end' as const,
-      backgroundColor: 'rgba(0,0,0,0.35)',
+      backgroundColor: 'rgba(0,0,0,0.42)',
     },
-    pickerBackdrop: {
-      ...StyleSheet.absoluteFillObject,
-    },
+    pickerBackdrop: { ...StyleSheet.absoluteFillObject },
     pickerCard: {
-      backgroundColor: c.card,
+      maxHeight: '70%' as const,
+      paddingTop: 16,
+      paddingHorizontal: 18,
+      paddingBottom: Math.max(insets.bottom, 16),
       borderTopLeftRadius: 22,
       borderTopRightRadius: 22,
-      paddingTop: 16,
-      paddingBottom: Math.max(insets.bottom, 16),
-      paddingHorizontal: 18,
-      maxHeight: '70%' as const,
       borderWidth: 1,
       borderColor: c.profileAccentBorder,
+      backgroundColor: c.card,
     },
     pickerTitle: {
+      marginBottom: 10,
+      color: c.text,
       fontSize: 16,
       fontWeight: '800' as const,
-      color: c.text,
-      marginBottom: 10,
       textAlign: 'center' as const,
     },
     pickerList: { flexGrow: 0 },
@@ -361,8 +157,7 @@ export function BestPartScreen() {
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: c.profileAccentBorder,
     },
-    pickerRowOn: {},
-    pickerLabel: { fontSize: 16, fontWeight: '600' as const, color: c.text },
+    pickerLabel: { color: c.text, fontSize: 16, fontWeight: '600' as const },
     pickerLabelOn: { color: c.green, fontWeight: '800' as const },
     pickerDone: {
       marginTop: 12,
@@ -371,360 +166,202 @@ export function BestPartScreen() {
       borderRadius: 999,
       backgroundColor: c.cardTint,
     },
-    pickerDoneText: { fontSize: 15, fontWeight: '800' as const, color: c.green },
+    pickerDoneText: { color: c.green, fontSize: 15, fontWeight: '800' as const },
   }));
 
-  React.useEffect(() => {
-    if (!user?.uid) {
-      setMine([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    const unsub = subscribeMyBestParts(
-      user.uid,
-      (posts) => {
-        setMine(posts);
-        setLoading(false);
-      },
-      (err) => {
-        setLoading(false);
-        showError('Could not load your moments', err);
-      }
-    );
-    return unsub;
-  }, [user?.uid]);
+  const blockedUsernames = React.useMemo(
+    () => new Set(preferences.blockedUsernames.map((name) => name.toLowerCase())),
+    [preferences.blockedUsernames]
+  );
+  const hiddenIds = React.useMemo(
+    () => new Set(preferences.hiddenVideoIds),
+    [preferences.hiddenVideoIds]
+  );
+  const data = React.useMemo(
+    () =>
+      community.filter(
+        (post) =>
+          !hiddenIds.has(post.id) &&
+          !blockedUsernames.has(String(post.username ?? '').toLowerCase())
+      ),
+    [blockedUsernames, community, hiddenIds]
+  );
+  const communityDays = React.useMemo(
+    () => nyRecentChallengeDateKeys(todayKey, COMMUNITY_DAY_WINDOW),
+    [todayKey]
+  );
+  const tabBarClearance = floatingTabContentClearance(insets.bottom);
+  const pageHeight =
+    slotHeight > 0 ? slotHeight : Math.max(380, windowHeight - insets.top);
 
-  const todayKey = nyDateKey();
-
   React.useEffect(() => {
-    if (segment !== 'community') return;
     setLoading(true);
     setCommunity([]);
-    const unsub = subscribeCommunityBestParts(
+    setActivePostId(null);
+    const unsubscribe = subscribeCommunityBestParts(
       communityDateKey,
       (posts) => {
         setCommunity(posts);
         setLoading(false);
       },
-      (err) => {
+      (error) => {
         setLoading(false);
-        showError('Could not load community', err);
+        showError('Could not load community', error);
       }
     );
-    return unsub;
-  }, [segment, communityDateKey]);
+    return unsubscribe;
+  }, [communityDateKey]);
 
-  const communityDays = React.useMemo(
-    () => nyRecentChallengeDateKeys(todayKey, COMMUNITY_DAY_WINDOW),
-    [todayKey]
-  );
-
-  const pendingToday =
-    pendingBestPart && pendingBestPart.dateKey === todayKey ? pendingBestPart : null;
-  const postedToday =
-    mine.some((p) => p.dateKey === todayKey) || Boolean(pendingToday);
-  const mineWithPending = React.useMemo((): BestPartPost[] => {
-    if (!pendingToday) return mine;
-    if (mine.some((p) => p.id === pendingToday.id)) return mine;
-    const optimistic: BestPartPost = {
-      id: pendingToday.id,
-      uid: pendingToday.uid,
-      username: pendingToday.username,
-      dateKey: pendingToday.dateKey,
-      caption: pendingToday.caption,
-      mediaType: pendingToday.mediaType,
-      url: pendingToday.localUri,
-      storagePath: '',
-      secondaryUrl: pendingToday.secondaryUri ?? undefined,
-      dualFrontIsPrimary: pendingToday.dualFrontIsPrimary,
-      durationSeconds: pendingToday.durationSeconds,
-      isPrivate: pendingToday.isPrivate,
-      deleted: false,
-      likesCount: 0,
-      commentsCount: 0,
-    };
-    return [optimistic, ...mine];
-  }, [mine, pendingToday]);
-  const data = React.useMemo(() => {
-    const raw = segment === 'mine' ? mineWithPending : community;
-    if (segment === 'mine') {
-      return raw.filter((p) => !hiddenIds.has(p.id));
-    }
-    return raw.filter(
-      (p) =>
-        !hiddenIds.has(p.id) && !blockedUsernames.has(String(p.username ?? '').toLowerCase())
+  React.useEffect(() => {
+    setActivePostId((current) =>
+      current && data.some((post) => post.id === current) ? current : data[0]?.id ?? null
     );
-  }, [segment, mineWithPending, community, hiddenIds, blockedUsernames]);
+  }, [data]);
 
-  React.useEffect(() => {
-    if (!isFocused || !restoreScrollPendingRef.current || data.length === 0) return;
-
-    const focusId = pendingFocusIdRef.current;
-    if (focusId) {
-      const idx = data.findIndex((p) => p.id === focusId);
-      if (idx >= 0) {
-        restoreScrollPendingRef.current = false;
-        requestAnimationFrame(() => {
-          try {
-            listRef.current?.scrollToIndex({ index: idx, animated: false, viewPosition: 0.35 });
-          } catch {
-            listRef.current?.scrollToOffset({
-              offset: Math.max(0, scrollOffsetRef.current),
-              animated: false,
-            });
-          }
-          setVisibleIds(new Set([focusId]));
-        });
-        return;
-      }
+  const onSlotLayout = React.useCallback((event: LayoutChangeEvent) => {
+    const nextHeight = Math.floor(event.nativeEvent.layout.height);
+    if (nextHeight > 0) {
+      setSlotHeight((current) => (Math.abs(current - nextHeight) > 2 ? nextHeight : current));
     }
-
-    const y = scrollOffsetRef.current;
-    if (y > 0) {
-      restoreScrollPendingRef.current = false;
-      requestAnimationFrame(() => {
-        listRef.current?.scrollToOffset({ offset: y, animated: false });
-      });
-    } else {
-      restoreScrollPendingRef.current = false;
-    }
-  }, [isFocused, data, segment, communityDateKey]);
-
-  const weekPosts = React.useMemo(() => weekPostsForRecap(mine), [mine]);
-  // Sunday-only — hide mid-week “your week so far” chrome that crowded the feed.
-  const showWeekCard = segment === 'mine' && isNySunday() && weekPosts.length > 0;
-
-  // Warm week-recap clips while the Sunday card is visible so playback isn't cold-start.
-  React.useEffect(() => {
-    if (!showWeekCard) return;
-    const urls = weekPosts
-      .filter((p) => p.mediaType === 'video')
-      .map((p) => (p.feedUrl || p.url).trim())
-      .filter(Boolean);
-    prefetchWeekRecapClips(urls);
-  }, [showWeekCard, weekPosts]);
-  // Bottom CTA only on Mine when you haven’t posted yet. After posting, Redo lives on today’s card.
-  const showPostFab = segment === 'mine' && !postedToday;
-  const todayPostId = React.useMemo(() => {
-    if (segment !== 'mine') return null;
-    return mineWithPending.find((p) => p.dateKey === todayKey)?.id ?? null;
-  }, [mineWithPending, segment, todayKey]);
+  }, []);
 
   const onViewableItemsChanged = React.useRef(
-    ({ viewableItems }: { viewableItems: Array<{ item: BestPartPost }> }) => {
-      setVisibleIds(new Set(viewableItems.map((v) => v.item.id)));
+    ({ viewableItems }: { viewableItems: ViewToken<BestPartPost>[] }) => {
+      const visible = viewableItems.find((token) => token.isViewable && token.item?.id);
+      setActivePostId(visible?.item.id ?? null);
     }
   ).current;
-  const viewabilityConfig = React.useRef({ itemVisiblePercentThreshold: 55 }).current;
+  const viewabilityConfig = React.useRef({
+    itemVisiblePercentThreshold: 55,
+    minimumViewTime: 1,
+  }).current;
 
-  const openCapture = () => {
-    if (backgroundUploadActive) {
-      showInfo('Still uploading', 'Wait for today’s moment to finish uploading.');
+  const requestDaily = React.useCallback(() => {
+    if (onRequestDaily) {
+      onRequestDaily();
       return;
     }
-    const ids = visibleIdsRef.current;
-    const focusId = ids.size > 0 ? (Array.from(ids)[0] ?? null) : pendingFocusIdRef.current;
-    patchBestPartTabSession({
-      segment: segmentRef.current,
-      communityDateKey: communityDateKeyRef.current,
-      scrollOffset: scrollOffsetRef.current,
-      focusBestPartId: focusId,
-    });
-    navigateToBestPartCapture(navigation as never);
-  };
+    (navigation as any).navigate('Feed', { mode: 'daily' });
+  }, [navigation, onRequestDaily]);
 
-  const confirmDelete = (post: BestPartPost) => {
-    if (!user?.uid || post.uid !== user.uid) return;
-    Alert.alert(
-      'Delete this moment?',
-      'It will be removed from Mine and Community. You can post again for that day if it was today.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              setDeletingId(post.id);
-              try {
-                if (pendingBestPart?.id === post.id) {
-                  cancelBackgroundBestPart();
+  const confirmDelete = React.useCallback(
+    (post: BestPartPost) => {
+      if (!user?.uid || post.uid !== user.uid) return;
+      Alert.alert(
+        'Delete this moment?',
+        'It will be removed from your profile and the community reel.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: () => {
+              void (async () => {
+                setDeletingId(post.id);
+                try {
+                  await deleteOwnedBestPart({ bestPartId: post.id, viewerUid: user.uid });
+                  showInfo('Deleted', 'Moment removed.');
+                } catch (error) {
+                  showError('Could not delete', error);
+                } finally {
+                  setDeletingId(null);
                 }
-                await deleteOwnedBestPart({ bestPartId: post.id, viewerUid: user.uid });
-                showInfo('Deleted', 'Moment removed.');
-              } catch (e) {
-                showError('Could not delete', e);
-              } finally {
-                setDeletingId(null);
-              }
-            })();
+              })();
+            },
           },
-        },
-      ]
-    );
-  };
+        ]
+      );
+    },
+    [user?.uid]
+  );
 
-  const openWeekRecap = () => {
-    if (!isNySunday()) return;
-    navigateToBestPartWeekRecap(navigation as never, {
-      username: user?.username ?? weekPosts[0]?.username ?? 'user',
-      posts: weekPosts.map((p) => ({
-        id: p.id,
-        dateKey: p.dateKey,
-        caption: p.caption,
-        mediaType: p.mediaType,
-        url: p.url,
-        feedUrl: p.feedUrl,
-      })),
-    });
-  };
-
-  const listHeader = (
-    <View>
-      <View style={styles.header}>
+  return (
+    <Screen
+      style={styles.screen}
+      edges={embedded ? ['top', 'left', 'right'] : ['top', 'left', 'right', 'bottom']}
+    >
+      <View style={styles.slot} onLayout={onSlotLayout}>
         <ModernFeedModeSwitch
           active="best"
-          onDailyPress={() => (navigation as any).navigate('Feed')}
+          onDailyPress={requestDaily}
           onBestPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          style={styles.modeSwitch}
         />
-      </View>
-
-      {cameraRollSaveOffer ? (
-        <FeedCameraRollSaveBanner
-          clipUri={cameraRollSaveOffer.uri}
-          challenge={cameraRollSaveOffer.challenge}
-          onDismiss={() => setCameraRollSaveOffer(null)}
-          style={styles.saveBanner}
-        />
-      ) : null}
-
-      <View style={styles.segments}>
-        <Pressable
-          style={[styles.segBtn, segment === 'mine' && styles.segBtnOn]}
-          onPress={() => {
-            setDayPickerOpen(false);
-            setSegment('mine');
-          }}
-        >
-          <Text style={[styles.segText, segment === 'mine' && styles.segTextOn]}>Mine</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.segBtn, segment === 'community' && styles.segBtnOn]}
-          onPress={() => {
-            setCommunityDateKey(nyDateKey());
-            setDayPickerOpen(false);
-            setSegment('community');
-          }}
-        >
-          <Text style={[styles.segText, segment === 'community' && styles.segTextOn]}>Community</Text>
-        </Pressable>
-      </View>
-
-      {showWeekCard ? (
-        <Pressable style={styles.weekCard} onPress={openWeekRecap} accessibilityRole="button">
-          <View style={styles.weekCopy}>
-            <Text style={styles.weekKicker}>
-              YOUR WEEK · {weekRangeLabel(currentBestPartWeekDateKeys())}
-            </Text>
-            <Text style={styles.weekTitle}>Your week is ready</Text>
-            <Text style={styles.weekSub}>
-              Play back your {weekPosts.length} best moment{weekPosts.length === 1 ? '' : 's'}
-            </Text>
-          </View>
-          <View style={styles.weekPlay}>
-            <Ionicons name="play" size={20} color="#fff" />
-          </View>
-        </Pressable>
-      ) : null}
-
-      {segment === 'community' ? (
         <Pressable
           style={styles.dayDropdown}
           onPress={() => setDayPickerOpen(true)}
           accessibilityRole="button"
           accessibilityLabel={`Community date, ${communityDayLabel(communityDateKey, todayKey)}`}
         >
-          <Ionicons name="calendar-outline" size={16} color={colors.moss} />
+          <Ionicons name="calendar-outline" size={16} color="#8FE3A8" />
           <Text style={styles.dayDropdownText} numberOfLines={1}>
             {communityDayLabel(communityDateKey, todayKey)}
           </Text>
-          <Ionicons name="chevron-down" size={16} color={colors.muted2} />
+          <Ionicons name="chevron-down" size={15} color="rgba(255,255,255,0.72)" />
         </Pressable>
-      ) : null}
-    </View>
-  );
 
-  return (
-    <Screen style={styles.screen} edges={['top', 'left', 'right']}>
-      {loading && data.length === 0 ? (
-        <View style={[styles.listPad, styles.empty]}>
-          {listHeader}
-          <ActivityIndicator color={colors.green} />
-        </View>
-      ) : (
         <FlatList
           ref={listRef}
-          key={segment}
           style={styles.list}
           data={data}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={showPostFab ? styles.listPadWithFab : styles.listPad}
+          keyExtractor={(post) => post.id}
+          extraData={`${activePostId ?? ''}:${deletingId ?? ''}:${pageHeight}:${isFocused ? 1 : 0}`}
+          pagingEnabled
+          decelerationRate="fast"
+          disableIntervalMomentum
           showsVerticalScrollIndicator={false}
-          ListHeaderComponent={listHeader}
-          onScroll={(e) => {
-            scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
-          }}
-          scrollEventThrottle={32}
-          onScrollToIndexFailed={(info) => {
-            listRef.current?.scrollToOffset({
-              offset: Math.max(0, info.averageItemLength * info.index),
-              animated: false,
-            });
-          }}
-          onViewableItemsChanged={onViewableItemsChanged}
+          removeClippedSubviews={false}
+          initialNumToRender={2}
+          maxToRenderPerBatch={2}
+          windowSize={3}
           viewabilityConfig={viewabilityConfig}
+          onViewableItemsChanged={onViewableItemsChanged}
+          getItemLayout={
+            slotHeight > 0
+              ? (_, index) => ({
+                  length: pageHeight,
+                  offset: pageHeight * index,
+                  index,
+                })
+              : undefined
+          }
+          contentContainerStyle={data.length === 0 ? { flexGrow: 1 } : undefined}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Ionicons
-                name={segment === 'mine' ? 'sunny-outline' : 'people-outline'}
-                size={40}
-                color={colors.moss}
-              />
-              <Text style={styles.emptyTitle}>
-                {segment === 'mine'
-                  ? 'No moments yet'
-                  : communityDateKey === todayKey
-                    ? 'No public moments today'
-                    : `No public moments for ${weekdayLabelForDateKey(communityDateKey)}`}
-              </Text>
-              {segment === 'community' ? (
-                <Text style={styles.emptyBody}>
-                  Pick another day from the date menu above.
-                </Text>
-              ) : null}
+              {loading ? (
+                <ActivityIndicator size="large" color={colors.moss} />
+              ) : (
+                <>
+                  <Ionicons name="people-outline" size={42} color={colors.moss} />
+                  <Text style={styles.emptyTitle}>
+                    {communityDateKey === todayKey
+                      ? 'No public moments today'
+                      : `No public moments for ${weekdayLabelForDateKey(communityDateKey)}`}
+                  </Text>
+                  <Text style={styles.emptyBody}>Pick another day from the date menu.</Text>
+                </>
+              )}
             </View>
           }
-          renderItem={({ item }) => {
-            const isMineTab = segment === 'mine';
-            const isOwn = Boolean(user?.uid && item.uid === user.uid);
-            return (
-              <BestPartCard
-                post={item}
-                showOwner={segment === 'community'}
-                playbackEnabled={isFocused}
-                autoPlay={isFocused && segment === 'community' && visibleIds.has(item.id)}
-                onRetake={isMineTab && item.id === todayPostId ? openCapture : undefined}
-                onDelete={isOwn ? () => confirmDelete(item) : undefined}
-                actionsDisabled={backgroundUploadActive || deletingId === item.id}
-              />
-            );
-          }}
+          renderItem={({ item }) => (
+            <BestPartCard
+              post={item}
+              showOwner
+              autoPlay={isFocused && activePostId === item.id}
+              playbackEnabled={isFocused}
+              onDelete={
+                user?.uid && item.uid === user.uid ? () => confirmDelete(item) : undefined
+              }
+              actionsDisabled={deletingId === item.id}
+              reelHeight={pageHeight}
+              bottomClearance={tabBarClearance}
+            />
+          )}
         />
-      )}
+      </View>
 
       <Modal
-        visible={dayPickerOpen && segment === 'community'}
+        visible={dayPickerOpen}
         transparent
         animationType="fade"
         onRequestClose={() => setDayPickerOpen(false)}
@@ -743,21 +380,23 @@ export function BestPartScreen() {
               keyExtractor={(key) => key}
               showsVerticalScrollIndicator={false}
               renderItem={({ item: key }) => {
-                const on = key === communityDateKey;
+                const selected = key === communityDateKey;
                 return (
                   <Pressable
-                    style={[styles.pickerRow, on && styles.pickerRowOn]}
+                    style={styles.pickerRow}
                     onPress={() => {
                       setCommunityDateKey(key);
                       setDayPickerOpen(false);
                     }}
                     accessibilityRole="button"
-                    accessibilityState={{ selected: on }}
+                    accessibilityState={{ selected }}
                   >
-                    <Text style={[styles.pickerLabel, on && styles.pickerLabelOn]}>
+                    <Text style={[styles.pickerLabel, selected && styles.pickerLabelOn]}>
                       {communityDayLabel(key, todayKey)}
                     </Text>
-                    {on ? <Ionicons name="checkmark" size={20} color={colors.moss} /> : null}
+                    {selected ? (
+                      <Ionicons name="checkmark" size={20} color={colors.moss} />
+                    ) : null}
                   </Pressable>
                 );
               }}
@@ -768,20 +407,6 @@ export function BestPartScreen() {
           </View>
         </View>
       </Modal>
-
-      {segment === 'mine' && showPostFab ? (
-        <View style={styles.fabWrap} pointerEvents="box-none">
-          <Pressable
-            style={[styles.cta, backgroundUploadActive && { opacity: 0.55 }]}
-            onPress={openCapture}
-            accessibilityRole="button"
-            disabled={backgroundUploadActive}
-          >
-            <Ionicons name="camera" size={20} color="#fff" />
-            <Text style={styles.ctaText}>Post the best part of your day</Text>
-          </Pressable>
-        </View>
-      ) : null}
     </Screen>
   );
 }

@@ -15,7 +15,6 @@ export function navigateToFeedTab(navigation: NavigationProp<ParamListBase>) {
           routes: [
             { name: 'Today' },
             { name: 'Feed' },
-            { name: 'Best' },
             { name: 'Chat' },
             { name: 'Me' },
           ],
@@ -116,11 +115,22 @@ const tabsStateToday = {
   routes: [
     { name: 'Today' as const },
     { name: 'Feed' as const },
-    { name: 'Best' as const },
     { name: 'Chat' as const },
     { name: 'Me' as const },
   ],
 };
+
+/** Opens the Feed tab in BPOTD (community) mode. */
+export function navigateToBpotdFeed(navigation?: NavigationProp<ParamListBase>) {
+  const go = () => {
+    if (rootNavigationRef.isReady()) {
+      rootNavigationRef.navigate('Tabs', { screen: 'Feed', params: { mode: 'bpotd' } });
+      return;
+    }
+    navigation?.navigate('Feed', { mode: 'bpotd' });
+  };
+  go();
+}
 
 /** Dismisses Settings / intro modals and opens Record with Today (home) underneath. */
 export function navigateToTodayAndRecord() {

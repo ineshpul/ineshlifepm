@@ -106,12 +106,21 @@ export function FeedPostEngagement({
     gap: 6,
   },
   wrapReelCompact: {
-    alignSelf: 'stretch',
+    alignSelf: 'stretch' as const,
+  },
+  wrapVerticalRail: {
+    marginTop: 0,
+    alignItems: 'center' as const,
   },
   actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
     gap: 10,
+  },
+  actionsVertical: {
+    flexDirection: 'column' as const,
+    alignItems: 'center' as const,
+    gap: 14,
   },
   actionBtn: {
     width: 44,
@@ -120,15 +129,45 @@ export function FeedPostEngagement({
     borderWidth: 1,
     borderColor: colors.border2,
     backgroundColor: colors.card,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  actionBtnVertical: {
+    width: 52,
+    minHeight: 52,
+    height: 'auto' as unknown as number,
+    borderRadius: 26,
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+    flexDirection: 'column' as const,
+    gap: 0,
+    paddingVertical: 2,
   },
   actionCount: {
     marginLeft: 6,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '900' as const,
     color: colors.text,
+  },
+  actionCountVertical: {
+    marginLeft: 0,
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '800' as const,
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  actionLabelVertical: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: '700' as const,
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   modalRoot: {
     flex: 1,
@@ -695,10 +734,16 @@ export function FeedPostEngagement({
   }, [viewerUid, baseSheetHeightAnim]);
 
   return (
-    <View style={[styles.wrap, reelLayout && styles.wrapReelCompact]}>
-      <View style={styles.actions}>
+    <View
+      style={[
+        styles.wrap,
+        reelLayout && styles.wrapReelCompact,
+        reelLayout && styles.wrapVerticalRail,
+      ]}
+    >
+      <View style={[styles.actions, reelLayout && styles.actionsVertical]}>
         <ActionTouchable
-          style={styles.actionBtn}
+          style={[styles.actionBtn, reelLayout && styles.actionBtnVertical]}
           onPress={onToggleLike}
           disabled={likeBusy}
           activeOpacity={0.7}
@@ -706,26 +751,42 @@ export function FeedPostEngagement({
           accessibilityLabel={liked ? 'Unlike' : 'Like'}
         >
           {likeBusy ? (
-            <ActivityIndicator size="small" color={colors.coral} />
+            <ActivityIndicator size="small" color={reelLayout ? '#FFFFFF' : colors.coral} />
           ) : (
-            <Ionicons name={liked ? 'heart' : 'heart-outline'} size={22} color={colors.coral} />
+            <Ionicons
+              name={liked ? 'heart' : 'heart-outline'}
+              size={reelLayout ? 26 : 22}
+              color={reelLayout ? (liked ? '#FF5B39' : '#FFFFFF') : colors.coral}
+            />
           )}
-          <Text style={styles.actionCount}>{displayLikes}</Text>
+          {reelLayout ? (
+            <Text style={styles.actionCountVertical}>{displayLikes}</Text>
+          ) : (
+            <Text style={styles.actionCount}>{displayLikes}</Text>
+          )}
         </ActionTouchable>
 
         <ActionTouchable
-          style={styles.actionBtn}
+          style={[styles.actionBtn, reelLayout && styles.actionBtnVertical]}
           onPress={onOpenCommentsModal}
           activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="View comments"
         >
-          <Ionicons name="chatbubble-outline" size={20} color={colors.text} />
-          <Text style={styles.actionCount}>{displayComments}</Text>
+          <Ionicons
+            name="chatbubble-outline"
+            size={reelLayout ? 24 : 20}
+            color={reelLayout ? '#FFFFFF' : colors.text}
+          />
+          {reelLayout ? (
+            <Text style={styles.actionCountVertical}>{displayComments}</Text>
+          ) : (
+            <Text style={styles.actionCount}>{displayComments}</Text>
+          )}
         </ActionTouchable>
 
         <ActionTouchable
-          style={styles.actionBtn}
+          style={[styles.actionBtn, reelLayout && styles.actionBtnVertical]}
           onPress={() => {
             if (!viewerUid) {
               showError('Sign in required', new Error('Log in to send clips to chat.'));
@@ -743,11 +804,16 @@ export function FeedPostEngagement({
           accessibilityRole="button"
           accessibilityLabel="Send this clip to someone in Leap"
         >
-          <Ionicons name="paper-plane-outline" size={21} color={colors.text} />
+          <Ionicons
+            name="paper-plane-outline"
+            size={reelLayout ? 24 : 21}
+            color={reelLayout ? '#FFFFFF' : colors.text}
+          />
+          {reelLayout ? <Text style={styles.actionLabelVertical}>Send</Text> : null}
         </ActionTouchable>
 
         <ActionTouchable
-          style={styles.actionBtn}
+          style={[styles.actionBtn, reelLayout && styles.actionBtnVertical]}
           onPress={onShare}
           disabled={savingToRoll}
           activeOpacity={0.7}
@@ -755,21 +821,30 @@ export function FeedPostEngagement({
           accessibilityLabel="Share video"
         >
           {savingToRoll ? (
-            <ActivityIndicator size="small" color={colors.text} />
+            <ActivityIndicator size="small" color={reelLayout ? '#FFFFFF' : colors.text} />
           ) : (
-            <Ionicons name="share-outline" size={22} color={colors.text} />
+            <Ionicons
+              name="share-outline"
+              size={reelLayout ? 24 : 22}
+              color={reelLayout ? '#FFFFFF' : colors.text}
+            />
           )}
+          {reelLayout ? <Text style={styles.actionLabelVertical}>Share</Text> : null}
         </ActionTouchable>
 
         {viewerUid && viewerUid !== videoOwnerUid ? (
           <ActionTouchable
-            style={styles.actionBtn}
+            style={[styles.actionBtn, reelLayout && styles.actionBtnVertical]}
             onPress={openSafety}
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="Report or block"
           >
-            <Ionicons name="flag-outline" size={21} color={colors.text} />
+            <Ionicons
+              name="flag-outline"
+              size={reelLayout ? 22 : 21}
+              color={reelLayout ? '#FFFFFF' : colors.text}
+            />
           </ActionTouchable>
         ) : null}
       </View>
