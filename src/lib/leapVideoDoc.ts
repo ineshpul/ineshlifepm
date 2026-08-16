@@ -36,6 +36,19 @@ export function coLeapCreditVideoDocId(uid: string, challengeDate: string): stri
   return `${uid}_${challengeDate}_coleap`;
 }
 
+export const INTRO_LEAP_CHALLENGE_DATE = 'intro';
+
+export function introLeapVideoDocId(uid: string): string {
+  return `${uid}_intro`;
+}
+
+export function isIntroLeapDoc(
+  data: { isIntroLeap?: boolean; source?: string } | undefined
+): boolean {
+  if (!data) return false;
+  return data.isIntroLeap === true || data.source === 'intro';
+}
+
 /** True when the leap doc has a real upload (not a placeholder row from a failed/partial post). */
 export function leapSoloVideoHasCommittedMedia(
   data: { url?: string; storagePath?: string } | undefined

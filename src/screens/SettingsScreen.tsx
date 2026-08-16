@@ -752,7 +752,7 @@ export function SettingsScreen() {
         <Card>
           <RowToggle
             label="Streak reminders"
-            subtitle="Daily nudges when notifications are on."
+            subtitle="Daily nudges for today’s leap and Best Part when notifications are on."
             value={preferences.streakReminders}
             onValueChange={(v) => patch({ streakReminders: v })}
           />

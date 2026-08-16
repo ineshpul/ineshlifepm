@@ -14,13 +14,21 @@ import type { ChatStackParamList } from './ChatStack';
 import { FloatingTabBar } from './FloatingTabBar';
 import { BackgroundUploadBar } from '../components/BackgroundUploadBar';
 import { ChatUnreadProvider } from '../chat/ChatUnreadContext';
+import type { BestPartTabSegment } from '../state/bestPartTabSession';
 
 export type TabsParamList = {
   Today: undefined;
   /** Everyone’s leaps (gated until you post). Same reel as before; lives on the play tab. */
   Feed: undefined;
   /** Best part of your day — ungated photo/video moments (sun tab, after Feed). */
-  Best: undefined;
+  Best:
+    | {
+        openCapture?: boolean;
+        segment?: BestPartTabSegment;
+        communityDateKey?: string;
+        focusBestPartId?: string;
+      }
+    | undefined;
   Chat: NavigatorScreenParams<ChatStackParamList> | undefined;
   Me: undefined;
 };

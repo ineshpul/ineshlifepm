@@ -126,6 +126,9 @@ export const confirmCoLeapCallable = onCall(CALLABLE_OPTIONS, async (request) =>
   const sourceRef = db.doc(`videos/${videoId}`);
   const nowMs = Date.now();
   const viewingDay = leapChallengeDateKeyFromMs(nowMs);
+  // Firestore rejects FieldValue sentinels nested inside array values, so the
+  // invitee row stamps a concrete Timestamp instead of serverTimestamp().
+  const confirmedAt = admin.firestore.Timestamp.fromMillis(nowMs);
 
   const result = await db.runTransaction(async (tx) => {
     const sourceSnap = await tx.get(sourceRef);
@@ -257,7 +260,7 @@ export const confirmCoLeapCallable = onCall(CALLABLE_OPTIONS, async (request) =>
         username: inviteeUsername,
         ...(inviteePhoto ? { photoUrl: inviteePhoto } : {}),
         status: 'confirmed' as const,
-        confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+        confirmedAt,
         creditVideoId: creditId,
       };
     });
@@ -277,6 +280,12 @@ export const confirmCoLeapCallable = onCall(CALLABLE_OPTIONS, async (request) =>
       challengeDate,
       posterUid,
     };
+  }).catch((e: unknown) => {
+    if (e instanceof HttpsError) throw e;
+    // Anything else (write validation, contention, etc.) would otherwise reach the
+    // client as a bare "internal" with no trace on our side.
+    logger.error('confirmCoLeap failed', { videoId, inviteeUid, e });
+    throw new HttpsError('internal', 'Could not confirm this Co-Leap. Please try again.');
   });
 
   if (!result.alreadyConfirmed && result.posterUid) {

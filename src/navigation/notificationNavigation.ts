@@ -24,6 +24,17 @@ export async function handleNotificationNavigation(
   const notificationId = str(raw, 'notificationId');
   const kind = str(raw, 'kind');
   const type = str(raw, 'type');
+
+  if (kind === 'best_part_reminder') {
+    ref.navigate('Tabs', {
+      screen: 'Best',
+      params: { openCapture: true },
+    });
+    return;
+  }
+
+  const bestPartId = str(raw, 'bestPartId');
+
   if (
     uid &&
     notificationId &&
@@ -93,6 +104,10 @@ export async function handleNotificationNavigation(
   if (kind === 'social' || type === 'like' || type === 'comment' || type === 'mention' || type === 'follow') {
     if (type === 'follow' && fromUid) {
       ref.navigate('UserProfile', { uid: fromUid, username: fromUsername || undefined });
+      return;
+    }
+    if ((type === 'like' || type === 'comment' || type === 'mention') && bestPartId) {
+      ref.navigate('BestPartPost', { bestPartId });
       return;
     }
     if ((type === 'like' || type === 'comment' || type === 'mention') && videoId) {

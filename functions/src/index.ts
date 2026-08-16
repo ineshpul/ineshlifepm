@@ -26,6 +26,7 @@ import {
   scheduledLeapNoonReminder,
   scheduledLeapStreakReminder,
 } from './leapDailyReminders';
+import { scheduledBestPartNoonReminder } from './bestPartDailyReminders';
 import { getWeeklyLeaperboardCallable } from './getWeeklyLeaperboardCallable';
 import { backfillWeeklyLeaperWeekCallable } from './backfillWeeklyLeaperWeekCallable';
 import { backfillUserIdentityFromVideosCallable } from './backfillUserIdentityFromVideosCallable';
@@ -58,6 +59,7 @@ import { getWebsiteMarketing } from './getWebsiteMarketing';
 import { createLeapUploadUrlsCallable } from './createLeapUploadUrlsCallable';
 import { createBestPartUploadUrlsCallable } from './createBestPartUploadUrlsCallable';
 import { confirmCoLeapCallable, onCoLeapInvitesCreated } from './coLeap';
+import { commitIntroLeapCallable, skipIntroLeapCallable } from './introLeap';
 
 admin.initializeApp();
 
@@ -65,6 +67,7 @@ export { sendLoginOtp, verifyLoginOtp };
 export { bootstrapUserOnAuthCreate, toggleVideoLikeCallable, toggleBestPartLikeCallable };
 export { createLeapUploadUrlsCallable, createBestPartUploadUrlsCallable };
 export { confirmCoLeapCallable, onCoLeapInvitesCreated };
+export { commitIntroLeapCallable, skipIntroLeapCallable };
 export {
   onVerticalScoreCommentWrite,
   onVideoLikeCreated,
@@ -92,6 +95,7 @@ export {
   scheduledLeapNoonReminder,
   scheduledLeapAfternoonReminder,
   scheduledLeapStreakReminder,
+  scheduledBestPartNoonReminder,
   getWeeklyLeaperboardCallable,
   backfillWeeklyLeaperWeekCallable,
   backfillUserIdentityFromVideosCallable,
@@ -113,7 +117,32 @@ type ChatMessagePayload = {
   text?: string;
   kind?: string;
   conversationId?: string;
+  attachments?: { kind?: string }[] | null;
+  sharePost?: { title?: string } | null;
 };
+
+function chatPushPreview(data: ChatMessagePayload): string {
+  if (data.kind === 'share_post') {
+    const title = String(data.sharePost?.title ?? '').trim();
+    return title ? `Shared a leap: ${title.slice(0, 100)}` : 'Shared a leap';
+  }
+  const text = String(data.text ?? '').trim();
+  if (text) return text.slice(0, 120);
+  const atts = data.attachments;
+  if (Array.isArray(atts) && atts.length > 0) {
+    const k = String(atts[0]?.kind ?? '');
+    if (k === 'video') return 'Sent a video';
+    if (k === 'image') return 'Sent a photo';
+    if (k === 'audio') return 'Sent a voice message';
+    return 'Sent an attachment';
+  }
+  return 'New message';
+}
+
+function formatChatSenderTitle(usernameRaw: string): string {
+  const u = usernameRaw.trim().replace(/^@+/u, '');
+  return u ? `@${u}` : 'Someone';
+}
 
 type NotifPayload = {
   type?: string;
@@ -121,11 +150,14 @@ type NotifPayload = {
   fromUsername?: string;
   snippet?: string | null;
   videoId?: string | null;
+  bestPartId?: string | null;
 };
 
 function buildBody(data: NotifPayload): string {
   const u = String(data.fromUsername ?? 'Someone');
-  if (data.type === 'like') return `@${u} liked your leap`;
+  if (data.type === 'like') {
+    return data.bestPartId ? `@${u} liked your moment` : `@${u} liked your leap`;
+  }
   if (data.type === 'mention') {
     const snip = data.snippet ? `: ${String(data.snippet)}` : '';
     return `@${u} mentioned you${snip}`;
@@ -213,6 +245,7 @@ export const onInboxNotificationCreated = onDocumentCreated(
         fromUid: String(data.fromUid ?? ''),
         fromUsername: String(data.fromUsername ?? ''),
         videoId: String(data.videoId ?? ''),
+        bestPartId: String(data.bestPartId ?? ''),
         notificationId: String(notifId ?? ''),
       },
     }));
@@ -252,14 +285,19 @@ export const onChatMessageCreated = onDocumentCreated(
     if (!senderId) return;
 
     const convSnap = await admin.firestore().doc(`conversations/${conversationId}`).get();
-    const memberIds = (convSnap.data()?.memberIds as string[] | undefined) ?? [];
+    const convData = convSnap.data() ?? {};
+    const memberIds = (convData.memberIds as string[] | undefined) ?? [];
     const targets = memberIds.filter((uid) => uid && uid !== senderId);
     if (!targets.length) return;
 
-    const preview =
-      data.kind === 'share_post'
-        ? 'Shared a leap'
-        : String(data.text ?? '').trim().slice(0, 120) || 'New message';
+    const senderSnap = await admin.firestore().doc(`users/${senderId}`).get();
+    const senderUsername = String(senderSnap.data()?.username ?? '').trim();
+    const pushTitle = formatChatSenderTitle(senderUsername);
+    const preview = chatPushPreview(data);
+    const convType = String(convData.type ?? '');
+    const convName = String(convData.name ?? '').trim();
+    const pushSubtitle =
+      convType === 'group' && convName ? convName : undefined;
 
     for (const userId of targets) {
       const memberSnap = await admin
@@ -278,11 +316,12 @@ export const onChatMessageCreated = onDocumentCreated(
 
       const messages = tokens.map((to) => ({
         to,
-        title: 'Leap · Chat',
+        title: pushTitle,
         body: preview,
+        ...(pushSubtitle ? { subtitle: pushSubtitle } : {}),
         sound: 'default' as const,
         priority: 'high' as const,
-        data: { conversationId },
+        data: { conversationId, type: 'chat', fromUid: senderId, fromUsername: senderUsername },
       }));
 
       for (let i = 0; i < messages.length; i += 99) {

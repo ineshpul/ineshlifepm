@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
-import { useRoute, type RouteProp } from '@react-navigation/native';
+import { useIsFocused, useRoute, type RouteProp } from '@react-navigation/native';
 import { doc, onSnapshot } from 'firebase/firestore';
 
 import { BestPartCard } from '../components/BestPartCard';
@@ -56,6 +56,7 @@ function mapPost(id: string, data: Record<string, unknown>): BestPartPost | null
 export function BestPartPostScreen() {
   const { colors } = useTheme();
   const { user } = useAuth();
+  const isFocused = useIsFocused();
   const route = useRoute<RouteProp<MainStackParamList, 'BestPartPost'>>();
   const bestPartId = route.params.bestPartId;
   const [post, setPost] = React.useState<BestPartPost | null>(null);
@@ -123,7 +124,7 @@ export function BestPartPostScreen() {
   return (
     <Screen style={styles.screen} edges={['bottom', 'left', 'right']}>
       <ScrollView showsVerticalScrollIndicator={false}>
-        <BestPartCard post={post} showOwner />
+        <BestPartCard post={post} showOwner playbackEnabled={isFocused} />
         <View style={{ height: 40 }} />
       </ScrollView>
     </Screen>

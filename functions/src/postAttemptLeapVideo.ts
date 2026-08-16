@@ -18,6 +18,11 @@ export function isCoLeapCreditDoc(data: DocumentData | undefined): boolean {
   return data.isCoLeapCredit === true || String(data.source ?? '') === 'co_leap';
 }
 
+export function isIntroLeapDoc(data: DocumentData | undefined): boolean {
+  if (!data) return false;
+  return data.isIntroLeap === true || String(data.source ?? '') === 'intro';
+}
+
 /** Solo leap only — Co-Leap credits do not block another post that day. */
 export function videoBlocksLeapRepost(
   snap: DocumentSnapshot,

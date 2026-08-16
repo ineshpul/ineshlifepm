@@ -50,3 +50,7 @@ functions/lib/
 
 # Vercel local project metadata
 .vercel/
+
+# Generated challenge analytics exports and Office lock files
+challenge-daily-posts.xlsx
+~$challenge-daily-posts.xlsx

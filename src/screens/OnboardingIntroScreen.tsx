@@ -13,12 +13,13 @@ import { useFonts } from 'expo-font';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Brandmark } from '../components/Brandmark';
+import { IntroLeapOnboardingStep } from '../components/IntroLeapOnboardingStep';
 import { ob, onboardingColors as c, onboardingFontAssets } from '../components/onboarding/onboardingFonts';
 import { getPlayerFacingChallenge, useTodayChallenge } from '../state/challenge';
 import { useLiveCount } from '../state/live';
 import { useAuth } from '../state/auth';
 
-const SCREEN_COUNT = 5;
+const SCREEN_COUNT = 6;
 const SWIPE_THRESHOLD = 45;
 const SNAP_MS = 460;
 
@@ -690,6 +691,10 @@ export function OnboardingIntroScreen({ onFinish }: Props) {
     snapToIndex(indexRef.current + 1);
   }, [snapToIndex]);
 
+  const goNextFromIntroLeap = React.useCallback(() => {
+    snapToIndex(indexRef.current + 1);
+  }, [snapToIndex]);
+
   const goReplay = React.useCallback(() => {
     snapToIndex(0);
   }, [snapToIndex]);
@@ -768,6 +773,9 @@ export function OnboardingIntroScreen({ onFinish }: Props) {
           </View>
           <View style={{ width, height: '100%' }}>
             <ScreenLeaperboard onNext={goNext} />
+          </View>
+          <View style={{ width, height: '100%' }}>
+            <IntroLeapOnboardingStep onDone={goNextFromIntroLeap} />
           </View>
           <View style={{ width, height: '100%' }}>
             <ScreenTodayGlimpse onRecord={handleRecord} onReplay={goReplay} />

@@ -15,7 +15,7 @@ import {
   updateStreakState,
   updateStreakStateWithLeapExtensionAllowance,
 } from './verticalScoreEngine';
-import { isCoLeapCreditDoc } from './postAttemptLeapVideo';
+import { isCoLeapCreditDoc, isIntroLeapDoc } from './postAttemptLeapVideo';
 import {
   decrementApprovedPostCountForLeap,
   decrementPostedPostCountForLeap,
@@ -1310,6 +1310,15 @@ export const onVerticalScoreVideoCreated = onDocumentCreated(
     const db = admin.firestore();
     const videoRef = db.doc(`${POST_COLLECTION}/${videoId}`);
     const status = String(data.moderationStatus ?? '');
+
+    if (isIntroLeapDoc(data)) {
+      try {
+        await syncUserIdentityFromVideo(db, uid, data);
+      } catch (e) {
+        logger.warn('sync user identity from intro leap failed', { uid, e });
+      }
+      return;
+    }
 
     try {
       await syncUserIdentityFromVideo(db, uid, data);

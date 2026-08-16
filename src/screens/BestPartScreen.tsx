@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BestPartCard } from '../components/BestPartCard';
@@ -22,6 +22,7 @@ import {
   navigateToBestPartCapture,
   navigateToBestPartWeekRecap,
 } from '../navigation/navigationHelpers';
+import type { TabsParamList } from '../navigation/Tabs';
 import {
   isNySunday,
   weekPostsForRecap,
@@ -51,6 +52,11 @@ import {
   prevNyDateKey,
 } from '../utils/nyTime';
 import { showError, showInfo } from '../utils/ui';
+import {
+  patchBestPartTabSession,
+  readBestPartTabSession,
+  resetBestPartTabSessionToMine,
+} from '../state/bestPartTabSession';
 
 type Segment = 'mine' | 'community';
 
@@ -67,6 +73,8 @@ export function BestPartScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const route = useRoute<RouteProp<TabsParamList, 'Best'>>();
+  const isFocused = useIsFocused();
   const { user } = useAuth();
   const { preferences } = useSettingsPreferences();
   const {
@@ -83,28 +91,99 @@ export function BestPartScreen() {
     () => new Set(preferences.hiddenVideoIds),
     [preferences.hiddenVideoIds]
   );
-  const [segment, setSegment] = React.useState<Segment>('mine');
+  const [segment, setSegment] = React.useState<Segment>(() => readBestPartTabSession().segment);
   const [mine, setMine] = React.useState<BestPartPost[]>([]);
   const [community, setCommunity] = React.useState<BestPartPost[]>([]);
-  const [communityDateKey, setCommunityDateKey] = React.useState(() => nyDateKey());
+  const [communityDateKey, setCommunityDateKey] = React.useState(
+    () => readBestPartTabSession().communityDateKey
+  );
   const [dayPickerOpen, setDayPickerOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [cameraRollSaveOffer, setCameraRollSaveOffer] =
     React.useState<CameraRollSaveOffer | null>(null);
   const listRef = React.useRef<FlatList<BestPartPost>>(null);
+  const [visibleIds, setVisibleIds] = React.useState<Set<string>>(() => new Set());
+  const scrollOffsetRef = React.useRef(readBestPartTabSession().scrollOffset);
+  const pendingFocusIdRef = React.useRef<string | null>(readBestPartTabSession().focusBestPartId);
+  const restoreScrollPendingRef = React.useRef(true);
+  const segmentRef = React.useRef(segment);
+  const communityDateKeyRef = React.useRef(communityDateKey);
+  const visibleIdsRef = React.useRef(visibleIds);
+  segmentRef.current = segment;
+  communityDateKeyRef.current = communityDateKey;
+  visibleIdsRef.current = visibleIds;
+
+  const applyRouteParams = React.useCallback(() => {
+    const params = route.params;
+    if (!params) return;
+    if (params.segment === 'mine' || params.segment === 'community') {
+      setSegment(params.segment);
+    }
+    if (typeof params.communityDateKey === 'string' && params.communityDateKey.trim()) {
+      setCommunityDateKey(params.communityDateKey.trim());
+    }
+    if (typeof params.focusBestPartId === 'string' && params.focusBestPartId.trim()) {
+      pendingFocusIdRef.current = params.focusBestPartId.trim();
+      restoreScrollPendingRef.current = true;
+    }
+    if (params.openCapture) {
+      requestAnimationFrame(() => {
+        navigateToBestPartCapture(navigation as never);
+      });
+    }
+    navigation.setParams({
+      openCapture: undefined,
+      segment: undefined,
+      communityDateKey: undefined,
+      focusBestPartId: undefined,
+    } as never);
+  }, [navigation, route.params]);
 
   useFocusEffect(
     React.useCallback(() => {
       const offer = takeCameraRollSaveOffer();
       if (offer) setCameraRollSaveOffer(offer);
-      // Tab entry always lands on Mine from the top (not the prior scroll position).
+
+      const saved = readBestPartTabSession();
+      setSegment(saved.segment);
+      setCommunityDateKey(saved.communityDateKey);
+      scrollOffsetRef.current = saved.scrollOffset;
+      if (saved.focusBestPartId) {
+        pendingFocusIdRef.current = saved.focusBestPartId;
+        restoreScrollPendingRef.current = true;
+      }
+      applyRouteParams();
+
+      return () => {
+        const ids = visibleIdsRef.current;
+        const focusId =
+          ids.size > 0 ? Array.from(ids)[0] ?? null : pendingFocusIdRef.current;
+        patchBestPartTabSession({
+          segment: segmentRef.current,
+          communityDateKey: communityDateKeyRef.current,
+          scrollOffset: scrollOffsetRef.current,
+          focusBestPartId: focusId,
+        });
+        setVisibleIds(new Set());
+      };
+    }, [applyRouteParams])
+  );
+
+  React.useEffect(() => {
+    const nav = navigation as { addListener: (event: string, cb: () => void) => () => void };
+    const unsub = nav.addListener('tabPress', () => {
+      if (!navigation.isFocused()) return;
+      resetBestPartTabSessionToMine();
       setSegment('mine');
       setDayPickerOpen(false);
+      pendingFocusIdRef.current = null;
+      restoreScrollPendingRef.current = false;
       requestAnimationFrame(() => {
-        listRef.current?.scrollToOffset({ offset: 0, animated: false });
+        listRef.current?.scrollToOffset({ offset: 0, animated: true });
       });
-    }, [])
-  );
+    });
+    return unsub;
+  }, [navigation]);
 
   const styles = useThemedStyles((c) => ({
     screen: { flex: 1 },
@@ -376,6 +455,41 @@ export function BestPartScreen() {
         !hiddenIds.has(p.id) && !blockedUsernames.has(String(p.username ?? '').toLowerCase())
     );
   }, [segment, mineWithPending, community, hiddenIds, blockedUsernames]);
+
+  React.useEffect(() => {
+    if (!isFocused || !restoreScrollPendingRef.current || data.length === 0) return;
+
+    const focusId = pendingFocusIdRef.current;
+    if (focusId) {
+      const idx = data.findIndex((p) => p.id === focusId);
+      if (idx >= 0) {
+        restoreScrollPendingRef.current = false;
+        requestAnimationFrame(() => {
+          try {
+            listRef.current?.scrollToIndex({ index: idx, animated: false, viewPosition: 0.35 });
+          } catch {
+            listRef.current?.scrollToOffset({
+              offset: Math.max(0, scrollOffsetRef.current),
+              animated: false,
+            });
+          }
+          setVisibleIds(new Set([focusId]));
+        });
+        return;
+      }
+    }
+
+    const y = scrollOffsetRef.current;
+    if (y > 0) {
+      restoreScrollPendingRef.current = false;
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToOffset({ offset: y, animated: false });
+      });
+    } else {
+      restoreScrollPendingRef.current = false;
+    }
+  }, [isFocused, data, segment, communityDateKey]);
+
   const weekPosts = React.useMemo(() => weekPostsForRecap(mine), [mine]);
   // Sunday-only — hide mid-week “your week so far” chrome that crowded the feed.
   const showWeekCard = segment === 'mine' && isNySunday() && weekPosts.length > 0;
@@ -396,7 +510,6 @@ export function BestPartScreen() {
     return mineWithPending.find((p) => p.dateKey === todayKey)?.id ?? null;
   }, [mineWithPending, segment, todayKey]);
 
-  const [visibleIds, setVisibleIds] = React.useState<Set<string>>(() => new Set());
   const onViewableItemsChanged = React.useRef(
     ({ viewableItems }: { viewableItems: Array<{ item: BestPartPost }> }) => {
       setVisibleIds(new Set(viewableItems.map((v) => v.item.id)));
@@ -409,6 +522,14 @@ export function BestPartScreen() {
       showInfo('Still uploading', 'Wait for today’s moment to finish uploading.');
       return;
     }
+    const ids = visibleIdsRef.current;
+    const focusId = ids.size > 0 ? (Array.from(ids)[0] ?? null) : pendingFocusIdRef.current;
+    patchBestPartTabSession({
+      segment: segmentRef.current,
+      communityDateKey: communityDateKeyRef.current,
+      scrollOffset: scrollOffsetRef.current,
+      focusBestPartId: focusId,
+    });
     navigateToBestPartCapture(navigation as never);
   };
 
@@ -553,6 +674,16 @@ export function BestPartScreen() {
           contentContainerStyle={showPostFab ? styles.listPadWithFab : styles.listPad}
           showsVerticalScrollIndicator={false}
           ListHeaderComponent={listHeader}
+          onScroll={(e) => {
+            scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={32}
+          onScrollToIndexFailed={(info) => {
+            listRef.current?.scrollToOffset({
+              offset: Math.max(0, info.averageItemLength * info.index),
+              animated: false,
+            });
+          }}
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
           ListEmptyComponent={
@@ -583,7 +714,8 @@ export function BestPartScreen() {
               <BestPartCard
                 post={item}
                 showOwner={segment === 'community'}
-                autoPlay={segment === 'community' && visibleIds.has(item.id)}
+                playbackEnabled={isFocused}
+                autoPlay={isFocused && segment === 'community' && visibleIds.has(item.id)}
                 onRetake={isMineTab && item.id === todayPostId ? openCapture : undefined}
                 onDelete={isOwn ? () => confirmDelete(item) : undefined}
                 actionsDisabled={backgroundUploadActive || deletingId === item.id}

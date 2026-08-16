@@ -1,4 +1,5 @@
 import { normalizeWeekKey } from './getCurrentWeekKey';
+import { isIntroLeapDoc } from './leapVideoDoc';
 import { normalizeNyDateKey, nyLeapWeekChallengeDateKeys } from '../utils/nyTime';
 
 export type ProfileLeapVideo = {
@@ -9,11 +10,14 @@ export type ProfileLeapVideo = {
   leapInchesAwarded?: boolean;
   awardedVerticalXP?: boolean;
   deleted?: boolean;
+  isIntroLeap?: boolean;
+  source?: string;
 };
 
 /** Mirrors `countsForStreak` in `functions/src/verticalScoreEngine.ts`. */
 export function countsForStreakFromProfileVideo(v: ProfileLeapVideo): boolean {
   if (v.deleted === true) return false;
+  if (isIntroLeapDoc(v)) return false;
   const status = String(v.moderationStatus ?? '');
   if (status === 'nulled' || status === 'rejected') return false;
   if (status !== 'approved') return false;

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import * as Clipboard from 'expo-clipboard';
 import {
   ActivityIndicator,
   Alert,
@@ -38,6 +39,7 @@ import { useAttachments } from '../chat/hooks/useAttachments';
 import { usePresence } from '../chat/hooks/usePresence';
 import type { ChatMessage, ReplyRef } from '../chat/types';
 import { CHAT_REACTION_EMOJIS } from '../chat/constants';
+import { MessageContextMenu } from '../chat/components/MessageContextMenu';
 import {
   addReaction,
   editMessage,
@@ -124,17 +126,6 @@ export function ConversationScreen({ navigation, route }: Props) {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border2,
   },
-  reactionBackdrop: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },
-  reactionTray: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 16,
-    gap: 12,
-    backgroundColor: colors.card,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-  },
-  reactionEmoji: { fontSize: 28 },
   videoModal: { flex: 1, backgroundColor: colors.black, paddingTop: 48 },
   imageModal: { flex: 1, backgroundColor: colors.black, paddingTop: 48 },
   imageFull: { flex: 1, width: '100%' },
@@ -163,7 +154,8 @@ export function ConversationScreen({ navigation, route }: Props) {
 
   const [draft, setDraft] = React.useState('');
   const [replyTo, setReplyTo] = React.useState<ReplyRef | null>(null);
-  const [reactionMsg, setReactionMsg] = React.useState<ChatMessage | null>(null);
+  const [contextMsg, setContextMsg] = React.useState<ChatMessage | null>(null);
+  const CHAT_LIKE_EMOJI = CHAT_REACTION_EMOJIS[0];
   const [reportTarget, setReportTarget] = React.useState<ChatMessage | null>(null);
   const [typingUids, setTypingUids] = React.useState<string[]>([]);
   const typingTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -551,6 +543,24 @@ export function ConversationScreen({ navigation, route }: Props) {
     }, 2200);
   }, [conversationId, user?.uid]);
 
+  const toggleReaction = React.useCallback(
+    async (messageId: string, emoji: string) => {
+      if (!user?.uid) return;
+      const rows = reactionMap[messageId];
+      const isMine = Boolean(rows?.some((r) => r.emoji === emoji && r.mine));
+      try {
+        if (isMine) {
+          await removeReaction(conversationId, messageId, user.uid, emoji);
+        } else {
+          await addReaction(conversationId, messageId, user.uid, emoji);
+        }
+      } catch (e) {
+        showError('Reaction failed', e);
+      }
+    },
+    [conversationId, reactionMap, user?.uid]
+  );
+
   const onSend = () => {
     const text = draft.trim();
     if (!text && !replyTo) return;
@@ -647,64 +657,13 @@ export function ConversationScreen({ navigation, route }: Props) {
               senderAvatarUrl={senderAvatarUrl}
               replySenderLabel={replySenderLabel}
               reactions={reactionMap[item.id]}
-              onLongPress={() => {
-                Alert.alert('Message', undefined, [
-                  {
-                    text: 'Reply',
-                    onPress: () =>
-                      setReplyTo({
-                        messageId: item.id,
-                        textSnippet: item.text ?? '',
-                        senderId: item.senderId,
-                        senderUsername: senderLabel || undefined,
-                      }),
-                  },
-                  { text: 'React', onPress: () => setReactionMsg(item) },
-                  ...(mine
-                    ? [
-                        {
-                          text: 'Edit',
-                          onPress: () => {
-                            if (Platform.OS === 'ios') {
-                              Alert.prompt('Edit message', '', async (t) => {
-                                if (!t || !user?.uid) return;
-                                try {
-                                  await editMessage(conversationId, item.id, user.uid, t);
-                                } catch (e) {
-                                  showError('Edit failed', e);
-                                }
-                              });
-                            } else {
-                              showInfo(
-                                'Edit',
-                                'Inline edit is available on iOS for now; long-press again on iPhone or re-send.'
-                              );
-                            }
-                          },
-                        } as const,
-                        {
-                          text: 'Delete for me',
-                          style: 'destructive' as const,
-                          onPress: () => {
-                            if (!user?.uid) return;
-                            void softDeleteForSelf(conversationId, item.id, user.uid);
-                          },
-                        },
-                      ]
-                    : []),
-                  {
-                    text: 'Report',
-                    style: 'destructive' as const,
-                    onPress: () => setReportTarget(item),
-                  },
-                  { text: 'Cancel', style: 'cancel' as const },
-                ]);
-              }}
+              onLongPress={() => setContextMsg(item)}
+              onDoubleTap={() => void toggleReaction(item.id, CHAT_LIKE_EMOJI)}
               onOpenVideo={setVideoOpen}
               onOpenImage={setImageOpen}
               onToggleReaction={(emoji, isMine) => {
-                if (!user?.uid) return;
                 void (async () => {
+                  if (!user?.uid) return;
                   try {
                     if (isMine) {
                       await removeReaction(conversationId, item.id, user.uid, emoji);
@@ -836,34 +795,88 @@ export function ConversationScreen({ navigation, route }: Props) {
         <View style={styles.composerAvoid}>{composerDock}</View>
       </KeyboardAvoidingView>
 
-      <Modal visible={!!reactionMsg} transparent animationType="fade">
-        <Pressable style={styles.reactionBackdrop} onPress={() => setReactionMsg(null)}>
-          <View style={styles.reactionTray}>
-            {CHAT_REACTION_EMOJIS.map((em) => (
-              <TouchableOpacity
-                key={em}
-                onPress={async () => {
-                  if (!reactionMsg || !user?.uid) return;
-                  try {
-                    const rows = reactionMsg ? reactionMap[reactionMsg.id] : undefined;
-                    const already = Boolean(rows?.some((r) => r.emoji === em && r.mine));
-                    if (already) {
-                      await removeReaction(conversationId, reactionMsg.id, user.uid, em);
-                    } else {
-                      await addReaction(conversationId, reactionMsg.id, user.uid, em);
-                    }
-                  } catch (e) {
-                    showError('Reaction failed', e);
-                  }
-                  setReactionMsg(null);
-                }}
-              >
-                <Text style={styles.reactionEmoji}>{em}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </Pressable>
-      </Modal>
+      <MessageContextMenu
+        visible={!!contextMsg}
+        onClose={() => setContextMsg(null)}
+        onPickEmoji={(em) => {
+          if (!contextMsg) return;
+          void toggleReaction(contextMsg.id, em);
+          setContextMsg(null);
+        }}
+        actions={
+          contextMsg
+            ? [
+                {
+                  key: 'reply',
+                  label: 'Reply',
+                  icon: 'return-down-back',
+                  onPress: () =>
+                    setReplyTo({
+                      messageId: contextMsg.id,
+                      textSnippet: contextMsg.text ?? '',
+                      senderId: contextMsg.senderId,
+                      senderUsername: resolveMemberLabel(contextMsg.senderId) || undefined,
+                    }),
+                },
+                ...(contextMsg.text?.trim()
+                  ? [
+                      {
+                        key: 'copy',
+                        label: 'Copy',
+                        icon: 'copy-outline' as const,
+                        onPress: () => {
+                          void Clipboard.setStringAsync(contextMsg.text!.trim());
+                        },
+                      },
+                    ]
+                  : []),
+                ...(contextMsg.senderId === user?.uid
+                  ? [
+                      {
+                        key: 'edit',
+                        label: 'Edit',
+                        icon: 'create-outline' as const,
+                        onPress: () => {
+                          if (Platform.OS === 'ios') {
+                            Alert.prompt('Edit message', '', async (t) => {
+                              if (!t || !user?.uid) return;
+                              try {
+                                await editMessage(conversationId, contextMsg.id, user.uid, t);
+                              } catch (e) {
+                                showError('Edit failed', e);
+                              }
+                            });
+                          } else {
+                            showInfo(
+                              'Edit',
+                              'Inline edit is available on iOS for now; long-press again on iPhone or re-send.'
+                            );
+                          }
+                        },
+                      },
+                      {
+                        key: 'delete',
+                        label: 'Delete for me',
+                        icon: 'trash-outline' as const,
+                        destructive: true,
+                        onPress: () => {
+                          if (!user?.uid) return;
+                          void softDeleteForSelf(conversationId, contextMsg.id, user.uid);
+                        },
+                      },
+                    ]
+                  : []),
+                {
+                  key: 'report',
+                  label: 'Report',
+                  icon: 'flag',
+                  destructive: true,
+                  onPress: () => setReportTarget(contextMsg),
+                },
+              ]
+            : []
+        }
+      />
 
       <Modal visible={!!videoOpen} animationType="slide">
         <View style={styles.videoModal}>

@@ -46,7 +46,6 @@ export function FeedCameraRollSaveBanner({ clipUri, challenge, onDismiss, style 
     },
     body: { flex: 1, gap: 4 },
     title: { fontSize: 14, fontWeight: '900', color: colors.text },
-    sub: { fontSize: 12, fontWeight: '600', color: colors.muted, lineHeight: 17 },
     actions: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 },
     saveBtn: {
       paddingHorizontal: 14,
@@ -93,11 +92,6 @@ export function FeedCameraRollSaveBanner({ clipUri, challenge, onDismiss, style 
       </View>
       <View style={styles.body}>
         <Text style={styles.title}>Save to camera roll?</Text>
-        <Text style={styles.sub}>
-          {challenge.variant === 'bestPart'
-            ? 'Includes the Leap logo, date, and @username as a watermark.'
-            : "Includes today's leap as a watermark."}
-        </Text>
         <View style={styles.actions}>
           <TouchableOpacity
             accessibilityRole="button"

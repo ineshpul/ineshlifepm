@@ -6,6 +6,7 @@ import {
   blocksSoloLeapRepost,
   coLeapCreditVideoDocId,
   isActiveLeapVideoDoc,
+  isIntroLeapDoc,
 } from '../lib/leapVideoDoc';
 import { userVideosQuery } from '../lib/userVideosQuery';
 import { computeFeedViewingFromNow } from '../utils/nyTime';
@@ -141,7 +142,12 @@ export function useHasPostedAnyVideo(uid: string | undefined) {
     return onSnapshot(
       q,
       (snap) => {
-        const ok = snap.docs.some((d) => !Boolean((d.data() as { deleted?: boolean })?.deleted));
+        const ok = snap.docs.some((d) => {
+          const data = d.data() as { deleted?: boolean; isIntroLeap?: boolean; source?: string };
+          if (Boolean(data?.deleted)) return false;
+          if (isIntroLeapDoc(data)) return false;
+          return true;
+        });
         setHasAny(ok);
         setHydrated(true);
       },

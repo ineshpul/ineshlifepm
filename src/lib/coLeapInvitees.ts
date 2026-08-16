@@ -36,8 +36,14 @@ export function parseCoLeapInvitees(raw: unknown): CoLeapInvitee[] {
   return out;
 }
 
-/** Hide mirror credit docs from the shared feed (one post per Co-Leap). */
+import { isIntroLeapDoc } from './leapVideoDoc';
+
+/** Hide mirror credit docs and intro leaps from the shared feed. */
 export function isHiddenCoLeapCreditDoc(data: Record<string, unknown> | undefined | null): boolean {
   if (!data) return false;
-  return data.isCoLeapCredit === true || data.hideFromFeed === true;
+  return (
+    data.isCoLeapCredit === true ||
+    data.hideFromFeed === true ||
+    isIntroLeapDoc(data as { isIntroLeap?: boolean; source?: string })
+  );
 }

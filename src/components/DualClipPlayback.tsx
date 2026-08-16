@@ -2,6 +2,8 @@ import * as React from 'react';
 import { StyleSheet, View, type ViewStyle } from 'react-native';
 import { useVideoPlayer, VideoView, type VideoContentFit } from 'expo-video';
 
+import { enterPlayback } from '../camera/audioSessionGate';
+
 export type DualClipPlaybackStatus = {
   isLoaded: boolean;
   isPlaying: boolean;
@@ -148,22 +150,28 @@ export function DualClipPlayback({
 
   const startIfNeeded = React.useCallback(() => {
     if (!shouldPlayRef.current) return;
-    try {
-      applyMute();
-      timelinePlayer.play();
-      // Start companion after timeline is moving — don't block first paint on 2nd download.
-      requestAnimationFrame(() => {
-        try {
-          followPlayer.play();
-          syncFollow();
-        } catch {
-          // ignore
-        }
+    const kick = () => {
+      try {
+        applyMute();
+        timelinePlayer.play();
+        requestAnimationFrame(() => {
+          try {
+            followPlayer.play();
+            syncFollow();
+          } catch {
+            // ignore
+          }
+        });
+        emitStatus();
+      } catch {
+        // ignore
+      }
+    };
+    void enterPlayback()
+      .catch(() => undefined)
+      .finally(() => {
+        setTimeout(kick, 220);
       });
-      emitStatus();
-    } catch {
-      // ignore
-    }
   }, [timelinePlayer, followPlayer, applyMute, syncFollow, emitStatus]);
 
   React.useEffect(() => {

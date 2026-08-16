@@ -2,6 +2,7 @@ import * as React from 'react';
 import { onSnapshot } from 'firebase/firestore';
 
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { isIntroLeapDoc } from '../lib/leapVideoDoc';
 import { userVideosQuery } from '../lib/userVideosQuery';
 import { normalizeNyDateKey, nyDateKey } from '../utils/nyTime';
 import { maxPostedChallengeDateKey } from '../state/feedGate';
@@ -33,8 +34,9 @@ export function useUserPostedDates(uid: string | undefined) {
       (snap) => {
         const next = new Set<string>();
         for (const d of snap.docs) {
-          const data = d.data() as { deleted?: boolean };
+          const data = d.data() as { deleted?: boolean; isIntroLeap?: boolean; source?: string };
           if (data?.deleted === true) continue;
+          if (isIntroLeapDoc(data)) continue;
           const cd = challengeDateFromVideoData(data as Record<string, unknown>);
           if (cd) next.add(cd);
         }

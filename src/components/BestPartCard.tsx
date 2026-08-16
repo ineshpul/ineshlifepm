@@ -55,15 +55,20 @@ function BestPartSingleVideo({ uri, playing }: { uri: string; playing: boolean }
   });
 
   React.useEffect(() => {
+    if (!playing) return;
     void enterPlayback();
-  }, []);
+  }, [playing]);
 
   React.useEffect(() => {
     try {
       if (playing) {
+        player.muted = false;
+        player.volume = 1;
         player.play();
       } else {
         player.pause();
+        player.muted = true;
+        player.volume = 0;
       }
     } catch {
       /* ignore */
@@ -85,6 +90,8 @@ type Props = {
   showOwner?: boolean;
   /** Community feed autoplays; Mine starts paused. */
   autoPlay?: boolean;
+  /** When false (e.g. Best tab blurred), pause and mute playback. */
+  playbackEnabled?: boolean;
   /** Mine only — tiny redo on today’s card. */
   onRetake?: () => void;
   /** Own post — delete from Mine or Community. */
@@ -96,6 +103,7 @@ export function BestPartCard({
   post,
   showOwner = true,
   autoPlay = false,
+  playbackEnabled = true,
   onRetake,
   onDelete,
   actionsDisabled = false,
@@ -179,7 +187,7 @@ export function BestPartCard({
     [playHeartBurst, post.id, user?.uid, user?.username]
   );
 
-  const effectivePlaying = playing && !holdPaused;
+  const effectivePlaying = playing && !holdPaused && playbackEnabled;
 
   const longPress = React.useMemo(
     () =>

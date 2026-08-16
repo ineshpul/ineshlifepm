@@ -23,6 +23,8 @@ type Props = {
   replySenderLabel?: string;
   reactions?: ReactionChip[];
   onLongPress: () => void;
+  /** Double-tap the bubble to quick-react (e.g. heart). */
+  onDoubleTap?: () => void;
   onOpenVideo: (url: string) => void;
   onOpenImage: (url: string) => void;
   onToggleReaction: (emoji: string, mine: boolean) => void;
@@ -39,6 +41,7 @@ function MessageBubbleInner({
   replySenderLabel,
   reactions,
   onLongPress,
+  onDoubleTap,
   onOpenVideo,
   onOpenImage,
   onToggleReaction,
@@ -143,8 +146,20 @@ function MessageBubbleInner({
       ? 'you'
       : (replySenderLabel || message.replyTo?.senderUsername || 'message').replace(/^@+/u, '');
 
+  const lastTapRef = React.useRef(0);
+  const onBubblePress = React.useCallback(() => {
+    if (!onDoubleTap) return;
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) {
+      lastTapRef.current = 0;
+      onDoubleTap();
+      return;
+    }
+    lastTapRef.current = now;
+  }, [onDoubleTap]);
+
   const body = (
-    <Pressable onLongPress={onLongPress}>
+    <Pressable onLongPress={onLongPress} onPress={onDoubleTap ? onBubblePress : undefined} delayLongPress={320}>
       {showName ? <Text style={styles.senderName}>{label}</Text> : null}
       {message.replyTo ? (
         <View style={styles.replyPreview}>
