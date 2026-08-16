@@ -33,10 +33,10 @@ import { FeedSinceLastLeapBanner } from '../components/FeedSinceLastLeapBanner';
 import { FeedTier1ExploreBanner } from '../components/FeedTier1ExploreBanner';
 import { FeedTeaserWallBar } from '../components/FeedTeaserWallBar';
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
-import { Brandmark } from '../components/Brandmark';
 import { FeedReelRow } from '../components/FeedReelRow';
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { ModernFeedModeSwitch } from '../components/modern/ModernFeedModeSwitch';
 import { deleteOwnedVideo } from '../services/deleteVideo';
 import { logEngagementScrollingThrottled, logExperimentEvent } from '../services/nativeAnalytics';
 import { staffNullVideo } from '../services/nullVideo';
@@ -101,6 +101,7 @@ import {
 } from '../state/referralNudgeDay';
 import { resolveFeedPlaybackUrls } from '../lib/feedPlaybackUrls';
 import { useBackgroundPostUpload } from '../state/backgroundPostUpload';
+import { typography } from '../theme/typography';
 
 /**
  * Keep active ±1 mounted so the paging swipe stays painted (TikTok-style).
@@ -237,7 +238,7 @@ export function FeedScreen() {
   },
   feedBannerStack: {
     position: 'absolute',
-    top: 0,
+    top: 108,
     left: 0,
     right: 0,
     zIndex: 10,
@@ -286,6 +287,7 @@ export function FeedScreen() {
   },
   feedScreen: {
     flex: 1,
+    backgroundColor: '#101411',
   },
   previewLockLoading: {
     flex: 1,
@@ -293,7 +295,18 @@ export function FeedScreen() {
     justifyContent: 'center',
   },
   headerWrap: {
-    paddingHorizontal: 12,
+    position: 'absolute',
+    top: 62,
+    right: 14,
+    zIndex: 24,
+  },
+  modeSwitch: {
+    position: 'absolute',
+    top: 8,
+    left: '50%',
+    width: 290,
+    transform: [{ translateX: -145 }],
+    zIndex: 25,
   },
   feedSlot: {
     flex: 1,
@@ -494,23 +507,27 @@ export function FeedScreen() {
     letterSpacing: 0.4,
   },
   header: {
-    paddingTop: 6,
-    paddingBottom: 4,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+    justifyContent: 'flex-end',
   },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    padding: 4,
+    borderRadius: 18,
+    backgroundColor: 'rgba(15,24,18,0.44)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
   notifBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
+    backgroundColor: 'rgba(255,255,255,0.10)',
   },
   notifBadge: {
     position: 'absolute',
@@ -527,7 +544,7 @@ export function FeedScreen() {
   notifBadgeText: {
     color: colors.white,
     fontSize: 10,
-    fontWeight: '900',
+    fontFamily: typography.bodyExtraBold,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -1816,23 +1833,24 @@ export function FeedScreen() {
 
   return (
     <Screen style={styles.feedScreen}>
-      <View style={styles.headerWrap}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Brandmark size={36} />
-            <View>
-              <Text style={styles.headerTitle}>Daily Leaps</Text>
-            </View>
-          </View>
-          {user?.uid ? (
-            <View style={styles.headerRight}>
+      <View ref={feedSlotRef} style={styles.feedSlot} onLayout={onSlotLayout} collapsable={false}>
+        <ModernFeedModeSwitch
+          active="daily"
+          onDailyPress={scrollToTop}
+          onBestPress={() => nav.navigate('Best')}
+          style={styles.modeSwitch}
+        />
+        {user?.uid ? (
+          <View style={styles.headerWrap}>
+            <View style={styles.header}>
+              <View style={styles.headerRight}>
               <TouchableOpacity
                 style={styles.notifBtn}
                 onPress={() => navigateToLeaperboard(nav)}
                 accessibilityRole="button"
                 accessibilityLabel="Leaperboard"
               >
-                <Ionicons name="trending-up-outline" size={22} color={colors.text} />
+                <Ionicons name="trending-up-outline" size={19} color="#FFFFFF" />
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.notifBtn}
@@ -1848,7 +1866,7 @@ export function FeedScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Notifications"
               >
-                <Ionicons name="notifications-outline" size={22} color={colors.text} />
+                <Ionicons name="notifications-outline" size={19} color="#FFFFFF" />
                 {unreadNotifications > 0 ? (
                   <View style={styles.notifBadge}>
                     <Text style={styles.notifBadgeText}>
@@ -1863,14 +1881,12 @@ export function FeedScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Settings"
               >
-                <Ionicons name="settings-outline" size={22} color={colors.text} />
+                <Ionicons name="settings-outline" size={19} color="#FFFFFF" />
               </TouchableOpacity>
+              </View>
             </View>
-          ) : null}
-        </View>
-      </View>
-
-      <View ref={feedSlotRef} style={styles.feedSlot} onLayout={onSlotLayout} collapsable={false}>
+          </View>
+        ) : null}
         <FlatList
           ref={flatListRef}
           style={styles.reelList}

@@ -21,8 +21,8 @@ import {
 } from 'firebase/firestore';
 
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import { typography } from '../theme/typography';
 
-import { Brandmark } from '../components/Brandmark';
 import { Screen } from '../components/Screen';
 import { UsernameSearchBlock } from '../components/UsernameSearchBlock';
 import { firebaseAuth, firestore, isFirebaseConfigured } from '../firebase/firebase';
@@ -110,13 +110,13 @@ function pickMostImproved(acc: AccRow[]): {
 export function TopScreen() {
   const { colors, isDark } = useTheme();
   const styles = useThemedStyles((colors) => ({
-  screen: { paddingHorizontal: 18, flex: 1 },
-  header: { paddingTop: 4, paddingBottom: 6 },
+  screen: { paddingHorizontal: 22, flex: 1 },
+  header: { paddingTop: 10, paddingBottom: 14 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   backBtn: {
     width: 36,
     height: 36,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -125,29 +125,38 @@ export function TopScreen() {
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 },
   headerText: { flex: 1, minWidth: 0 },
-  title: { fontSize: 22, fontWeight: '900', color: colors.text, lineHeight: 28 },
-  sub: { marginTop: 2, fontSize: 12, fontWeight: '600', color: colors.muted },
+  title: {
+    fontFamily: typography.displayExtraBold,
+    fontSize: 30,
+    color: colors.text,
+    lineHeight: 34,
+    letterSpacing: -1.1,
+  },
+  sub: {
+    marginTop: 4,
+    fontFamily: typography.bodySemiBold,
+    fontSize: 12.5,
+    color: colors.muted2,
+  },
   segment: {
     flexDirection: 'row',
-    gap: 4,
-    marginBottom: 12,
-    padding: 4,
+    marginBottom: 14,
+    padding: 3,
     borderRadius: 14,
-    backgroundColor: colors.cardTint,
+    backgroundColor: colors.border2,
   },
   segBtn: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 9,
     borderRadius: 11,
     alignItems: 'center',
   },
   segBtnOn: {
     backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderWidth: 0,
   },
-  segLabel: { fontSize: 12, fontWeight: '800', color: colors.muted },
-  segLabelOn: { color: colors.text },
+  segLabel: { fontFamily: typography.bodySemiBold, fontSize: 13.5, color: colors.muted2 },
+  segLabelOn: { fontFamily: typography.bodyBold, color: colors.text },
   mostImprovedCard: {
     marginBottom: 12,
     padding: 14,
@@ -169,7 +178,7 @@ export function TopScreen() {
     fontSize: 13,
     fontWeight: '700',
   },
-  list: { paddingBottom: 24, gap: 8 },
+  list: { paddingBottom: 24 },
   empty: { marginTop: 24, fontSize: 14, fontWeight: '600', color: colors.muted },
   emptyLoading: { marginTop: 48, alignItems: 'center', gap: 14 },
   emptyLoadingText: { fontSize: 14, fontWeight: '700', color: colors.muted },
@@ -178,10 +187,12 @@ export function TopScreen() {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    backgroundColor: colors.leaderboardRowBg,
+    paddingVertical: 11,
+    paddingHorizontal: 4,
+    borderRadius: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border2,
+    backgroundColor: 'transparent',
     overflow: 'hidden',
   },
   rowAccent: {
@@ -201,24 +212,24 @@ export function TopScreen() {
     justifyContent: 'center',
   },
   rank: {
+    fontFamily: typography.displayBold,
     fontSize: 17,
-    fontWeight: '900',
     color: colors.muted2,
     textAlign: 'center',
     fontVariant: ['tabular-nums'],
   },
   rankMe: { color: colors.moss },
   avatarSlot: {
-    width: 48,
-    height: 48,
+    width: 40,
+    height: 40,
     flexShrink: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: colors.cardTint,
   },
@@ -230,7 +241,7 @@ export function TopScreen() {
     justifyContent: 'center',
     backgroundColor: colors.cardTint,
   },
-  avatarInitials: { fontSize: 14, fontWeight: '900', color: colors.text },
+  avatarInitials: { fontFamily: typography.bodyBold, fontSize: 13, color: colors.text },
   rowBody: { flex: 1, minWidth: 0 },
   rowMeta: {
     flexDirection: 'row',
@@ -239,14 +250,14 @@ export function TopScreen() {
     gap: 10,
   },
   identityCol: { flex: 1, minWidth: 0 },
-  name: { fontSize: 16, fontWeight: '800', color: colors.text, lineHeight: 20, minWidth: 0 },
-  metaLine: { fontSize: 12, fontWeight: '700', marginTop: 2, lineHeight: 16 },
+  name: { fontFamily: typography.bodySemiBold, fontSize: 14.5, color: colors.text, lineHeight: 20, minWidth: 0 },
+  metaLine: { fontFamily: typography.bodyMedium, fontSize: 12, marginTop: 1, lineHeight: 16 },
   metaLinePlaceholder: { height: 16, marginTop: 2 },
   scoreCol: { alignItems: 'flex-end', flexShrink: 0, minWidth: 72 },
   score: {
+    fontFamily: typography.displayBold,
     fontSize: 16,
-    fontWeight: '900',
-    color: colors.moss,
+    color: colors.text2,
     lineHeight: 20,
     fontVariant: ['tabular-nums'],
   },
@@ -258,6 +269,61 @@ export function TopScreen() {
     lineHeight: 16,
     color: colors.highlightCardBorder,
     fontVariant: ['tabular-nums'],
+  },
+  podium: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 9,
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  podiumSlot: { flex: 1, alignItems: 'center' },
+  podiumSlotWinner: { flex: 1.12 },
+  podiumCrown: { height: 21, fontSize: 15 },
+  podiumAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: colors.cardTint,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 7,
+  },
+  podiumAvatarWinner: { width: 62, height: 62, borderRadius: 21 },
+  podiumCard: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    paddingVertical: 11,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border2,
+    backgroundColor: colors.card,
+  },
+  podiumCardWinner: {
+    paddingVertical: 14,
+    borderColor: colors.highlightCardBorder,
+    backgroundColor: colors.highlightCardBg,
+  },
+  podiumRank: {
+    fontFamily: typography.displayExtraBold,
+    fontSize: 20,
+    lineHeight: 22,
+    color: colors.muted2,
+  },
+  podiumName: {
+    marginTop: 4,
+    fontFamily: typography.bodyBold,
+    fontSize: 12.5,
+    color: colors.text,
+    maxWidth: '100%',
+  },
+  podiumScore: {
+    marginTop: 2,
+    fontFamily: typography.displayExtraBold,
+    fontSize: 18,
+    color: colors.green,
   },
 }));
   const nav = useNavigation<any>();
@@ -560,6 +626,14 @@ export function TopScreen() {
     if (timeframe === 'weekly') return formatLeapInchesDisplay(item.score);
     return formatLeapInchesDisplay(item.score);
   };
+  const podiumRows = rows.slice(0, 3);
+  const listRows = rows.slice(3);
+  const timeframeDetail =
+    timeframe === 'daily'
+      ? 'today’s standings'
+      : timeframe === 'weekly'
+        ? 'week ends Sunday'
+        : 'all-time standings';
 
   return (
     <Screen style={styles.screen} dismissKeyboardOnTap edges={['top', 'left', 'right']}>
@@ -577,10 +651,11 @@ export function TopScreen() {
             </Pressable>
           ) : null}
           <View style={styles.headerLeft}>
-            <Brandmark size={36} />
             <View style={styles.headerText}>
               <Text style={styles.title}>The Leaperboard</Text>
-              <Text style={styles.sub}>how high can you jump</Text>
+              <Text style={styles.sub}>
+                {rows.length} {rows.length === 1 ? 'leaper' : 'leapers'} · {timeframeDetail}
+              </Text>
             </View>
           </View>
         </View>
@@ -634,12 +709,57 @@ export function TopScreen() {
       ) : null}
 
       <FlatList
-        data={rows}
+        data={listRows}
         keyExtractor={(x) => x.userId}
         extraData={{ timeframe, weekKey }}
         contentContainerStyle={[styles.list, { paddingBottom: bottomClearance }]}
+        ListHeaderComponent={
+          podiumRows.length > 0 ? (
+            <View style={styles.podium}>
+              {[podiumRows[1], podiumRows[0], podiumRows[2]].map((item, index) => {
+                if (!item) return <View key={`empty-${index}`} style={styles.podiumSlot} />;
+                const winner = item.rank === 1;
+                return (
+                  <Pressable
+                    key={item.userId}
+                    style={[styles.podiumSlot, winner && styles.podiumSlotWinner]}
+                    onPress={() =>
+                      navigateToUserProfile(nav, {
+                        uid: item.userId,
+                        username: item.username?.trim() || undefined,
+                      })
+                    }
+                  >
+                    <Text style={styles.podiumCrown}>{winner ? '👑' : ''}</Text>
+                    <View style={[styles.podiumAvatar, winner && styles.podiumAvatarWinner]}>
+                      {item.avatarUrl ? (
+                        <Image source={{ uri: item.avatarUrl }} style={styles.avatarImg} contentFit="cover" />
+                      ) : (
+                        <Text style={styles.avatarInitials}>{initialsFromDisplayName(item.name)}</Text>
+                      )}
+                    </View>
+                    <View style={[styles.podiumCard, winner && styles.podiumCardWinner]}>
+                      <Text
+                        style={[
+                          styles.podiumRank,
+                          winner ? { color: colors.podiumRank } : null,
+                        ]}
+                      >
+                        {item.rank}
+                      </Text>
+                      <Text style={styles.podiumName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.podiumScore}>{scoreForRow(item)}</Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null
+        }
         ListEmptyComponent={
-          !leaderboardHydrated ? (
+          rows.length > 0 ? null : !leaderboardHydrated ? (
             <View style={styles.emptyLoading}>
               <ActivityIndicator size="large" color={colors.moss} />
               <Text style={styles.emptyLoadingText}>Loading leaperboard…</Text>

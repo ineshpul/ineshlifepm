@@ -27,6 +27,7 @@ import {
 } from '../camera/dualCamTypes';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { MIN_TASK_DURATION_SECONDS } from '../state/challenge';
+import { typography } from '../theme/typography';
 
 export type { DualCameraCapture };
 
@@ -85,14 +86,14 @@ export function DualCameraRecorder({
     fallbackTitle: {
       color: colors.white,
       fontSize: 16,
-      fontWeight: '900' as const,
+      fontFamily: typography.bodyExtraBold,
       letterSpacing: 0.4,
     },
     fallbackBody: {
       color: 'rgba(255,255,255,0.75)',
       fontSize: 13,
       lineHeight: 19,
-      fontWeight: '600' as const,
+      fontFamily: typography.bodySemiBold,
       textAlign: 'center' as const,
     },
     loading: {
@@ -106,13 +107,13 @@ export function DualCameraRecorder({
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
       gap: 10,
-      backgroundColor: 'rgba(0,0,0,0.35)',
+      backgroundColor: 'rgba(12,15,13,0.42)',
       zIndex: 40,
     },
     loadingText: {
       color: 'rgba(255,255,255,0.85)',
       fontSize: 13,
-      fontWeight: '700' as const,
+      fontFamily: typography.bodyBold,
     },
     pipWrap: {
       position: 'absolute' as const,
@@ -120,9 +121,9 @@ export function DualCameraRecorder({
       right: PIP_INSET,
       width: PIP_WIDTH,
       height: PIP_HEIGHT,
-      borderRadius: 14,
+      borderRadius: 18,
       overflow: 'hidden' as const,
-      backgroundColor: '#0F172A',
+      backgroundColor: '#171B14',
       zIndex: 30,
       opacity: 1,
     },
@@ -131,9 +132,9 @@ export function DualCameraRecorder({
     },
     pipBorder: {
       ...StyleSheet.absoluteFillObject,
-      borderRadius: 14,
+      borderRadius: 18,
       borderWidth: 2,
-      borderColor: 'rgba(255,255,255,0.7)',
+      borderColor: 'rgba(255,255,255,0.82)',
     },
     // Keep clear of top chrome / shutter so native preview can't eat UI taps.
     tapCatcher: {

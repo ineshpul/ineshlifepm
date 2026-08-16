@@ -6,6 +6,7 @@ import { prepareForVideoRecording } from '../camera/prepareForVideoRecording';
 import { canFlipMidRecording, concatVideos } from '../services/concatVideos';
 import { MIN_TASK_DURATION_SECONDS } from '../state/challenge';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import { typography } from '../theme/typography';
 
 export type SingleCameraFacing = 'front' | 'back';
 
@@ -66,12 +67,13 @@ export function SingleCameraRecorder({
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
       gap: 10,
-      backgroundColor: 'rgba(0,0,0,0.35)',
+      backgroundColor: 'rgba(12,15,13,0.42)',
     },
     loadingText: {
       color: 'rgba(255,255,255,0.85)',
       fontSize: 13,
-      fontWeight: '700' as const,
+      fontFamily: typography.bodyBold,
+      letterSpacing: 0.2,
     },
   }));
 

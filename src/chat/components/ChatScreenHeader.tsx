@@ -3,6 +3,7 @@ import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme, useThemedStyles } from '../../theme/ThemeProvider';
+import { typography } from '../../theme/typography';
 import { ChatHeaderBack } from './ChatHeaderBack';
 
 type Props = {
@@ -62,14 +63,14 @@ export function ChatScreenHeader({
     },
     title: {
       fontSize: 17,
-      fontWeight: '800' as const,
+      fontFamily: typography.displayBold,
       color: c.text,
       textAlign: (centerTitle ? 'center' : 'left') as 'center' | 'left',
     },
     subtitle: {
       marginTop: 1,
       fontSize: 12,
-      fontWeight: '600' as const,
+      fontFamily: typography.bodySemiBold,
       color: c.muted,
       textAlign: (centerTitle ? 'center' : 'left') as 'center' | 'left',
     },

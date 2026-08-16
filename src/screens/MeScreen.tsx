@@ -18,10 +18,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { useProfileScreenStyles } from '../styles/profileScreenStyles';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import { typography } from '../theme/typography';
 
-import { Brandmark } from '../components/Brandmark';
 import { Screen } from '../components/Screen';
 import { useAuth } from '../state/auth';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
@@ -51,79 +50,81 @@ type MyVideo = {
 
 export function MeScreen() {
   const { colors } = useTheme();
-  const profileStyles = useProfileScreenStyles();
   const styles = useThemedStyles((colors) => ({
-  screen: { paddingHorizontal: 18, flex: 1 },
+  screen: { paddingHorizontal: 22, flex: 1 },
   scroll: { paddingBottom: 28 },
   headerRow: {
-    paddingTop: 12,
+    paddingTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  brandRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, flex: 1, minWidth: 0 },
-  brandTextCol: { flex: 1, minWidth: 0, paddingTop: 2 },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 },
+  brandTextCol: { flex: 1, minWidth: 0 },
   headerTagline: {
-    marginTop: 0,
-    fontSize: 20,
-    letterSpacing: -0.4,
-    fontWeight: '900',
+    fontFamily: typography.displayExtraBold,
+    fontSize: 26,
+    lineHeight: 30,
+    letterSpacing: -0.9,
     color: colors.text,
   },
   sub: {
-    marginTop: 4,
-    fontSize: 11,
-    letterSpacing: 2.2,
-    fontWeight: '900',
-    color: colors.muted,
+    marginTop: 2,
+    fontFamily: typography.bodySemiBold,
+    fontSize: 13,
+    color: colors.muted2,
   },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 38,
+    height: 38,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  signOut: { color: colors.muted, fontWeight: '800' },
+  signOut: { fontFamily: typography.bodyBold, color: colors.muted, fontSize: 12 },
   card: {
-    marginTop: 14,
-    borderRadius: 22,
-    backgroundColor: colors.cardTint,
-    borderWidth: 1,
-    borderColor: colors.profileAccentBorder,
-    padding: 18,
-    alignItems: 'center',
-    gap: 8,
-  },
-  avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 18,
+    marginTop: 18,
+    borderRadius: 24,
     backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: colors.profileAccentBorder,
+    borderColor: colors.border2,
+    padding: 16,
+    alignItems: 'flex-start',
+  },
+  identityRow: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 14 },
+  identityText: { flex: 1, minWidth: 0 },
+  avatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 22,
+    backgroundColor: colors.cardTint,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   avatarImg: { width: '100%', height: '100%' },
-  avatarText: { fontSize: 22, fontWeight: '900', color: colors.text },
-  name: { fontSize: 18, fontWeight: '900', color: colors.text },
-  handle: { fontSize: 13, fontWeight: '700', color: colors.muted, marginTop: -2 },
+  avatarText: { fontFamily: typography.displayExtraBold, fontSize: 24, color: colors.text },
+  name: {
+    fontFamily: typography.displayExtraBold,
+    fontSize: 26,
+    lineHeight: 29,
+    letterSpacing: -0.8,
+    color: colors.text,
+  },
+  handle: { fontFamily: typography.bodySemiBold, fontSize: 13, color: colors.muted2, marginTop: 2 },
   profileBio: {
-    marginTop: 8,
+    marginTop: 14,
+    fontFamily: typography.bodyMedium,
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: '600',
     color: colors.text,
-    textAlign: 'center',
-    paddingHorizontal: 8,
   },
   editProfileBtn: {
+    width: '100%',
     marginTop: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -133,10 +134,10 @@ export function MeScreen() {
     paddingHorizontal: 16,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255, 107, 84, 0.35)',
-    backgroundColor: colors.card,
+    borderColor: colors.border2,
+    backgroundColor: colors.inputBg,
   },
-  editProfileBtnText: { fontSize: 14, fontWeight: '900', color: colors.coral },
+  editProfileBtnText: { fontFamily: typography.bodyBold, fontSize: 14, color: colors.text },
   schoolPill: {
     marginTop: 6,
     paddingHorizontal: 12,
@@ -148,18 +149,21 @@ export function MeScreen() {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  schoolText: { fontSize: 12, fontWeight: '800', color: colors.muted },
+  schoolText: { fontFamily: typography.bodySemiBold, fontSize: 12, color: colors.muted },
   scoreCard: {
     marginTop: 14,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    padding: 18,
+    borderRadius: 24,
+    backgroundColor: colors.cardTint,
+    padding: 20,
     gap: 6,
   },
   scoreHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  scoreTitle: { fontSize: 11, letterSpacing: 2.2, fontWeight: '900', color: colors.muted },
+  scoreTitle: {
+    fontFamily: typography.bodyBold,
+    fontSize: 11.5,
+    letterSpacing: 1.7,
+    color: colors.green,
+  },
   tierPill: {
     paddingHorizontal: 10,
     height: 28,
@@ -171,9 +175,21 @@ export function MeScreen() {
     justifyContent: 'center',
   },
   tierPillText: { fontSize: 11, fontWeight: '900', color: colors.text },
-  scoreNumber: { fontSize: 44, fontWeight: '900', color: colors.text, marginTop: 4 },
+  scoreNumber: {
+    fontFamily: typography.displayExtraBold,
+    fontSize: 48,
+    lineHeight: 54,
+    letterSpacing: -1.8,
+    color: colors.text,
+    marginTop: 4,
+  },
   scoreInSuffix: { fontSize: 22, fontWeight: '800', color: colors.muted },
-  scoreTierHint: { fontSize: 13, fontWeight: '700', color: colors.muted, lineHeight: 18 },
+  scoreTierHint: {
+    fontFamily: typography.bodySemiBold,
+    fontSize: 13,
+    color: colors.muted,
+    lineHeight: 18,
+  },
   scoreLifetimeFoot: { marginTop: 2, fontSize: 12, fontWeight: '800', color: colors.text },
   decayFoot: { marginTop: 6, fontSize: 11, fontWeight: '700', color: colors.muted },
   breakdownBlock: { marginTop: 8, paddingTop: 4 },
@@ -217,7 +233,7 @@ export function MeScreen() {
   jumpBody: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   jumpBar: { width: 6, height: 56, borderRadius: 3, backgroundColor: '#D1FAE5' },
   jumpTitle: { fontSize: 14, fontWeight: '900', color: colors.text },
-  statsRow: { flexDirection: 'row', gap: 12, marginTop: 14 },
+  statsRow: { flexDirection: 'row', gap: 9, marginTop: 11 },
   dailyBanner: {
     marginTop: 12,
     borderRadius: 16,
@@ -229,23 +245,52 @@ export function MeScreen() {
     alignItems: 'center',
   },
   dailyBannerText: { fontSize: 16, fontWeight: '900', color: colors.moss },
+  profileTabs: {
+    marginTop: 18,
+    flexDirection: 'row',
+    gap: 22,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border2,
+  },
+  profileTab: { paddingBottom: 10 },
+  profileTabOn: { borderBottomWidth: 2.5, borderBottomColor: colors.text },
+  profileTabText: {
+    fontFamily: typography.bodySemiBold,
+    fontSize: 14.5,
+    color: colors.muted2,
+  },
+  profileTabTextOn: { fontFamily: typography.bodyBold, color: colors.text },
+  tabPanel: { paddingTop: 2 },
+  tabHint: {
+    marginTop: 12,
+    fontFamily: typography.bodyMedium,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.muted,
+  },
   stat: {
     flex: 1,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
-    paddingVertical: 14,
-    alignItems: 'center',
+    paddingVertical: 13,
+    paddingHorizontal: 10,
+    alignItems: 'flex-start',
     gap: 6,
+  },
+  statStreak: {
+    backgroundColor: 'rgba(255, 91, 57, 0.09)',
+    borderColor: 'rgba(255, 91, 57, 0.2)',
   },
   statTappable: { borderColor: 'rgba(39, 174, 96, 0.35)' },
   statPressed: { opacity: 0.92 },
-  statNum: { fontSize: 20, fontWeight: '900', color: colors.text },
+  statNum: { fontFamily: typography.displayExtraBold, fontSize: 20, color: colors.text },
+  statNumCoral: { color: colors.coral },
   statLabel: {
+    fontFamily: typography.bodyBold,
     fontSize: 10,
-    letterSpacing: 1.6,
-    fontWeight: '900',
+    letterSpacing: 0.9,
     color: colors.muted,
     textAlign: 'center',
   },
@@ -330,7 +375,12 @@ export function MeScreen() {
     borderColor: colors.border,
     backgroundColor: colors.card,
   },
-  openLeapsCtaText: { fontSize: 15, fontWeight: '900', color: colors.text, flex: 1 },
+  openLeapsCtaText: {
+    fontFamily: typography.bodyBold,
+    fontSize: 15,
+    color: colors.text,
+    flex: 1,
+  },
 }));
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
@@ -344,6 +394,7 @@ export function MeScreen() {
   const [draftUsername, setDraftUsername] = React.useState('');
   const [draftBio, setDraftBio] = React.useState('');
   const [draftPhotoUri, setDraftPhotoUri] = React.useState<string | null>(null);
+  const [profileSection, setProfileSection] = React.useState<'leaps' | 'best'>('leaps');
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !user?.uid) return;
@@ -462,12 +513,11 @@ export function MeScreen() {
       >
         <View style={styles.headerRow}>
           <View style={styles.brandRow}>
-            <Brandmark size={36} />
             <View style={styles.brandTextCol}>
-              <Text style={styles.headerTagline} numberOfLines={2}>
-                Leap
+              <Text style={styles.headerTagline} numberOfLines={1}>
+                Your profile
               </Text>
-              <Text style={styles.sub}>PROFILE</Text>
+              <Text style={styles.sub}>@{username}</Text>
             </View>
           </View>
           <View style={styles.headerActions}>
@@ -492,24 +542,30 @@ export function MeScreen() {
         </View>
 
         <View style={styles.card}>
-          <View style={styles.avatar}>
-            {photoUrl ? (
-              <Image source={{ uri: photoUrl }} style={styles.avatarImg} />
-            ) : (
-              <Text style={styles.avatarText}>{initials || 'U'}</Text>
-            )}
-          </View>
-          <Text style={styles.name}>{username}</Text>
-          <Text style={styles.handle}>@{username}</Text>
-          {bio ? <Text style={styles.profileBio}>{bio}</Text> : null}
-          {schoolRaw ? (
-            <View style={styles.schoolPill}>
-              <Text style={styles.schoolText}>{schoolRaw}</Text>
+          <View style={styles.identityRow}>
+            <View style={styles.avatar}>
+              {photoUrl ? (
+                <Image source={{ uri: photoUrl }} style={styles.avatarImg} />
+              ) : (
+                <Text style={styles.avatarText}>{initials || 'U'}</Text>
+              )}
             </View>
-          ) : null}
+            <View style={styles.identityText}>
+              <Text style={styles.name} numberOfLines={1}>{username}</Text>
+              <Text style={styles.handle}>
+                @{username} · {following.length} following
+              </Text>
+              {schoolRaw ? (
+                <View style={styles.schoolPill}>
+                  <Text style={styles.schoolText}>{schoolRaw}</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+          {bio ? <Text style={styles.profileBio}>{bio}</Text> : null}
           <TouchableOpacity style={styles.editProfileBtn} onPress={openEditProfile} activeOpacity={0.75}>
             <Text style={styles.editProfileBtnText}>Edit profile</Text>
-            <Ionicons name="chevron-forward" size={18} color={colors.coral} />
+            <Ionicons name="create-outline" size={17} color={colors.text} />
           </TouchableOpacity>
         </View>
 
@@ -533,8 +589,8 @@ export function MeScreen() {
             <Text style={styles.statNum}>{formatLeapInchesDisplay(stats.weeklyLeapIn)}</Text>
             <Text style={styles.statLabel}>WEEKLY{'\n'}TOTAL</Text>
           </View>
-          <View style={styles.stat}>
-            <Text style={styles.statNum}>{stats.streakDays}</Text>
+          <View style={[styles.stat, styles.statStreak]}>
+            <Text style={[styles.statNum, styles.statNumCoral]}>{stats.streakDays}</Text>
             <Text style={styles.statLabel}>DAY{'\n'}STREAK</Text>
           </View>
         </View>
@@ -545,20 +601,61 @@ export function MeScreen() {
           </View>
         ) : null}
 
-        <TouchableOpacity
-          style={styles.openLeapsCta}
-          onPress={() => nav.navigate('MyLeaps')}
-          activeOpacity={0.85}
-          accessibilityRole="button"
-          accessibilityLabel="Open your leaps feed"
-        >
-          <Text style={styles.openLeapsCtaText}>
-            {myVideos.length > 0
-              ? `Open feed · ${myVideos.length} leap${myVideos.length === 1 ? '' : 's'}`
-              : 'Open your leaps'}
-          </Text>
-          <Ionicons name="chevron-forward" size={18} color={colors.coral} />
-        </TouchableOpacity>
+        <View style={styles.profileTabs}>
+          {(['leaps', 'best'] as const).map((section) => {
+            const selected = profileSection === section;
+            return (
+              <Pressable
+                key={section}
+                style={[styles.profileTab, selected && styles.profileTabOn]}
+                onPress={() => setProfileSection(section)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+              >
+                <Text style={[styles.profileTabText, selected && styles.profileTabTextOn]}>
+                  {section === 'leaps' ? 'Leaps' : 'Best of Day'}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <View style={styles.tabPanel}>
+          {profileSection === 'leaps' ? (
+            <TouchableOpacity
+              style={styles.openLeapsCta}
+              onPress={() => nav.navigate('MyLeaps')}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Open your leaps feed"
+            >
+              <Text style={styles.openLeapsCtaText}>
+                {myVideos.length > 0
+                  ? `Open feed · ${myVideos.length} leap${myVideos.length === 1 ? '' : 's'}`
+                  : 'Open your leaps'}
+              </Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.green} />
+            </TouchableOpacity>
+          ) : (
+            <>
+              <Text style={styles.tabHint}>
+                Your strongest recorded leap is ready to revisit with its original post details.
+              </Text>
+              <TouchableOpacity
+                style={styles.openLeapsCta}
+                onPress={() => setHighestLeapOpen(true)}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="View best leap of the day"
+              >
+                <Text style={styles.openLeapsCtaText}>
+                  Best leap · {formatLeapInchesDisplay(stats.highestDayIn)}
+                </Text>
+                <Ionicons name="play-circle-outline" size={20} color={colors.coral} />
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
 
         {following.length === 0 ? (
           <TouchableOpacity

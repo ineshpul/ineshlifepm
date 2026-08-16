@@ -9,6 +9,7 @@ import { LockedLeapFrame } from './LockedLeapFrame';
 import { UsernameLink } from './UsernameLink';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import type { FeedPlaybackUrls } from '../lib/feedPlaybackUrls';
+import { typography } from '../theme/typography';
 
 /** Delay Firestore engagement listeners until the swipe has settled. */
 const ENGAGEMENT_MOUNT_DELAY_MS = 220;
@@ -129,7 +130,7 @@ function FeedReelRowInner({
 
   return (
     <View style={[styles.reelPage, { height: pageHeight }]} collapsable={false}>
-      <View style={[styles.reelVideoSlot, { bottom: sheetBottom }]}>
+      <View style={styles.reelVideoSlot}>
         {freezeLocked && isFocused ? (
           <LockedLeapFrame posterUrl={posterUrl} unlocking={overlayUnlocking} />
         ) : mountVideo ? (
@@ -156,6 +157,8 @@ function FeedReelRowInner({
           <ReelVideoPlaceholder posterUrl={posterUrl} />
         )}
       </View>
+      <View style={styles.topScrim} pointerEvents="none" />
+      <View style={styles.bottomScrim} pointerEvents="none" />
 
       <View
         style={[styles.reelSheet, { paddingBottom: tabBarClearance }]}
@@ -237,7 +240,7 @@ function FeedReelRowInner({
               </View>
             }
           >
-            <View style={styles.reelEngagementScroll}>
+            <View style={[styles.reelEngagementScroll, styles.engagementGlass]}>
               <FeedPostEngagement
                 reelLayout
                 videoId={item.id}
@@ -320,33 +323,41 @@ const useStyles = () =>
   useThemedStyles((colors) => ({
     reelPage: {
       width: '100%',
-      backgroundColor: colors.bg,
+      backgroundColor: '#101411',
     },
     reelVideoSlot: {
-      position: 'absolute',
+      position: 'absolute' as const,
       left: 0,
       right: 0,
       top: 0,
+      bottom: 0,
+    },
+    topScrim: {
+      position: 'absolute' as const,
+      left: 0,
+      right: 0,
+      top: 0,
+      height: 172,
+      backgroundColor: 'rgba(5,10,7,0.25)',
+    },
+    bottomScrim: {
+      position: 'absolute' as const,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: 330,
+      backgroundColor: 'rgba(5,10,7,0.56)',
     },
     reelSheet: {
-      position: 'absolute',
+      position: 'absolute' as const,
       left: 0,
       right: 0,
       bottom: 0,
       flexDirection: 'column',
-      backgroundColor: colors.card,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
-      paddingHorizontal: 12,
-      paddingTop: 10,
-      paddingBottom: 6,
-      borderTopLeftRadius: 18,
-      borderTopRightRadius: 18,
-      shadowColor: '#000',
-      shadowOpacity: 0.08,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: -2 },
-      elevation: 6,
+      backgroundColor: 'transparent',
+      paddingHorizontal: 18,
+      paddingTop: 12,
+      paddingBottom: 10,
     },
     reelSheetTop: {
       flexDirection: 'row',
@@ -355,16 +366,18 @@ const useStyles = () =>
       marginBottom: 4,
     },
     reelAvatar: {
-      width: 40,
-      height: 40,
-      borderRadius: 12,
-      backgroundColor: colors.cardTint,
+      width: 38,
+      height: 38,
+      borderRadius: 13,
+      backgroundColor: '#1C7C43',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.34)',
       alignItems: 'center',
       justifyContent: 'center',
     },
     reelAvatarText: {
-      fontWeight: '900',
-      color: colors.text,
+      fontFamily: typography.bodyBold,
+      color: '#FFFFFF',
     },
     reelTextCol: {
       flex: 1,
@@ -372,25 +385,27 @@ const useStyles = () =>
       gap: 2,
     },
     reelUser: {
-      fontSize: 14,
-      fontWeight: '900',
+      fontSize: 15,
+      fontFamily: typography.bodyBold,
+      color: '#FFFFFF',
     },
     reelCoLeap: {
       fontSize: 12,
-      fontWeight: '700',
-      color: colors.moss,
+      fontFamily: typography.bodySemiBold,
+      color: '#8FE3A8',
       marginTop: 1,
     },
     reelDayTag: {
       fontSize: 11,
-      fontWeight: '900',
-      color: colors.moss,
+      fontFamily: typography.bodyBold,
+      color: '#8FE3A8',
       marginBottom: 2,
     },
     reelPrompt: {
       fontSize: 13,
-      fontWeight: '600',
-      color: colors.muted,
+      lineHeight: 18,
+      fontFamily: typography.bodyMedium,
+      color: 'rgba(255,255,255,0.78)',
     },
     reelSheetActions: {
       flexDirection: 'row',
@@ -412,8 +427,8 @@ const useStyles = () =>
     },
     pendingBadge: {
       fontSize: 12,
-      fontWeight: '900',
-      color: colors.moss,
+      fontFamily: typography.bodyBold,
+      color: '#8FE3A8',
       letterSpacing: 0.3,
     },
     deleteLink: {
@@ -425,6 +440,14 @@ const useStyles = () =>
     reelEngagementScroll: {
       alignSelf: 'stretch',
     },
+    engagementGlass: {
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 18,
+      backgroundColor: 'rgba(255,255,255,0.14)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.18)',
+    },
     reelEngagementPlaceholder: {
       minHeight: 48,
       justifyContent: 'center',
@@ -433,8 +456,8 @@ const useStyles = () =>
     },
     reelEngagementPlaceholderText: {
       fontSize: 12,
-      fontWeight: '600',
-      color: colors.muted,
+      fontFamily: typography.bodyMedium,
+      color: 'rgba(255,255,255,0.72)',
       textAlign: 'center',
     },
     reelSwipeRail: {
@@ -448,8 +471,8 @@ const useStyles = () =>
     },
     reelSwipeRailText: {
       fontSize: 12,
-      fontWeight: '800',
-      color: colors.muted,
+      fontFamily: typography.bodyBold,
+      color: 'rgba(255,255,255,0.72)',
       letterSpacing: 0.3,
     },
     previousLeapsChip: {

@@ -50,6 +50,7 @@ import {
 } from '../types/bestPart';
 import { nyDateKey } from '../utils/nyTime';
 import { showCameraRecordingError, showError, showInfo } from '../utils/ui';
+import { typography } from '../theme/typography';
 
 type Stage = 'capture' | 'compose';
 type CaptureMode = BestPartMediaType;
@@ -112,7 +113,7 @@ export function BestPartCaptureScreen() {
   }, []);
 
   const styles = useThemedStyles((c) => ({
-    root: { flex: 1, backgroundColor: '#0E0E0E' },
+    root: { flex: 1, backgroundColor: '#0C0F0D' },
     chrome: {
       ...StyleSheet.absoluteFillObject,
       zIndex: 100,
@@ -124,20 +125,22 @@ export function BestPartCaptureScreen() {
       left: 0,
       right: 0,
       paddingTop: insets.top + 8,
-      paddingHorizontal: 16,
+      paddingHorizontal: 20,
       flexDirection: 'row' as const,
       alignItems: 'center' as const,
       justifyContent: 'space-between' as const,
     },
     iconBtn: {
-      width: 42,
-      height: 42,
-      borderRadius: 21,
-      backgroundColor: 'rgba(0,0,0,0.45)',
+      width: 38,
+      height: 38,
+      borderRadius: 14,
+      backgroundColor: 'rgba(255,255,255,0.14)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.18)',
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
     },
-    iconBtnActive: { backgroundColor: c.green },
+    iconBtnActive: { backgroundColor: 'rgba(28,124,67,0.78)', borderColor: '#1C7C43' },
     /** Mirrors DualCameraRecorder tap zone — chrome sits above native previews. */
     dualTapCatcher: {
       position: 'absolute' as const,
@@ -165,16 +168,16 @@ export function BestPartCaptureScreen() {
       gap: 22,
     },
     modeChip: {
-      width: 52,
-      height: 52,
-      borderRadius: 26,
-      backgroundColor: 'rgba(0,0,0,0.45)',
+      width: 46,
+      height: 46,
+      borderRadius: 16,
+      backgroundColor: 'rgba(255,255,255,0.14)',
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
       borderWidth: 2,
-      borderColor: 'transparent',
+      borderColor: 'rgba(255,255,255,0.18)',
     },
-    modeChipOn: { borderColor: '#fff' },
+    modeChipOn: { borderColor: 'rgba(255,255,255,0.85)' },
     shutterWrap: {
       position: 'absolute' as const,
       bottom: insets.bottom + 28,
@@ -183,25 +186,25 @@ export function BestPartCaptureScreen() {
       alignItems: 'center' as const,
     },
     shutterOuter: {
-      width: 78,
-      height: 78,
-      borderRadius: 39,
+      width: 84,
+      height: 84,
+      borderRadius: 42,
       borderWidth: 4,
       borderColor: '#fff',
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
     },
     shutterInner: {
-      width: 60,
-      height: 60,
-      borderRadius: 30,
+      width: 64,
+      height: 64,
+      borderRadius: 32,
       backgroundColor: '#fff',
     },
     shutterInnerVideo: {
-      width: 60,
-      height: 60,
-      borderRadius: 30,
-      backgroundColor: c.coral,
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: '#FF5B39',
     },
     shutterRecording: {
       width: 28,
@@ -214,7 +217,7 @@ export function BestPartCaptureScreen() {
       top: insets.top + 64,
       alignSelf: 'center' as const,
       color: 'rgba(255,255,255,0.92)',
-      fontWeight: '800' as const,
+      fontFamily: typography.bodyBold,
       fontSize: 13,
       letterSpacing: 0.8,
       textShadowColor: 'rgba(0,0,0,0.55)',
@@ -229,8 +232,8 @@ export function BestPartCaptureScreen() {
       gap: 4,
     },
     recordTimer: {
-      color: c.coral,
-      fontWeight: '900' as const,
+      color: '#FF5B39',
+      fontFamily: typography.bodyExtraBold,
       fontSize: 28,
       fontVariant: ['tabular-nums'] as ('tabular-nums')[],
       textShadowColor: 'rgba(0,0,0,0.55)',
@@ -242,13 +245,13 @@ export function BestPartCaptureScreen() {
     },
     recordTimerSub: {
       color: 'rgba(255,255,255,0.9)',
-      fontWeight: '700' as const,
+      fontFamily: typography.bodyBold,
       fontSize: 12,
       letterSpacing: 0.6,
     },
     compose: {
       flex: 1,
-      backgroundColor: c.bg,
+      backgroundColor: '#F4F6F2',
       paddingTop: insets.top + 8,
       paddingHorizontal: 18,
     },
@@ -264,18 +267,18 @@ export function BestPartCaptureScreen() {
     composeSideLeft: { position: 'absolute' as const, left: 0, zIndex: 2 },
     composeSideRight: { position: 'absolute' as const, right: 0, zIndex: 2 },
     composeTitle: {
-      fontSize: 18,
-      fontWeight: '800' as const,
-      color: c.text,
+      fontSize: 15.5,
+      fontFamily: typography.bodyBold,
+      color: '#101A14',
       textAlign: 'center' as const,
     },
     preview: {
-      width: '100%' as const,
-      aspectRatio: 4 / 5,
+      width: 116,
+      height: 174,
       borderRadius: 22,
       overflow: 'hidden' as const,
       backgroundColor: '#111',
-      marginBottom: 14,
+      marginBottom: 18,
     },
     previewCompact: {
       aspectRatio: undefined,
@@ -302,16 +305,16 @@ export function BestPartCaptureScreen() {
       right: 8,
     },
     input: {
-      minHeight: 88,
-      borderRadius: 16,
+      minHeight: 52,
+      borderRadius: 20,
       borderWidth: 1,
-      borderColor: c.profileAccentBorder,
-      backgroundColor: c.card,
+      borderColor: '#E6EBE4',
+      backgroundColor: '#FFFFFF',
       paddingHorizontal: 14,
       paddingVertical: 12,
       fontSize: 16,
-      fontWeight: '600' as const,
-      color: c.text,
+      fontFamily: typography.bodyMedium,
+      color: '#101A14',
       textAlignVertical: 'top' as const,
     },
     privateRow: {
@@ -319,18 +322,24 @@ export function BestPartCaptureScreen() {
       flexDirection: 'row' as const,
       alignItems: 'center' as const,
       justifyContent: 'space-between' as const,
-      paddingVertical: 10,
+      paddingVertical: 13,
+      paddingHorizontal: 15,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: '#E6EBE4',
+      backgroundColor: '#FFFFFF',
     },
-    privateLabel: { fontSize: 15, fontWeight: '700' as const, color: c.text },
+    privateLabel: { fontSize: 14, fontFamily: typography.bodySemiBold, color: '#101A14' },
     postBtn: {
       marginTop: 18,
-      backgroundColor: c.green,
-      borderRadius: 999,
+      backgroundColor: '#1C7C43',
+      borderRadius: 20,
+      minHeight: 56,
       paddingVertical: 16,
       alignItems: 'center' as const,
     },
     postBtnDisabled: { opacity: 0.55 },
-    postText: { color: '#fff', fontSize: 16, fontWeight: '800' as const },
+    postText: { color: '#fff', fontSize: 17, fontFamily: typography.bodyBold },
     perm: {
       flex: 1,
       alignItems: 'center' as const,
@@ -714,7 +723,7 @@ export function BestPartCaptureScreen() {
           >
             <Text style={{ color: colors.green, fontWeight: '800' }}>Retake</Text>
           </Pressable>
-          <Text style={styles.composeTitle}>New Post</Text>
+          <Text style={styles.composeTitle}>Review</Text>
           <Pressable
             style={styles.composeSideRight}
             onPress={() => {

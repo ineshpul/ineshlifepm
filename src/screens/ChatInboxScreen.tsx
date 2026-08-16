@@ -2,7 +2,6 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  StyleSheet,
   Text,
   TouchableOpacity,
   View,
@@ -10,7 +9,9 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import { typography } from '../theme/typography';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -18,7 +19,6 @@ import { isFirebaseConfigured } from '../firebase/firebase';
 import type { ChatStackParamList } from '../navigation/ChatStack';
 import { useChatInboxData } from '../chat/ChatUnreadContext';
 import { useChatNotifications } from '../chat/hooks/useChatNotifications';
-import { ChatHeaderIconButton } from '../chat/components/ChatHeaderIconButton';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 
 type Props = NativeStackScreenProps<ChatStackParamList, 'ChatInbox'>;
@@ -37,59 +37,107 @@ function formatTime(ts: { toMillis?: () => number } | null | undefined) {
 export function ChatInboxScreen({ navigation }: Props) {
   const { colors } = useTheme();
   const styles = useThemedStyles((c) => ({
-    screen: { flex: 1, backgroundColor: c.bg },
+    screen: { flex: 1, backgroundColor: c.bg, paddingHorizontal: 22 },
     center: { flex: 1, alignItems: 'center' as const, justifyContent: 'center' as const },
     offline: { padding: 24, textAlign: 'center' as const, color: c.muted, fontWeight: '600' as const },
-    empty: { flex: 1, paddingHorizontal: 28, paddingTop: 18, gap: 14 },
-    emptyTitle: { fontSize: 24, fontWeight: '900' as const, color: c.text },
-    emptySub: { fontSize: 15, lineHeight: 22, color: c.muted, fontWeight: '600' as const },
+    header: {
+      paddingTop: 10,
+      paddingBottom: 14,
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      justifyContent: 'space-between' as const,
+    },
+    headerTitle: {
+      fontFamily: typography.displayExtraBold,
+      fontSize: 30,
+      lineHeight: 34,
+      letterSpacing: -1.1,
+      color: c.text,
+    },
+    headerActions: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 8 },
+    iconButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: c.border2,
+      backgroundColor: c.card,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+    },
+    composeButton: { backgroundColor: c.green, borderColor: c.green },
+    search: {
+      height: 46,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: c.border2,
+      backgroundColor: c.card,
+      paddingHorizontal: 14,
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 10,
+      marginBottom: 14,
+    },
+    searchText: { fontFamily: typography.bodyMedium, fontSize: 14, color: c.muted2 },
+    sectionLabel: {
+      marginTop: 2,
+      marginBottom: 8,
+      fontFamily: typography.bodyBold,
+      fontSize: 11.5,
+      letterSpacing: 1.5,
+      color: c.muted2,
+    },
+    empty: { flex: 1, paddingTop: 20, gap: 14 },
+    emptyTitle: { fontFamily: typography.displayExtraBold, fontSize: 26, color: c.text },
+    emptySub: { fontFamily: typography.bodySemiBold, fontSize: 15, lineHeight: 22, color: c.muted },
     newGroup: { alignSelf: 'flex-start' as const, paddingVertical: 8 },
-    newGroupText: { fontSize: 15, fontWeight: '800' as const, color: c.moss },
-    headerActions: { flexDirection: 'row' as const, alignItems: 'center' as const, marginRight: 2 },
+    newGroupText: { fontFamily: typography.bodyBold, fontSize: 15, color: c.moss },
     row: {
       flexDirection: 'row' as const,
       alignItems: 'center' as const,
-      paddingHorizontal: 16,
-      paddingVertical: 11,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
       gap: 12,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: c.border2,
+      backgroundColor: c.card,
+      marginBottom: 8,
     },
     avatar: {
-      width: 52,
-      height: 52,
-      borderRadius: 26,
+      width: 50,
+      height: 50,
+      borderRadius: 18,
       backgroundColor: c.cardTint,
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
       overflow: 'hidden' as const,
     },
-    avatarImg: { width: 52, height: 52 },
-    avatarInitial: { fontSize: 18, fontWeight: '800' as const, color: c.moss },
+    avatarImg: { width: 50, height: 50 },
+    avatarInitial: { fontFamily: typography.bodyBold, fontSize: 18, color: c.moss },
     rowBody: {
       flex: 1,
       minWidth: 0,
-      paddingBottom: 11,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.border2,
     },
     rowTop: { flexDirection: 'row' as const, justifyContent: 'space-between' as const, gap: 8, alignItems: 'center' as const },
-    title: { flex: 1, fontSize: 16, fontWeight: '700' as const, color: c.text },
-    titleUnread: { fontWeight: '900' as const },
+    title: { flex: 1, fontFamily: typography.bodySemiBold, fontSize: 15.5, color: c.text },
+    titleUnread: { fontFamily: typography.bodyBold },
     mutedText: { opacity: 0.55 },
-    time: { fontSize: 12, fontWeight: '600' as const, color: c.muted2 },
-    timeUnread: { color: c.moss, fontWeight: '800' as const },
+    time: { fontFamily: typography.bodySemiBold, fontSize: 11.5, color: c.muted2 },
+    timeUnread: { color: c.moss, fontFamily: typography.bodyBold },
     previewRow: { marginTop: 3, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 8 },
-    preview: { flex: 1, fontSize: 14, color: c.muted, fontWeight: '500' as const },
-    previewUnread: { color: c.text2, fontWeight: '700' as const },
+    preview: { flex: 1, fontFamily: typography.bodyMedium, fontSize: 13.5, color: c.muted },
+    previewUnread: { color: c.green, fontFamily: typography.bodySemiBold },
     badge: {
       minWidth: 20,
       height: 20,
       borderRadius: 10,
       paddingHorizontal: 6,
-      backgroundColor: c.moss,
+      backgroundColor: c.green,
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
     },
-    badgeTxt: { color: c.white, fontSize: 11, fontWeight: '900' as const },
+    badgeTxt: { color: c.white, fontFamily: typography.bodyExtraBold, fontSize: 11 },
   }));
   const insets = useSafeAreaInsets();
   const tabBarClearance = floatingTabContentClearance(insets.bottom);
@@ -103,33 +151,51 @@ export function ChatInboxScreen({ navigation }: Props) {
 
   React.useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: () => (
-        <View style={styles.headerActions}>
-          <ChatHeaderIconButton
-            name="search-outline"
-            onPress={() => navigation.navigate('ChatSearch')}
-            accessibilityLabel="Search chats"
-          />
-          <ChatHeaderIconButton
-            name="create-outline"
-            onPress={() => navigation.navigate('NewChat')}
-            accessibilityLabel="New chat"
-          />
-        </View>
-      ),
+      headerShown: false,
     });
-  }, [navigation, styles.headerActions]);
+  }, [navigation]);
 
   if (!isFirebaseConfigured()) {
     return (
-      <Screen style={styles.screen} edges={['bottom', 'left', 'right']}>
+      <Screen style={styles.screen}>
         <Text style={styles.offline}>Connect Firebase to use chat.</Text>
       </Screen>
     );
   }
 
   return (
-    <Screen style={styles.screen} edges={['bottom', 'left', 'right']}>
+    <Screen style={styles.screen}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Chats</Text>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => navigation.navigate('NewGroup')}
+            accessibilityRole="button"
+            accessibilityLabel="Create group"
+          >
+            <Ionicons name="people-outline" size={19} color={colors.text} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iconButton, styles.composeButton]}
+            onPress={() => navigation.navigate('NewChat')}
+            accessibilityRole="button"
+            accessibilityLabel="New chat"
+          >
+            <Ionicons name="add" size={23} color={colors.white} />
+          </TouchableOpacity>
+        </View>
+      </View>
+      <TouchableOpacity
+        style={styles.search}
+        onPress={() => navigation.navigate('ChatSearch')}
+        activeOpacity={0.75}
+        accessibilityRole="button"
+        accessibilityLabel="Search chats"
+      >
+        <Ionicons name="search-outline" size={18} color={colors.muted2} />
+        <Text style={styles.searchText}>Search</Text>
+      </TouchableOpacity>
       {loading && rows.length === 0 ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.moss} />
@@ -150,7 +216,8 @@ export function ChatInboxScreen({ navigation }: Props) {
           data={rows}
           keyExtractor={(r) => r.conversationId}
           extraData={listVersion}
-          contentContainerStyle={{ paddingBottom: tabBarClearance, paddingTop: 4 }}
+          ListHeaderComponent={<Text style={styles.sectionLabel}>MESSAGES</Text>}
+          contentContainerStyle={{ paddingBottom: tabBarClearance }}
           renderItem={({ item }) => {
             const title =
               (item.member.convTitle || item.member.displayNameSnap || 'Chat').trim() || 'Chat';

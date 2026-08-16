@@ -14,9 +14,9 @@ import { useFocusEffect, useIsFocused, useNavigation, useRoute, type RouteProp }
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BestPartCard } from '../components/BestPartCard';
-import { Brandmark } from '../components/Brandmark';
 import { FeedCameraRollSaveBanner } from '../components/FeedCameraRollSaveBanner';
 import { Screen } from '../components/Screen';
+import { ModernFeedModeSwitch } from '../components/modern/ModernFeedModeSwitch';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 import {
   navigateToBestPartCapture,
@@ -57,6 +57,7 @@ import {
   readBestPartTabSession,
   resetBestPartTabSessionToMine,
 } from '../state/bestPartTabSession';
+import { typography } from '../theme/typography';
 
 type Segment = 'mine' | 'community';
 
@@ -186,14 +187,14 @@ export function BestPartScreen() {
   }, [navigation]);
 
   const styles = useThemedStyles((c) => ({
-    screen: { flex: 1 },
+    screen: { flex: 1, backgroundColor: '#101411' },
     list: { flex: 1 },
     header: {
       paddingTop: 8,
       flexDirection: 'row' as const,
       alignItems: 'center' as const,
-      justifyContent: 'space-between' as const,
-      marginBottom: 12,
+      justifyContent: 'center' as const,
+      marginBottom: 14,
     },
     brandRow: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10 },
     titleBlock: { gap: 2 },
@@ -206,12 +207,12 @@ export function BestPartScreen() {
     title: { fontSize: 26, fontWeight: '900' as const, color: c.text, letterSpacing: -0.5 },
     segments: {
       flexDirection: 'row' as const,
-      backgroundColor: c.cardTint,
-      borderRadius: 14,
+      backgroundColor: 'rgba(255,255,255,0.12)',
+      borderRadius: 18,
       padding: 4,
       marginBottom: 14,
       borderWidth: 1,
-      borderColor: c.profileAccentBorder,
+      borderColor: 'rgba(255,255,255,0.16)',
     },
     segBtn: {
       flex: 1,
@@ -219,9 +220,9 @@ export function BestPartScreen() {
       borderRadius: 11,
       alignItems: 'center' as const,
     },
-    segBtnOn: { backgroundColor: c.card },
-    segText: { fontSize: 14, fontWeight: '700' as const, color: c.muted2 },
-    segTextOn: { color: c.green },
+    segBtnOn: { backgroundColor: 'rgba(255,255,255,0.94)' },
+    segText: { fontSize: 14, fontFamily: typography.bodySemiBold, color: 'rgba(255,255,255,0.66)' },
+    segTextOn: { color: '#1C7C43', fontFamily: typography.bodyBold },
     empty: {
       paddingVertical: 56,
       paddingHorizontal: 12,
@@ -230,14 +231,14 @@ export function BestPartScreen() {
     },
     emptyTitle: {
       fontSize: 18,
-      fontWeight: '800' as const,
-      color: c.text,
+      fontFamily: typography.displayBold,
+      color: '#FFFFFF',
       textAlign: 'center' as const,
     },
     emptyBody: {
       fontSize: 14,
       lineHeight: 20,
-      color: c.muted2,
+      color: 'rgba(255,255,255,0.62)',
       textAlign: 'center' as const,
       maxWidth: 280,
     },
@@ -258,11 +259,11 @@ export function BestPartScreen() {
     },
     ctaText: { color: '#fff', fontSize: 16, fontWeight: '800' as const },
     listPad: {
-      paddingHorizontal: 18,
+      paddingHorizontal: 10,
       paddingBottom: floatingTabContentClearance(insets.bottom) + 16,
     },
     listPadWithFab: {
-      paddingHorizontal: 18,
+      paddingHorizontal: 10,
       paddingBottom: floatingTabContentClearance(insets.bottom) + 76,
     },
     fabWrap: {
@@ -308,16 +309,16 @@ export function BestPartScreen() {
       paddingVertical: 8,
       paddingHorizontal: 12,
       borderRadius: 12,
-      backgroundColor: c.cardTint,
+      backgroundColor: 'rgba(255,255,255,0.12)',
       borderWidth: 1,
-      borderColor: c.profileAccentBorder,
+      borderColor: 'rgba(255,255,255,0.16)',
       marginBottom: 14,
       maxWidth: '100%' as const,
     },
     dayDropdownText: {
       fontSize: 14,
-      fontWeight: '700' as const,
-      color: c.text,
+      fontFamily: typography.bodySemiBold,
+      color: '#FFFFFF',
       flexShrink: 1,
     },
     saveBanner: {
@@ -582,14 +583,11 @@ export function BestPartScreen() {
   const listHeader = (
     <View>
       <View style={styles.header}>
-        <View style={styles.brandRow}>
-          <Brandmark size={36} />
-          <View style={styles.titleBlock}>
-            <Text style={styles.kicker}>YOUR MOMENTS</Text>
-            <Text style={styles.title}>Best of the day</Text>
-          </View>
-        </View>
-        <Ionicons name="sunny" size={28} color={colors.moss} />
+        <ModernFeedModeSwitch
+          active="best"
+          onDailyPress={() => (navigation as any).navigate('Feed')}
+          onBestPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+        />
       </View>
 
       {cameraRollSaveOffer ? (

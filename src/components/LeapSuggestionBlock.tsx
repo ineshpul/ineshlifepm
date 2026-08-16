@@ -9,6 +9,7 @@ import {
 import { FunctionsError } from 'firebase/functions';
 
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import { typography } from '../theme/typography';
 import { useAuth } from '../state/auth';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { submitChallengeSuggestion } from '../services/challengeSuggestion';
@@ -17,12 +18,19 @@ import { showInfo } from '../utils/ui';
 export function LeapSuggestionBlock() {
   const { colors } = useTheme();
   const styles = useThemedStyles((colors) => ({
-    block: { marginBottom: 0 },
+    block: {
+      marginBottom: 0,
+      padding: 14,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.border2,
+      backgroundColor: colors.card,
+    },
     label: {
-      fontSize: 12,
-      fontWeight: '800',
-      color: colors.muted,
-      marginBottom: 8,
+      fontFamily: typography.displayBold,
+      fontSize: 16,
+      color: colors.text,
+      marginBottom: 10,
     },
     offline: {
       fontSize: 13,
@@ -44,15 +52,15 @@ export function LeapSuggestionBlock() {
       paddingHorizontal: 14,
       paddingVertical: 12,
       fontSize: 15,
-      fontWeight: '600',
-      backgroundColor: colors.card,
+      fontFamily: typography.bodyMedium,
+      backgroundColor: colors.inputBg,
       color: colors.text,
       textAlignVertical: 'top',
     },
     sendBtn: {
       height: 44,
       paddingHorizontal: 16,
-      borderRadius: 14,
+      borderRadius: 16,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: colors.moss,
@@ -62,7 +70,7 @@ export function LeapSuggestionBlock() {
     },
     sendBtnText: {
       fontSize: 14,
-      fontWeight: '900',
+      fontFamily: typography.bodyBold,
       color: colors.white,
     },
   }));

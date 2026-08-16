@@ -15,6 +15,7 @@ import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import type { BestPartPost } from '../types/bestPart';
 import { formatNyDateKeyShort, nyDateKey } from '../utils/nyTime';
 import { showError } from '../utils/ui';
+import { typography } from '../theme/typography';
 
 function formatRelative(createdAt: unknown): string {
   const ms =
@@ -236,19 +237,24 @@ export function BestPartCard({
 
   const styles = useThemedStyles((c) => ({
     card: {
-      marginBottom: 28,
+      marginBottom: 14,
     },
     mediaWrap: {
       width: '100%' as const,
-      aspectRatio: 4 / 5,
+      aspectRatio: 9 / 15.5,
       backgroundColor: '#111',
-      borderRadius: 18,
+      borderRadius: 26,
       overflow: 'hidden' as const,
+      shadowColor: '#000',
+      shadowOpacity: 0.22,
+      shadowRadius: 18,
+      shadowOffset: { width: 0, height: 8 },
+      elevation: 8,
     },
     media: { width: '100%' as const, height: '100%' as const },
     touchLayer: {
       ...StyleSheet.absoluteFillObject,
-      zIndex: 4,
+      zIndex: 3,
     },
     playHint: {
       ...StyleSheet.absoluteFillObject,
@@ -277,7 +283,23 @@ export function BestPartCard({
       zIndex: 5,
     },
     holdHintText: { color: '#fff', fontSize: 12, fontWeight: '700' as const },
-    body: { paddingTop: 12, paddingBottom: 4, gap: 8 },
+    mediaScrim: {
+      position: 'absolute' as const,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: '48%' as const,
+      backgroundColor: 'rgba(8,10,8,0.58)',
+      zIndex: 2,
+    },
+    body: {
+      position: 'absolute' as const,
+      left: 18,
+      right: 18,
+      bottom: 18,
+      zIndex: 6,
+      gap: 8,
+    },
     metaRow: {
       flexDirection: 'row' as const,
       alignItems: 'center' as const,
@@ -286,9 +308,9 @@ export function BestPartCard({
     },
     day: {
       fontSize: 11,
-      fontWeight: '800' as const,
+      fontFamily: typography.bodyBold,
       letterSpacing: 1.2,
-      color: c.moss,
+      color: '#8FE3A8',
     },
     badge: {
       flexDirection: 'row' as const,
@@ -297,11 +319,23 @@ export function BestPartCard({
       paddingHorizontal: 8,
       paddingVertical: 3,
       borderRadius: 999,
-      backgroundColor: c.cardTint,
+      backgroundColor: 'rgba(255,255,255,0.14)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.18)',
     },
-    badgeText: { fontSize: 11, fontWeight: '700' as const, color: c.muted2 },
-    caption: { fontSize: 16, lineHeight: 22, fontWeight: '600' as const, color: c.text },
-    hashtag: { fontSize: 16, lineHeight: 22, fontWeight: '800' as const, color: c.green },
+    badgeText: { fontSize: 11, fontFamily: typography.bodySemiBold, color: '#FFFFFF' },
+    caption: {
+      fontSize: 16,
+      lineHeight: 22,
+      fontFamily: typography.bodyMedium,
+      color: '#FFFFFF',
+    },
+    hashtag: {
+      fontSize: 16,
+      lineHeight: 22,
+      fontFamily: typography.bodyExtraBold,
+      color: '#8FE3A8',
+    },
     footer: {
       flexDirection: 'row' as const,
       alignItems: 'center' as const,
@@ -309,8 +343,12 @@ export function BestPartCard({
       marginTop: 2,
     },
     ownerRow: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, flex: 1 },
-    ownerName: { fontSize: 14, fontWeight: '800' as const },
-    relative: { fontSize: 12, color: c.muted2, fontWeight: '600' as const },
+    ownerName: { fontSize: 14, fontFamily: typography.bodyBold, color: '#FFFFFF' },
+    relative: {
+      fontSize: 12,
+      color: 'rgba(255,255,255,0.64)',
+      fontFamily: typography.bodySemiBold,
+    },
     duration: {
       position: 'absolute' as const,
       right: 10,
@@ -344,8 +382,17 @@ export function BestPartCard({
       borderRadius: 16,
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
+      backgroundColor: 'rgba(255,255,255,0.14)',
     },
     iconBtnDisabled: { opacity: 0.4 },
+    engagementGlass: {
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 18,
+      backgroundColor: 'rgba(255,255,255,0.92)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.42)',
+    },
   }));
 
   const relative = formatRelative(post.createdAt);
@@ -419,7 +466,7 @@ export function BestPartCard({
             <Image source={{ uri: post.secondaryUrl }} style={styles.media} resizeMode="cover" />
           </View>
         ) : null}
-      </View>
+        <View style={styles.mediaScrim} pointerEvents="none" />
 
       <View style={styles.body}>
         <View style={styles.metaRow}>
@@ -469,20 +516,23 @@ export function BestPartCard({
           )}
         </View>
 
-        <BestPartEngagement
-          bestPartId={post.id}
-          ownerUid={post.uid}
-          ownerUsername={post.username}
-          mediaUrl={post.url}
-          mediaType={post.mediaType}
-          shareTitle={post.caption.trim() || 'Best part of the day'}
-          viewerUid={user?.uid}
-          viewerUsername={user?.username ?? 'user'}
-          initialLikesCount={post.likesCount}
-          initialCommentsCount={post.commentsCount}
-          onDeleteOwn={onDelete}
-          deleteBusy={actionsDisabled}
-        />
+        <View style={styles.engagementGlass}>
+          <BestPartEngagement
+            bestPartId={post.id}
+            ownerUid={post.uid}
+            ownerUsername={post.username}
+            mediaUrl={post.url}
+            mediaType={post.mediaType}
+            shareTitle={post.caption.trim() || 'Best part of the day'}
+            viewerUid={user?.uid}
+            viewerUsername={user?.username ?? 'user'}
+            initialLikesCount={post.likesCount}
+            initialCommentsCount={post.commentsCount}
+            onDeleteOwn={onDelete}
+            deleteBusy={actionsDisabled}
+          />
+        </View>
+      </View>
       </View>
     </View>
   );

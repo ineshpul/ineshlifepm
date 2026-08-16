@@ -8,6 +8,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -20,6 +21,7 @@ import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { confirmCoLeap } from '../services/coLeap';
 import { parseCoLeapInvitees } from '../lib/coLeapInvitees';
 import { showError, showInfo } from '../utils/ui';
+import { typography } from '../theme/typography';
 
 type Props = NativeStackScreenProps<MainStackParamList, 'ConfirmCoLeap'>;
 
@@ -29,34 +31,77 @@ export function ConfirmCoLeapScreen({ navigation, route }: Props) {
   const { markPostedToday } = useAppState();
   const { colors } = useTheme();
   const styles = useThemedStyles((c) => ({
-    screen: { flex: 1, backgroundColor: c.bg },
-    body: { padding: 20, gap: 16 },
-    title: { fontSize: 22, fontWeight: '900' as const, color: c.text },
-    sub: { fontSize: 15, fontWeight: '600' as const, color: c.muted, lineHeight: 22 },
-    card: {
-      borderRadius: 16,
+    screen: { flex: 1, backgroundColor: '#F4F6F2' },
+    body: { padding: 20, gap: 16, paddingTop: 28, paddingBottom: 36 },
+    eyebrow: {
+      fontSize: 11.5,
+      fontFamily: typography.bodyBold,
+      letterSpacing: 1.5,
+      color: '#7C8A80',
+    },
+    title: {
+      fontSize: 30,
+      fontFamily: typography.displayExtraBold,
+      color: '#101A14',
+      letterSpacing: -1.1,
+    },
+    sub: {
+      fontSize: 14,
+      fontFamily: typography.bodySemiBold,
+      color: '#5F6E64',
+      lineHeight: 21,
+    },
+    reward: {
+      alignSelf: 'flex-start' as const,
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 7,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 14,
+      backgroundColor: '#E9F4EA',
       borderWidth: 1,
-      borderColor: c.border,
-      backgroundColor: c.card,
-      padding: 14,
-      gap: 10,
+      borderColor: '#C8E2CD',
+    },
+    rewardText: {
+      color: '#1C7C43',
+      fontSize: 12.5,
+      fontFamily: typography.bodyBold,
+    },
+    card: {
+      borderRadius: 22,
+      borderWidth: 1,
+      borderColor: '#E6EBE4',
+      backgroundColor: '#FFFFFF',
+      padding: 16,
+      gap: 14,
     },
     row: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 12 },
     avatar: {
       width: 48,
       height: 48,
-      borderRadius: 14,
-      backgroundColor: c.cardTint,
+      borderRadius: 16,
+      backgroundColor: '#E9F4EA',
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
       overflow: 'hidden' as const,
     },
     avatarImg: { width: 48, height: 48 },
-    avatarTxt: { fontSize: 18, fontWeight: '900' as const, color: c.moss },
-    name: { fontSize: 16, fontWeight: '800' as const, color: c.text },
-    prompt: { fontSize: 14, fontWeight: '600' as const, color: c.muted, marginTop: 2 },
-    status: { fontSize: 13, fontWeight: '700' as const, color: c.moss },
-    error: { fontSize: 14, fontWeight: '600' as const, color: '#B42318', lineHeight: 20 },
+    avatarTxt: { fontSize: 18, fontFamily: typography.bodyExtraBold, color: '#1C7C43' },
+    name: { fontSize: 16, fontFamily: typography.bodyBold, color: '#101A14' },
+    prompt: {
+      fontSize: 14,
+      fontFamily: typography.bodySemiBold,
+      color: '#7C8A80',
+      marginTop: 3,
+    },
+    status: { fontSize: 13, fontFamily: typography.bodyBold, color: '#1C7C43' },
+    error: {
+      fontSize: 14,
+      fontFamily: typography.bodySemiBold,
+      color: '#B42318',
+      lineHeight: 20,
+    },
   }));
 
   const [loading, setLoading] = React.useState(true);
@@ -135,12 +180,16 @@ export function ConfirmCoLeapScreen({ navigation, route }: Props) {
   return (
     <Screen style={styles.screen} edges={['bottom', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.body}>
+        <Text style={styles.eyebrow}>CO-LEAP INVITE</Text>
         <Text style={styles.title}>Confirm Co-Leap</Text>
         <Text style={styles.sub}>
-          One tap counts for your streak and unlocks today’s feed. You earn 3in + engagement from the
-          shared Leap (the poster gets full inches). You can still post your own Leap today for a full
-          award — once you do, you’re done for the day.
+          Join the shared Leap to keep your streak moving and unlock today’s feed. You can still post
+          your own Leap later for the full award.
         </Text>
+        <View style={styles.reward}>
+          <Ionicons name="trending-up" size={16} color="#1C7C43" />
+          <Text style={styles.rewardText}>3″ + engagement for confirming</Text>
+        </View>
 
         {loading ? (
           <ActivityIndicator color={colors.moss} style={{ marginTop: 24 }} />

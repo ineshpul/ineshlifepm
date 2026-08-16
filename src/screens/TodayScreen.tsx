@@ -1,6 +1,6 @@
 import * as React from 'react';
 import {
-  StyleSheet,
+  ScrollView,
   Text,
   TouchableOpacity,
   View,
@@ -9,408 +9,425 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { doc, onSnapshot } from 'firebase/firestore';
+
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import { typography } from '../theme/typography';
 
 import { Brandmark } from '../components/Brandmark';
 import { LeapLoadingFrog } from '../components/LeapLoadingFrog';
-import { LeapSuggestionBlock } from '../components/LeapSuggestionBlock';
 import { Screen } from '../components/Screen';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { CreatePostSheet } from '../components/modern/CreatePostSheet';
+import { ModernActionRow } from '../components/modern/ModernActionRow';
+import { ModernHeroSurface } from '../components/modern/ModernHeroSurface';
+import {
+  ModernPromptEyebrow,
+  formatCountdownHMS,
+} from '../components/modern/ModernPromptEyebrow';
+import { ModernLeaderboardCallout } from '../components/modern/ModernLeaderboardCallout';
 import { getPlayerFacingChallenge, useTodayChallenge } from '../state/challenge';
 import { useLiveCount } from '../state/live';
+import { useCanViewOtherUsersVideos } from '../state/posting';
 import { useAuth } from '../state/auth';
 import { showInfo } from '../utils/ui';
-import { navigateToRecord } from '../navigation/navigationHelpers';
+import {
+  navigateToLeaperboard,
+  navigateToRecord,
+} from '../navigation/navigationHelpers';
 import { shareReferralInvite } from '../utils/shareReferralInvite';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
+import { firestore, isFirebaseConfigured } from '../firebase/firebase';
+import { activeLeapStreakFromUserProfile } from '../lib/profileLeapStats';
+import { computeFeedViewingFromNow } from '../utils/nyTime';
 
-function formatHMS(ms: number) {
-  if (!Number.isFinite(ms)) return '—';
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(
-    2,
-    '0'
-  )}`;
-}
-
-/** Scale prompt type so long leaps stay readable without dominating the screen. */
-function promptTitleTypography(title: string): Pick<TextStyle, 'fontSize' | 'lineHeight'> {
+/** Oversized Bricolage prompt that still fits long leaps (mockup 01 uses a clamp). */
+function promptTitleTypography(
+  title: string
+): Pick<TextStyle, 'fontSize' | 'lineHeight' | 'letterSpacing'> {
   const len = title.trim().length;
-  if (len <= 42) return { fontSize: 32, lineHeight: 38 };
-  if (len <= 68) return { fontSize: 27, lineHeight: 33 };
-  if (len <= 92) return { fontSize: 23, lineHeight: 29 };
-  return { fontSize: 20, lineHeight: 26 };
+  const size =
+    len <= 22 ? 46 : len <= 32 ? 40 : len <= 46 ? 33 : len <= 70 ? 27 : len <= 94 ? 23 : 20;
+  return {
+    fontSize: size,
+    lineHeight: Math.round(size * 1.07),
+    letterSpacing: -(size * 0.04),
+  };
 }
 
-function liveBarFillWidth(count: number | null | undefined): `${number}%` {
-  if (typeof count !== 'number' || count <= 0) return '6%';
-  return `${Math.min(100, Math.max(14, 8 + count * 5))}%` as `${number}%`;
+function leapedLabel(count: number | null): string {
+  if (count == null) return 'Counting today’s leaps…';
+  if (count === 1) return '1 person has leaped';
+  return `${count} people have leaped`;
 }
 
 export function TodayScreen() {
   const { colors } = useTheme();
-  const styles = useThemedStyles((colors) => ({
-  screen: {
-    paddingHorizontal: 18,
-  },
-  header: {
-    paddingTop: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  adminBtns: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  adminBtn: {
-    height: 34,
-    paddingHorizontal: 12,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  adminBtnText: {
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 1.2,
-    color: colors.text,
-  },
-  headerBrand: {
-    flex: 1,
-    minWidth: 0,
-    marginRight: 8,
-  },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  brandTextCol: {
-    flex: 1,
-    minWidth: 0,
-    paddingTop: 2,
-  },
-  brandName: {
-    marginTop: 0,
-    fontSize: 22,
-    fontWeight: '900',
-    color: colors.text,
-  },
-  sub: {
-    marginTop: 4,
-    fontSize: 11,
-    letterSpacing: 2.2,
-    fontWeight: '900',
-    color: colors.muted,
-  },
-  suggestBlock: {
-    marginTop: 14,
-  },
-  pill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-  },
-  pillText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  redDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#EF4444',
-  },
-  card: {
-    marginTop: 18,
-    flexShrink: 1,
-    borderRadius: 22,
-    backgroundColor: colors.cardTint,
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 16,
-    borderWidth: 1,
-    borderColor: colors.profileAccentBorder,
-  },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  badgeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.moss,
-  },
-  badgeText: {
-    fontSize: 11,
-    letterSpacing: 1.4,
-    fontWeight: '900',
-    color: colors.green,
-  },
-  title: {
-    marginTop: 12,
-    fontWeight: '900',
-    color: colors.text,
-    letterSpacing: -0.3,
-  },
-  metaRow: {
-    marginTop: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    minWidth: 0,
-  },
-  instructions: {
-    flex: 1,
-    flexShrink: 1,
-    minWidth: 0,
-    fontSize: 13,
-    lineHeight: 18,
-    color: colors.green,
-    fontWeight: '700',
-  },
-  timerPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.profileAccentBorder,
-    flexShrink: 0,
-  },
-  timerText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
-  },
-  statsRow: {
-    marginTop: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    minWidth: 0,
-  },
-  statsLabel: {
-    flex: 1,
-    flexShrink: 1,
-    minWidth: 0,
-    fontSize: 12,
-    fontWeight: '800',
-    color: colors.green,
-  },
-  statsCheer: {
-    flexShrink: 0,
-    fontSize: 12,
-    fontWeight: '900',
-    color: colors.moss,
-  },
-  liveBarBg: {
-    marginTop: 8,
-    height: 4,
-    width: '100%',
-    borderRadius: 2,
-    backgroundColor: '#DCE8D0',
-    overflow: 'hidden',
-  },
-  liveBarFill: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.moss,
-    minWidth: 6,
-  },
-  bottom: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    paddingBottom: 18,
-  },
-  leapBtn: {
-    width: 220,
-    borderRadius: 30,
-  },
-  bottomHint: {
-    marginTop: 10,
-    fontSize: 11,
-    letterSpacing: 2.2,
-    fontWeight: '900',
-    color: colors.text,
-  },
-  bottomActionsColumn: {
-    flexDirection: 'column',
-    alignItems: 'center',
-    marginTop: 6,
-    width: '100%',
-    maxWidth: 360,
-    paddingHorizontal: 20,
-    alignSelf: 'center',
-  },
-  bottomActionBtn: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: 14,
-    minHeight: 32,
-  },
-  inviteBtnText: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: colors.moss,
-    textAlign: 'center',
-  },
-}));
+  const styles = useThemedStyles((c) => ({
+    scroll: {
+      flexGrow: 1,
+      paddingBottom: 12,
+    },
+    hero: {
+      paddingHorizontal: 22,
+      paddingBottom: 22,
+    },
+    header: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      justifyContent: 'space-between' as const,
+      gap: 8,
+    },
+    headerGroup: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 8,
+      flexShrink: 1,
+      minWidth: 0,
+    },
+    brandTile: {
+      width: 38,
+      height: 38,
+      borderRadius: 14,
+      backgroundColor: c.card,
+      borderWidth: 1,
+      borderColor: c.profileAccentBorder,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+    },
+    adminBtn: {
+      height: 34,
+      paddingHorizontal: 11,
+      borderRadius: 13,
+      borderWidth: 1,
+      borderColor: c.profileAccentBorder,
+      backgroundColor: c.card,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+    },
+    adminBtnText: {
+      fontSize: 11,
+      fontFamily: typography.bodyBold,
+      letterSpacing: 1.2,
+      color: c.text,
+    },
+    streakChip: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 5,
+      paddingHorizontal: 11,
+      height: 38,
+      borderRadius: 14,
+      backgroundColor: 'rgba(255, 91, 57, 0.10)',
+      borderWidth: 1,
+      borderColor: 'rgba(255, 91, 57, 0.24)',
+    },
+    streakText: {
+      fontFamily: typography.bodyBold,
+      fontSize: 13,
+      color: c.danger,
+      fontVariant: ['tabular-nums'] as TextStyle['fontVariant'],
+    },
+    iconBtn: {
+      width: 38,
+      height: 38,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: c.profileAccentBorder,
+      backgroundColor: c.card,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+    },
+    callout: {
+      marginTop: 16,
+    },
+    eyebrow: {
+      marginTop: 22,
+    },
+    promptWrap: {
+      marginTop: 18,
+      justifyContent: 'center' as const,
+      minHeight: 128,
+    },
+    prompt: {
+      fontFamily: typography.displayExtraBold,
+      color: c.text,
+    },
+    instructions: {
+      marginTop: 14,
+      fontFamily: typography.bodySemiBold,
+      fontSize: 13,
+      lineHeight: 18,
+      color: c.green,
+    },
+    heroFooter: {
+      marginTop: 20,
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 10,
+    },
+    heroFooterText: {
+      flex: 1,
+      minWidth: 0,
+      fontFamily: typography.bodySemiBold,
+      fontSize: 13,
+      color: c.green,
+    },
+    cheer: {
+      fontFamily: typography.bodyExtraBold,
+      fontSize: 13,
+      color: c.coral,
+      flexShrink: 0,
+    },
+    gatePill: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 5,
+      flexShrink: 0,
+    },
+    gateText: {
+      fontFamily: typography.bodyBold,
+      fontSize: 12,
+      color: c.muted2,
+    },
+    body: {
+      paddingHorizontal: 22,
+      paddingTop: 18,
+      gap: 14,
+    },
+    suggestTile: {
+      backgroundColor: c.cardTint,
+      borderWidth: 1,
+      borderColor: c.border2,
+    },
+    bottom: {
+      alignItems: 'center' as const,
+      paddingTop: 2,
+    },
+    leapBtn: {
+      width: '100%' as const,
+      maxWidth: 360,
+      borderRadius: 28,
+    },
+    bottomHint: {
+      marginTop: 10,
+      fontSize: 11,
+      letterSpacing: 2.2,
+      fontFamily: typography.bodyBold,
+      color: c.muted,
+    },
+    inviteBtn: {
+      marginTop: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+    },
+    inviteBtnText: {
+      fontSize: 13,
+      fontFamily: typography.bodyBold,
+      color: c.green,
+      textAlign: 'center' as const,
+    },
+  }));
+
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { challenge, window } = useTodayChallenge();
   const facing = getPlayerFacingChallenge(challenge, window);
-  const headerCountdown = window.isLive ? window.msUntilExpire : window.msUntilDrop;
   const liveCount = useLiveCount({
     enabled: window.isLive,
     challengeDateKey: challenge.dateKey?.trim() ? challenge.dateKey : undefined,
   });
+  const feedUnlocked = useCanViewOtherUsersVideos({
+    uid: user?.uid,
+    isAdmin: user?.isAdmin,
+    isModerator: user?.isModerator,
+    experimentCohort: user?.experimentCohort,
+  });
+  const [streakDays, setStreakDays] = React.useState(0);
+  const [suggestOpen, setSuggestOpen] = React.useState(false);
 
-  const titleType = React.useMemo(
-    () => promptTitleTypography(facing.title),
-    [facing.title]
-  );
+  React.useEffect(() => {
+    if (!isFirebaseConfigured() || !user?.uid) {
+      setStreakDays(0);
+      return;
+    }
+    const { viewingChallengeDateKey } = computeFeedViewingFromNow(Date.now());
+    const unsub = onSnapshot(
+      doc(firestore(), 'users', user.uid),
+      (snap) => {
+        const data = (snap.data() ?? {}) as Record<string, unknown>;
+        setStreakDays(
+          activeLeapStreakFromUserProfile({
+            profile: data,
+            todayLeapDayKey: viewingChallengeDateKey,
+          })
+        );
+      },
+      () => setStreakDays(0)
+    );
+    return unsub;
+  }, [user?.uid]);
+
+  const titleType = React.useMemo(() => promptTitleTypography(facing.title), [facing.title]);
+  const countdownMs = window.isLive ? window.msUntilExpire : window.msUntilDrop;
   const countdownLabel = window.isLive
-    ? formatHMS(window.msUntilExpire)
-    : formatHMS(window.msUntilDrop);
-  const postedLabel = window.isLive
-    ? typeof liveCount === 'number'
-      ? `${liveCount} posted today`
-      : '— posted today'
-    : 'Opens at noon ET';
+    ? `${formatCountdownHMS(countdownMs)} left`
+    : `opens in ${formatCountdownHMS(countdownMs)}`;
   const showBeFirst = window.isLive && liveCount === 0;
 
   return (
-    <Screen style={styles.screen} dismissKeyboardOnTap>
-      <View style={styles.header}>
-        <View style={styles.headerBrand}>
-          <View style={styles.brandRow}>
-            <Brandmark size={32} />
-            <View style={styles.brandTextCol}>
-              <Text style={styles.brandName}>Leap</Text>
-              <Text style={styles.sub}>TODAY</Text>
-            </View>
-          </View>
-        </View>
-        <View style={styles.headerRight}>
-          {(user?.isAdmin || user?.isModerator) ? (
-            <View style={styles.adminBtns}>
+    <Screen edges={['left', 'right', 'bottom']} dismissKeyboardOnTap>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingBottom: floatingTabContentClearance(insets.bottom) + 12 },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <ModernHeroSurface style={[styles.hero, { paddingTop: insets.top + 12 }]}>
+          <View style={styles.header}>
+            <View style={styles.headerGroup}>
+              <View style={styles.brandTile}>
+                <Brandmark size={24} />
+              </View>
               {user?.isAdmin ? (
-                <TouchableOpacity onPress={() => nav.navigate('ChallengeAdmin')} style={styles.adminBtn}>
+                <TouchableOpacity
+                  onPress={() => nav.navigate('ChallengeAdmin')}
+                  style={styles.adminBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Set today's leap"
+                >
                   <Text style={styles.adminBtnText}>SET</Text>
                 </TouchableOpacity>
               ) : null}
-              <TouchableOpacity onPress={() => nav.navigate('AdminVideoModeration')} style={styles.adminBtn}>
-                <Text style={styles.adminBtnText}>MOD</Text>
+              {user?.isAdmin || user?.isModerator ? (
+                <TouchableOpacity
+                  onPress={() => nav.navigate('AdminVideoModeration')}
+                  style={styles.adminBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Video moderation"
+                >
+                  <Text style={styles.adminBtnText}>MOD</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <View style={styles.headerGroup}>
+              {streakDays > 0 ? (
+                <View
+                  style={styles.streakChip}
+                  accessibilityLabel={`Leap streak ${streakDays} days`}
+                >
+                  <Ionicons name="flame" size={15} color={colors.danger} />
+                  <Text style={styles.streakText}>{streakDays}</Text>
+                </View>
+              ) : null}
+              <TouchableOpacity
+                style={styles.iconBtn}
+                onPress={() => nav.navigate('Notifications')}
+                accessibilityRole="button"
+                accessibilityLabel="Notifications"
+              >
+                <Ionicons name="notifications-outline" size={18} color={colors.text} />
               </TouchableOpacity>
             </View>
-          ) : null}
-          <View style={styles.pill}>
-            <View style={styles.redDot} />
-            <Text style={styles.pillText}>{formatHMS(headerCountdown)}</Text>
           </View>
-        </View>
-      </View>
 
-      <View style={styles.suggestBlock}>
-        <LeapSuggestionBlock />
-      </View>
+          <View style={styles.callout}>
+            <ModernLeaderboardCallout
+              title="The Leaperboard"
+              subtitle="Daily · Weekly · All-time"
+              onPress={() => navigateToLeaperboard(nav)}
+            />
+          </View>
 
-      <View style={styles.card}>
-        <View style={styles.badge}>
-          <View style={styles.badgeDot} />
-          <Text style={styles.badgeText}>TODAY&apos;S LEAP</Text>
-        </View>
+          <View style={styles.eyebrow}>
+            <ModernPromptEyebrow
+              label="TODAY'S LEAP"
+              timeLabel={countdownLabel}
+              live={window.isLive}
+            />
+          </View>
 
-        <Text style={[styles.title, titleType]}>{facing.title}</Text>
-        <LeapLoadingFrog active={!facing.canRecord} />
+          <View style={styles.promptWrap}>
+            <Text style={[styles.prompt, titleType]}>{facing.title}</Text>
+          </View>
 
-        <View style={styles.metaRow}>
           <Text style={styles.instructions} numberOfLines={2}>
             {facing.instructionsLine}
           </Text>
-          <View style={styles.timerPill}>
-            <Ionicons name="time-outline" size={14} color={colors.green} />
-            <Text style={styles.timerText}>{countdownLabel}</Text>
-          </View>
-        </View>
+          <LeapLoadingFrog active={!facing.canRecord} />
 
-        <View style={styles.statsRow}>
-          <Text style={styles.statsLabel} numberOfLines={1}>
-            {postedLabel}
-          </Text>
-          {showBeFirst ? (
-            <Text style={styles.statsCheer} numberOfLines={1}>
-              Be first!
+          <View style={styles.heroFooter}>
+            <Text style={styles.heroFooterText} numberOfLines={1}>
+              {window.isLive ? leapedLabel(liveCount) : 'Opens at noon ET'}
             </Text>
-          ) : null}
-        </View>
-        <View style={styles.liveBarBg}>
-          <View style={[styles.liveBarFill, { width: liveBarFillWidth(liveCount) }]} />
-        </View>
-      </View>
-
-      <View style={[styles.bottom, { paddingBottom: floatingTabContentClearance(insets.bottom) }]}>
-        <PrimaryButton
-          title="Leap"
-          variant="green"
-          onPress={() => {
-            if (!facing.canRecord) {
-              showInfo(
-                'Not yet',
-                'Today’s leap drops at 12:00 PM Eastern. The prompt stays hidden until then.'
-              );
-              return;
-            }
-            navigateToRecord(nav);
-          }}
-          style={styles.leapBtn}
-        />
-        <Text style={styles.bottomHint}>TAP TO RECORD</Text>
-        {user?.uid ? (
-          <View style={styles.bottomActionsColumn}>
-            <TouchableOpacity
-              onPress={() => void shareReferralInvite(user?.username ?? '')}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel="Invite a friend for 5 inches"
-              style={styles.bottomActionBtn}
-            >
-              <Text style={styles.inviteBtnText} numberOfLines={2}>
-                Invite a friend for 5″
-              </Text>
-            </TouchableOpacity>
+            {showBeFirst ? <Text style={styles.cheer}>Be first!</Text> : null}
+            {user?.uid ? (
+              <View style={styles.gatePill}>
+                <Ionicons
+                  name={feedUnlocked ? 'lock-open-outline' : 'lock-closed-outline'}
+                  size={13}
+                  color={feedUnlocked ? colors.green : colors.muted2}
+                />
+                <Text style={[styles.gateText, feedUnlocked && { color: colors.green }]}>
+                  {feedUnlocked ? 'Unlocked' : 'Locked'}
+                </Text>
+              </View>
+            ) : null}
           </View>
-        ) : null}
-      </View>
+        </ModernHeroSurface>
+
+        <View style={styles.body}>
+          <ModernActionRow
+            title="Suggest tomorrow's leap"
+            subtitle="Send an idea to the Leap team"
+            leading={<Ionicons name="bulb-outline" size={21} color={colors.green} />}
+            leadingStyle={styles.suggestTile}
+            onPress={() => setSuggestOpen(true)}
+            accessibilityHint="Opens the suggestion composer"
+          />
+
+          <View style={styles.bottom}>
+            <PrimaryButton
+              title="Leap"
+              variant="green"
+              onPress={() => {
+                if (!facing.canRecord) {
+                  showInfo(
+                    'Not yet',
+                    'Today’s leap drops at 12:00 PM Eastern. The prompt stays hidden until then.'
+                  );
+                  return;
+                }
+                navigateToRecord(nav);
+              }}
+              style={styles.leapBtn}
+            />
+            <Text style={styles.bottomHint}>TAP TO RECORD</Text>
+            {user?.uid ? (
+              <TouchableOpacity
+                onPress={() => void shareReferralInvite(user?.username ?? '')}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Invite a friend for 5 inches"
+                style={styles.inviteBtn}
+              >
+                <Text style={styles.inviteBtnText} numberOfLines={2}>
+                  Invite a friend for 5″
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+      </ScrollView>
+
+      <CreatePostSheet
+        visible={suggestOpen}
+        onClose={() => setSuggestOpen(false)}
+        initialStep="suggest"
+      />
     </Screen>
   );
 }

@@ -1,9 +1,11 @@
 import * as React from 'react';
 import { StyleSheet, type ImageStyle, type TextStyle, type ViewStyle } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { useFonts } from 'expo-font';
 
 import { useSettingsPreferences } from '../state/settingsPreferences';
 import { darkColors, lightColors, type AppColors } from './colors';
+import { modernFontAssets } from './typography';
 
 type NamedStyles<T> = { [P in keyof T]: ViewStyle | TextStyle | ImageStyle };
 
@@ -18,6 +20,7 @@ const ThemeContext = React.createContext<ThemeContextValue>({
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  useFonts(modernFontAssets);
   const { preferences, ready } = useSettingsPreferences();
   const isDark = ready && preferences.darkMode;
   const colors = isDark ? darkColors : lightColors;

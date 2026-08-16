@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Pressable, Text, ViewStyle } from 'react-native';
 
 import { useThemedStyles } from '../theme/ThemeProvider';
+import { typography } from '../theme/typography';
 
 type Props = {
   title: string;
@@ -21,7 +22,7 @@ export function PrimaryButton({
   const styles = useThemedStyles((colors) => ({
     base: {
       height: 56,
-      borderRadius: 14,
+      borderRadius: 20,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: 16,
@@ -45,9 +46,9 @@ export function PrimaryButton({
       opacity: 0.5,
     },
     title: {
-      fontSize: 14,
-      letterSpacing: 0.8,
-      fontWeight: '800',
+      fontFamily: typography.bodyBold,
+      fontSize: 15,
+      letterSpacing: 0.1,
     },
     titleSolid: {
       color: colors.white,

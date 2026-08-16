@@ -65,6 +65,7 @@ import { computeFeedViewingFromNow } from '../utils/nyTime';
 import { navigateToFeedTab } from '../navigation/navigationHelpers';
 import { CoLeapInvitePickerModal } from '../components/CoLeapInvitePickerModal';
 import type { CoLeapInviteePick } from '../types/coLeap';
+import { typography } from '../theme/typography';
 
 function openCameraSettingsAlert() {
   Alert.alert(
@@ -75,6 +76,11 @@ function openCameraSettingsAlert() {
       { text: 'Open Settings', onPress: () => void Linking.openSettings() },
     ]
   );
+}
+
+function formatRecorderTime(seconds: number) {
+  const value = Math.max(0, Math.round(seconds));
+  return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`;
 }
 
 /**
@@ -92,46 +98,66 @@ export function RecordScreen() {
   const { colors } = useTheme();
   const styles = useThemedStyles((colors) => ({
   screen: {
-    backgroundColor: '#0B1220',
+    backgroundColor: '#0C0F0D',
+  },
+  reviewScreen: {
+    backgroundColor: '#F4F6F2',
   },
   topBar: {
     paddingTop: 56,
-    paddingHorizontal: 12,
+    paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: 10,
+    zIndex: 30,
   },
   frogStrip: {
     marginTop: 8,
     marginHorizontal: 16,
   },
   topBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  reviewTopBtn: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E6EBE4',
+  },
   topBtnText: {
     color: colors.white,
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 17,
+    fontFamily: typography.bodyBold,
   },
   promptPill: {
     flex: 1,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    minHeight: 38,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
   },
+  reviewPromptPill: {
+    backgroundColor: 'transparent',
+    borderColor: 'transparent',
+  },
   promptText: {
     color: colors.white,
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: 13,
+    fontFamily: typography.bodyBold,
+  },
+  reviewPromptText: {
+    color: '#101A14',
+    fontSize: 15.5,
   },
   postedPill: {
     alignSelf: 'center',
@@ -168,11 +194,21 @@ export function RecordScreen() {
   outOfAttemptsBtn: { marginTop: 12 },
   cameraWrap: {
     flex: 1,
-    marginTop: 18,
-    marginHorizontal: 16,
-    borderRadius: 22,
+    marginTop: 14,
+    marginHorizontal: 0,
+    borderRadius: 0,
     overflow: 'hidden',
-    backgroundColor: '#0F172A',
+    backgroundColor: '#171B14',
+  },
+  reviewPreview: {
+    flex: 0,
+    width: 116,
+    height: 174,
+    marginTop: 16,
+    marginLeft: 20,
+    marginRight: 0,
+    borderRadius: 22,
+    backgroundColor: '#3E4735',
   },
   cameraLoading: {
     ...StyleSheet.absoluteFillObject,
@@ -207,12 +243,12 @@ export function RecordScreen() {
     position: 'absolute',
     bottom: 14,
     zIndex: 20,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    width: 46,
+    height: 46,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.14)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -258,17 +294,27 @@ export function RecordScreen() {
     marginTop: 4,
   },
   bottomBar: {
-    paddingHorizontal: 16,
-    paddingBottom: 20,
-    paddingTop: 10,
+    paddingHorizontal: 20,
+    paddingBottom: 28,
+    paddingTop: 12,
     alignItems: 'center',
     gap: 10,
   },
+  reviewBottomBar: {
+    alignItems: 'stretch',
+    paddingTop: 14,
+  },
   meta: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.6,
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 12,
+    fontFamily: typography.bodyBold,
+    letterSpacing: 0.4,
+    backgroundColor: 'rgba(20,26,20,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
   recordBtn: {
     alignItems: 'center',
@@ -278,11 +324,11 @@ export function RecordScreen() {
     opacity: 0.55,
   },
   recordOuter: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     borderWidth: 4,
-    borderColor: 'rgba(255,255,255,0.65)',
+    borderColor: 'rgba(255,255,255,0.85)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -290,12 +336,12 @@ export function RecordScreen() {
     borderColor: 'rgba(255,255,255,0.25)',
   },
   recordInner: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
   },
   recordInnerIdle: {
-    backgroundColor: '#FB4B4B',
+    backgroundColor: '#FF5B39',
   },
   recordInnerRecording: {
     width: 28,
@@ -305,25 +351,26 @@ export function RecordScreen() {
   },
   doneCard: {
     alignSelf: 'stretch',
-    borderRadius: 16,
+    borderRadius: 20,
     paddingVertical: 14,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(34,197,94,0.12)',
+    paddingHorizontal: 15,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.35)',
+    borderColor: '#E6EBE4',
     marginBottom: 4,
   },
   doneTitle: {
-    color: colors.white,
-    fontSize: 15,
-    fontWeight: '900',
-    letterSpacing: 0.3,
+    color: '#101A14',
+    fontSize: 23,
+    fontFamily: typography.displayExtraBold,
+    letterSpacing: -0.8,
   },
   doneBody: {
     marginTop: 6,
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: 13,
-    fontWeight: '600',
+    color: '#7C8A80',
+    fontSize: 11.5,
+    fontFamily: typography.bodyBold,
+    letterSpacing: 1.2,
     lineHeight: 18,
   },
   recordHint: {
@@ -333,13 +380,14 @@ export function RecordScreen() {
     letterSpacing: 2,
   },
   postBtn: {
-    width: 220,
-    borderRadius: 30,
+    width: '100%',
+    minHeight: 56,
+    borderRadius: 20,
   },
   attachBtn: {
-    width: 220,
-    height: 44,
-    borderRadius: 14,
+    width: '100%',
+    height: 48,
+    borderRadius: 18,
   },
   libraryAttachBtn: {
     width: 220,
@@ -348,14 +396,14 @@ export function RecordScreen() {
     marginTop: 10,
   },
   coLeapBtn: {
-    width: 220,
-    height: 44,
-    borderRadius: 14,
+    width: '100%',
+    height: 52,
+    borderRadius: 20,
   },
   coLeapHint: {
-    color: 'rgba(255,255,255,0.7)',
+    color: '#7C8A80',
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: typography.bodySemiBold,
     textAlign: 'center',
     lineHeight: 16,
     maxWidth: 280,
@@ -1191,25 +1239,38 @@ export function RecordScreen() {
     );
   }, [user?.uid, recordingChallengeDateKey, unlockBaseAfterReduction, unlockFirstPostBaseAfterReduction]);
 
+  const isReviewing = Boolean(clipUri);
+
   return (
-    <Screen withSafeArea={false} style={styles.screen}>
+    <Screen
+      withSafeArea={false}
+      style={[styles.screen, isReviewing && styles.reviewScreen]}
+    >
       <View style={styles.topBar}>
         <TouchableOpacity
           onPress={() => {
             if (nav.canGoBack()) nav.goBack();
             else nav.navigate('Tabs' as never, { screen: 'Today' } as never);
           }}
-          style={styles.topBtn}
+          style={[styles.topBtn, isReviewing && styles.reviewTopBtn]}
         >
-          <Text style={styles.topBtnText}>✕</Text>
+          <Ionicons name={isReviewing ? 'chevron-back' : 'close'} size={20} color={isReviewing ? '#101A14' : colors.white} />
         </TouchableOpacity>
-        <View style={styles.promptPill}>
-          <Text style={styles.promptText} numberOfLines={2}>
-            {playerFacing.title}
+        <View style={[styles.promptPill, isReviewing && styles.reviewPromptPill]}>
+          <Text style={[styles.promptText, isReviewing && styles.reviewPromptText]} numberOfLines={2}>
+            {isReviewing ? 'Review' : playerFacing.title}
           </Text>
         </View>
-        <TouchableOpacity onPress={clearPreview} style={styles.topBtn}>
-          <Text style={styles.topBtnText}>↺</Text>
+        <TouchableOpacity
+          onPress={clearPreview}
+          style={[styles.topBtn, isReviewing && styles.reviewTopBtn]}
+          accessibilityLabel={isReviewing ? 'Retake' : 'Reset camera'}
+        >
+          <Ionicons
+            name="refresh"
+            size={19}
+            color={isReviewing ? '#101A14' : colors.white}
+          />
         </TouchableOpacity>
       </View>
       {!playerFacing.canRecord ? (
@@ -1223,7 +1284,7 @@ export function RecordScreen() {
         </View>
       ) : null}
 
-      <View style={styles.cameraWrap}>
+      <View style={[styles.cameraWrap, isReviewing && styles.reviewPreview]}>
         {clipUri && !clipUri.startsWith('demo://') ? (
           <RecordClipPreview
             key={clipUri}
@@ -1404,41 +1465,29 @@ export function RecordScreen() {
         </View>
       ) : null}
 
-      <View style={styles.bottomBar}>
-        <Text style={styles.meta}>
+      <View style={[styles.bottomBar, isReviewing && styles.reviewBottomBar]}>
+        {!isReviewing ? <Text style={styles.meta}>
           {playerFacing.canRecord
             ? isRecording && recordingSecondsLeft != null
               ? attemptsLeft <= 0
-                ? `${recordingSecondsLeft}S LEFT • OUT OF ATTEMPTS`
+                ? `${formatRecorderTime(maxSec - recordingSecondsLeft)} / ${formatRecorderTime(maxSec)} • OUT OF ATTEMPTS`
                 : attemptsLeft === 1
-                  ? `${recordingSecondsLeft}S LEFT • 1 ATTEMPT LEFT`
-                  : `${recordingSecondsLeft}S LEFT • ${attemptsLeft} ATTEMPTS LEFT`
+                  ? `${formatRecorderTime(maxSec - recordingSecondsLeft)} / ${formatRecorderTime(maxSec)} • 1 ATTEMPT LEFT`
+                  : `${formatRecorderTime(maxSec - recordingSecondsLeft)} / ${formatRecorderTime(maxSec)} • ${attemptsLeft} ATTEMPTS LEFT`
               : attemptsLeft <= 0
                 ? `${maxSec}S MAX • OUT OF ATTEMPTS`
                 : attemptsLeft === 1
                   ? `${maxSec}S MAX • 1 ATTEMPT LEFT`
                   : `${maxSec}S MAX • ${attemptsLeft} ATTEMPTS LEFT`
             : playerFacing.instructionsLine}
-        </Text>
+        </Text> : null}
 
         {clipUri ? (
           <>
             <View style={styles.doneCard}>
+              <Text style={styles.doneBody}>YOUR TAKE</Text>
               <Text style={styles.doneTitle}>
-                {clipSource === 'library'
-                  ? clipMediaType === 'photo'
-                    ? 'Photo ready'
-                    : 'Clip ready'
-                  : 'Recording complete'}
-              </Text>
-              <Text style={styles.doneBody}>
-                {clipUri.startsWith('demo://')
-                  ? 'Review mode — post to continue, or record again.'
-                  : clipSource === 'library'
-                    ? clipMediaType === 'photo'
-                      ? 'Review your proof photo, then post or choose another.'
-                      : 'Replay your clip, then post or choose another.'
-                    : 'Replay your take with the video controls, then post or record again.'}
+                {playerFacing.title}
               </Text>
             </View>
             <PrimaryButton
@@ -1461,14 +1510,14 @@ export function RecordScreen() {
               </Text>
             ) : null}
             <PrimaryButton
-              title="POST"
+              title="Post leap  ›"
               variant="green"
               onPress={onPost}
               disabled={recordingBlocked || backgroundUploadActive}
               style={styles.postBtn}
             />
             <PrimaryButton
-              title={clipSource === 'library' ? 'CHOOSE AGAIN' : 'RECORD AGAIN'}
+              title={clipSource === 'library' ? 'Choose again' : 'Retake'}
               variant="outline"
               onPress={clearPreview}
               disabled={recordingBlocked || backgroundUploadActive}
