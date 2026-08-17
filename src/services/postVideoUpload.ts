@@ -13,6 +13,7 @@ import { Platform } from 'react-native';
 import { CHALLENGE_INSTRUCTIONS } from '../content/challengeCopy';
 import { getExpoExtra } from '../config/expoExtra';
 import { firestore, storage } from '../firebase/firebase';
+import { localMediaFileExists } from '../lib/stageFeedPlaybackClip';
 import { logEngagementMetric, logExperimentEvent } from './nativeAnalytics';
 import { saveVideoToCameraRoll } from './saveVideoToCameraRoll';
 import {
@@ -37,6 +38,9 @@ export type PostVideoUploadParams = {
   maxDurationSeconds: number;
   clipUri: string;
   secondaryClipUri: string | null;
+  /** Camera/library URI from before staging. Retry uses this if the staged copy was deleted. */
+  sourceClipUri?: string;
+  sourceSecondaryClipUri?: string | null;
   dualFrontIsPrimary: boolean;
   clipSource: 'recorded' | 'demo' | 'library' | 'unknown';
   /** Defaults to video. Photos are allowed for proof / camera-roll leaps. */
@@ -135,12 +139,22 @@ async function uriToBytesFallback(uri: string): Promise<Uint8Array> {
 
 type UploadPayload = Blob | Uint8Array;
 
+async function resolveLocalUploadUri(preferred: string, fallback?: string | null): Promise<string> {
+  const candidates = [preferred, fallback].filter((u, i, all): u is string => {
+    if (!u || u.startsWith('demo://')) return false;
+    return all.indexOf(u) === i;
+  });
+  for (const uri of candidates) {
+    if (await localMediaFileExists(uri)) return uri;
+  }
+  throw new Error('Recording file is no longer on this device. Record again before posting.');
+}
+
 async function clipUriToUploadPayload(uri: string): Promise<UploadPayload> {
   if (!uri || uri.startsWith('demo://')) {
     throw new Error('No video to upload. Record again before posting.');
   }
-  const info = await FileSystem.getInfoAsync(uri);
-  if (!info.exists) {
+  if (!(await localMediaFileExists(uri))) {
     throw new Error('Recording file is no longer on this device. Record again before posting.');
   }
   try {
@@ -204,8 +218,7 @@ async function uploadViaNativeBackground(args: {
     return await getDownloadURL(ref(storage(), storagePath));
   }
 
-  const info = await FileSystem.getInfoAsync(localUri);
-  if (!info.exists) {
+  if (!(await localMediaFileExists(localUri))) {
     throw new Error('Recording file is no longer on this device. Record again before posting.');
   }
 
@@ -292,13 +305,20 @@ export async function runPostVideoUpload(
     viewingChallengeDateKey,
     challengeTitle,
     maxDurationSeconds,
-    clipUri,
-    secondaryClipUri,
     dualFrontIsPrimary,
     clipSource,
     autoSavePosts,
     watermarkInfo,
   } = params;
+
+  const clipUri = await resolveLocalUploadUri(params.clipUri, params.sourceClipUri);
+  const secondaryClipUri =
+    params.secondaryClipUri || params.sourceSecondaryClipUri
+      ? await resolveLocalUploadUri(
+          params.secondaryClipUri || params.sourceSecondaryClipUri || '',
+          params.sourceSecondaryClipUri
+        )
+      : null;
 
   const mediaType: LeapMediaType = params.mediaType === 'photo' ? 'photo' : 'video';
   const contentType = mediaType === 'photo' ? 'image/jpeg' : 'video/mp4';

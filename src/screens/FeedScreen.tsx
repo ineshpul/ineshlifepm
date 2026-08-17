@@ -616,7 +616,7 @@ export function FeedScreen() {
   }, [route.params?.mode]);
   const { preferences } = useSettingsPreferences();
   const { clearPostedOverride, hasPostedToday } = useAppState();
-  const { pendingFeedPlayback, clearPendingFeedPlayback } = useBackgroundPostUpload();
+  const { pendingFeedPlayback } = useBackgroundPostUpload();
   const { user } = useAuth();
   const isStaffUser = Boolean(user?.isAdmin || user?.isModerator);
   /** Review demo, experiment `gate_off`, or full gate kill-switch — unlocked playable feed. */
@@ -1433,7 +1433,6 @@ export function FeedScreen() {
                   showError('Delete failed', e);
                 } finally {
                   clearPostedOverride();
-                  clearPendingFeedPlayback();
                   setDeletingId(null);
                 }
               })(),
@@ -1441,7 +1440,7 @@ export function FeedScreen() {
         ]
       );
     },
-    [user?.uid, clearPostedOverride, clearPendingFeedPlayback]
+    [user?.uid, clearPostedOverride]
   );
 
   React.useEffect(() => {

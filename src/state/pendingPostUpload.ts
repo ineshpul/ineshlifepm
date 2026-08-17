@@ -9,6 +9,8 @@ export type PersistedPendingPost = {
   primaryStoragePath: string;
   secondaryStoragePath: string | null;
   savedAtMs: number;
+  /** Ignore a persisted job if a newer upload session has already replaced it. */
+  sessionId?: number;
 };
 
 export async function loadPendingPostUpload(): Promise<PersistedPendingPost | null> {
