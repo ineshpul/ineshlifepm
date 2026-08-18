@@ -36,7 +36,7 @@ function useFeedPostVideoStyles() {
     videoStageReel: {
       ...StyleSheet.absoluteFillObject,
       overflow: 'hidden',
-      backgroundColor: '#0B1020',
+      backgroundColor: '#000000',
     },
     reelLoading: {
       ...StyleSheet.absoluteFillObject,
@@ -105,7 +105,8 @@ function useFeedPostVideoStyles() {
     },
     pipReel: {
       position: 'absolute',
-      top: 16,
+      // Reels are full-bleed, so the tile starts below the notch and the Daily / BPOTD tabs.
+      top: 104,
       right: 12,
       width: 118,
       height: 162,
@@ -530,9 +531,11 @@ function FeedPostVideoInner(props: {
           <Ionicons name="heart" size={HEART_BURST_SIZE} color={colors.coral} />
         </Animated.View>
       ) : null}
-      <View style={styles.timerBar} pointerEvents="none">
-        <Text style={styles.timerText}>{formatTimeLeft(remainingSec)} left</Text>
-      </View>
+      {reel ? null : (
+        <View style={styles.timerBar} pointerEvents="none">
+          <Text style={styles.timerText}>{formatTimeLeft(remainingSec)} left</Text>
+        </View>
+      )}
     </View>
   );
 }

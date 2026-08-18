@@ -20,7 +20,7 @@ import { BestPartCard } from '../components/BestPartCard';
 import { ModernFeedModeSwitch } from '../components/modern/ModernFeedModeSwitch';
 import { Screen } from '../components/Screen';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
-import { subscribeCommunityBestParts } from '../services/bestPartPosts';
+import { getBestPartById, subscribeCommunityBestParts } from '../services/bestPartPosts';
 import { deleteOwnedBestPart } from '../services/deleteBestPart';
 import { useAuth } from '../state/auth';
 import { useSettingsPreferences } from '../state/settingsPreferences';
@@ -41,6 +41,8 @@ const COMMUNITY_DAY_WINDOW = 21;
 type Props = {
   embedded?: boolean;
   onRequestDaily?: () => void;
+  initialPostId?: string;
+  onInitialPostHandled?: () => void;
 };
 
 function communityDayLabel(dateKey: string, todayKey: string): string {
@@ -50,7 +52,12 @@ function communityDayLabel(dateKey: string, todayKey: string): string {
   return weekdayLabelForDateKey(dateKey);
 }
 
-export function BestPartScreen({ embedded = false, onRequestDaily }: Props) {
+export function BestPartScreen({
+  embedded = false,
+  onRequestDaily,
+  initialPostId,
+  onInitialPostHandled,
+}: Props) {
   const { colors } = useTheme();
   const navigation = useNavigation();
   const isFocused = useIsFocused();
@@ -62,12 +69,15 @@ export function BestPartScreen({ embedded = false, onRequestDaily }: Props) {
 
   const [communityDateKey, setCommunityDateKey] = React.useState(todayKey);
   const [community, setCommunity] = React.useState<BestPartPost[]>([]);
+  const [notificationTargetPost, setNotificationTargetPost] =
+    React.useState<BestPartPost | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [dayPickerOpen, setDayPickerOpen] = React.useState(false);
   const [activePostId, setActivePostId] = React.useState<string | null>(null);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [slotHeight, setSlotHeight] = React.useState(0);
   const listRef = React.useRef<FlatList<BestPartPost>>(null);
+  const pendingInitialPostIdRef = React.useRef(String(initialPostId ?? '').trim());
 
   const styles = useThemedStyles((c) => ({
     screen: { flex: 1, backgroundColor: '#101411' },
@@ -76,9 +86,8 @@ export function BestPartScreen({ embedded = false, onRequestDaily }: Props) {
     modeSwitch: {
       position: 'absolute' as const,
       top: 8,
-      left: '50%' as const,
-      width: 230,
-      transform: [{ translateX: -115 }],
+      left: 0,
+      right: 0,
       zIndex: 30,
     },
     dayDropdown: {
@@ -121,6 +130,7 @@ export function BestPartScreen({ embedded = false, onRequestDaily }: Props) {
       color: 'rgba(255,255,255,0.62)',
       fontSize: 14,
       lineHeight: 20,
+      fontFamily: typography.bodyMedium,
       textAlign: 'center' as const,
     },
     pickerRoot: {
@@ -177,15 +187,19 @@ export function BestPartScreen({ embedded = false, onRequestDaily }: Props) {
     () => new Set(preferences.hiddenVideoIds),
     [preferences.hiddenVideoIds]
   );
-  const data = React.useMemo(
-    () =>
-      community.filter(
+  const data = React.useMemo(() => {
+    const merged =
+      notificationTargetPost &&
+      notificationTargetPost.dateKey === communityDateKey &&
+      !community.some((post) => post.id === notificationTargetPost.id)
+        ? [notificationTargetPost, ...community]
+        : community;
+    return merged.filter(
         (post) =>
           !hiddenIds.has(post.id) &&
           !blockedUsernames.has(String(post.username ?? '').toLowerCase())
-      ),
-    [blockedUsernames, community, hiddenIds]
-  );
+      );
+  }, [blockedUsernames, community, communityDateKey, hiddenIds, notificationTargetPost]);
   const communityDays = React.useMemo(
     () => nyRecentChallengeDateKeys(todayKey, COMMUNITY_DAY_WINDOW),
     [todayKey]
@@ -193,6 +207,23 @@ export function BestPartScreen({ embedded = false, onRequestDaily }: Props) {
   const tabBarClearance = floatingTabContentClearance(insets.bottom);
   const pageHeight =
     slotHeight > 0 ? slotHeight : Math.max(380, windowHeight - insets.top);
+
+  React.useEffect(() => {
+    const id = String(initialPostId ?? '').trim();
+    if (!id) return;
+    pendingInitialPostIdRef.current = id;
+    let cancelled = false;
+    void getBestPartById(id)
+      .then((post) => {
+        if (cancelled || !post) return;
+        setNotificationTargetPost(post);
+        setCommunityDateKey(post.dateKey);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [initialPostId]);
 
   React.useEffect(() => {
     setLoading(true);
@@ -217,6 +248,20 @@ export function BestPartScreen({ embedded = false, onRequestDaily }: Props) {
       current && data.some((post) => post.id === current) ? current : data[0]?.id ?? null
     );
   }, [data]);
+
+  React.useEffect(() => {
+    const targetId = pendingInitialPostIdRef.current;
+    if (!targetId || pageHeight <= 40) return;
+    const index = data.findIndex((post) => post.id === targetId);
+    if (index < 0) return;
+    const frame = requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({ offset: index * pageHeight, animated: false });
+      setActivePostId(targetId);
+      pendingInitialPostIdRef.current = '';
+      onInitialPostHandled?.();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [data, onInitialPostHandled, pageHeight]);
 
   const onSlotLayout = React.useCallback((event: LayoutChangeEvent) => {
     const nextHeight = Math.floor(event.nativeEvent.layout.height);

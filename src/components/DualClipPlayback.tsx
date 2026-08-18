@@ -71,6 +71,8 @@ export function DualClipPlayback({
   const shouldPlayRef = React.useRef(shouldPlay);
   shouldPlayRef.current = shouldPlay;
   const readyRef = React.useRef(false);
+  /** Bumps when a new play kick is scheduled so stale delayed kicks no-op. */
+  const kickGenRef = React.useRef(0);
 
   const audioPlayer = useVideoPlayer(audioUrl, (p) => {
     p.loop = false;
@@ -78,7 +80,7 @@ export function DualClipPlayback({
     p.volume = 0;
     p.timeUpdateEventInterval = 0.5;
     p.bufferOptions = {
-      preferredForwardBufferDuration: 1,
+      preferredForwardBufferDuration: 2.5,
       waitsToMinimizeStalling: false,
       minBufferForPlayback: 0.5,
     };
@@ -89,7 +91,7 @@ export function DualClipPlayback({
     p.volume = 0;
     p.timeUpdateEventInterval = 0;
     p.bufferOptions = {
-      preferredForwardBufferDuration: 1,
+      preferredForwardBufferDuration: 2.5,
       waitsToMinimizeStalling: false,
       minBufferForPlayback: 0.5,
     };
@@ -150,11 +152,14 @@ export function DualClipPlayback({
 
   const startIfNeeded = React.useCallback(() => {
     if (!shouldPlayRef.current) return;
+    const kickId = ++kickGenRef.current;
     const kick = () => {
+      if (kickId !== kickGenRef.current || !shouldPlayRef.current) return;
       try {
         applyMute();
         timelinePlayer.play();
         requestAnimationFrame(() => {
+          if (kickId !== kickGenRef.current || !shouldPlayRef.current) return;
           try {
             followPlayer.play();
             syncFollow();
@@ -170,6 +175,7 @@ export function DualClipPlayback({
     void enterPlayback()
       .catch(() => undefined)
       .finally(() => {
+        if (kickId !== kickGenRef.current) return;
         setTimeout(kick, 220);
       });
   }, [timelinePlayer, followPlayer, applyMute, syncFollow, emitStatus]);
@@ -182,6 +188,7 @@ export function DualClipPlayback({
         startIfNeeded();
       }
     } else {
+      kickGenRef.current += 1;
       try {
         timelinePlayer.pause();
         followPlayer.pause();

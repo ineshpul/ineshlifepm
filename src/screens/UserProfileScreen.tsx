@@ -395,10 +395,10 @@ export function UserProfileScreen({ route, navigation }: Props) {
             style={({ pressed }) => [profileStyles.stat, profileStyles.statTappable, pressed && profileStyles.statPressed]}
             onPress={() => setHighestLeapOpen(true)}
             accessibilityRole="button"
-            accessibilityLabel="View highest leap"
+            accessibilityLabel="View best leap"
           >
             <Text style={profileStyles.statNum}>{formatLeapInchesDisplay(stats.highestDayIn)}</Text>
-            <Text style={profileStyles.statLabel}>HIGHEST{'\n'}LEAP</Text>
+            <Text style={profileStyles.statLabel}>BEST{'\n'}LEAP</Text>
           </Pressable>
           <View style={profileStyles.stat}>
             <Text style={profileStyles.statNum}>{formatLeapInchesDisplay(stats.weeklyLeapIn)}</Text>

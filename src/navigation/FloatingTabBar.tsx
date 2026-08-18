@@ -26,6 +26,10 @@ export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTa
   const chatUnread = useChatUnreadCount();
   const [createOpen, setCreateOpen] = React.useState(false);
 
+  const focusedRoute = state.routes[state.index];
+  /** Feed (Daily + BPOTD) is full-bleed video, so the bar drops to glass instead of a solid card. */
+  const overReel = focusedRoute?.name === 'Feed';
+
   const styles = useThemedStyles((c) => ({
     host: {
       position: 'absolute' as const,
@@ -59,6 +63,23 @@ export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTa
         default: {},
       }),
     },
+    /** Dark glass over video: the clip reads through the bar instead of being cut off by a card. */
+    pillOverReel: {
+      backgroundColor: 'rgba(10, 16, 13, 0.38)',
+      borderColor: 'rgba(255,255,255,0.16)',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000000',
+          shadowOpacity: 0.16,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: 6 },
+        },
+        android: {
+          elevation: 4,
+        },
+        default: {},
+      }),
+    },
     group: {
       flex: 1,
       flexDirection: 'row' as const,
@@ -82,6 +103,9 @@ export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTa
     },
     iconWrapFocused: {
       backgroundColor: c.cardTint,
+    },
+    iconWrapFocusedOverReel: {
+      backgroundColor: 'rgba(255,255,255,0.18)',
     },
     createSlot: {
       width: 58,
@@ -127,7 +151,6 @@ export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTa
     badgeTxt: { color: c.white, fontSize: 9, fontWeight: '900' as const },
   }));
 
-  const focusedRoute = state.routes[state.index];
   const nestedName =
     focusedRoute?.name === 'Chat'
       ? getFocusedRouteNameFromRoute(focusedRoute) ?? 'ChatInbox'
@@ -163,7 +186,13 @@ export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTa
 
     const icon = options.tabBarIcon?.({
       focused: isFocused,
-      color: isFocused ? colors.green : colors.muted2,
+      color: overReel
+        ? isFocused
+          ? '#8FE3A8'
+          : 'rgba(255,255,255,0.74)'
+        : isFocused
+          ? colors.green
+          : colors.muted2,
     });
 
     const showBadge = route.name === 'Chat' && chatUnread > 0;
@@ -179,7 +208,12 @@ export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTa
         accessibilityLabel={label}
         style={({ pressed }) => [styles.tab, pressed && styles.tabPressed]}
       >
-        <View style={[styles.iconWrap, isFocused && styles.iconWrapFocused]}>
+        <View
+          style={[
+            styles.iconWrap,
+            isFocused && (overReel ? styles.iconWrapFocusedOverReel : styles.iconWrapFocused),
+          ]}
+        >
           {icon}
           {showBadge ? (
             <View style={styles.badge}>
@@ -196,7 +230,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: MaterialTopTa
   return (
     <>
       <View pointerEvents="box-none" style={[styles.host, { paddingBottom: bottom }]}>
-        <View style={styles.pill}>
+        <View style={[styles.pill, overReel && styles.pillOverReel]}>
           <View style={styles.group}>{tabs.slice(0, CREATE_BUTTON_AFTER_INDEX + 1)}</View>
           <View style={styles.createSlot}>
             <Pressable

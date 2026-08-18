@@ -3,6 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
 import { useThemedStyles } from '../theme/ThemeProvider';
+import { typography } from '../theme/typography';
 import { navigateToRecord } from '../navigation/navigationHelpers';
 
 type Props = {
@@ -10,18 +11,20 @@ type Props = {
   loading?: boolean;
 };
 
+/** Reel chrome is always dark, so this bar uses fixed glass tokens (not theme card colors). */
 export function FeedSinceLastLeapBanner({ count, loading }: Props) {
   const nav = useNavigation<any>();
 
-  const styles = useThemedStyles((c) => ({
+  const styles = useThemedStyles(() => ({
     bar: {
       marginHorizontal: 12,
-      paddingVertical: 8,
-      paddingHorizontal: 12,
-      borderRadius: 10,
-      backgroundColor: c.cardTint,
+      paddingVertical: 9,
+      paddingLeft: 14,
+      paddingRight: 6,
+      borderRadius: 999,
+      backgroundColor: 'rgba(10, 17, 12, 0.72)',
       borderWidth: 1,
-      borderColor: c.profileAccentBorder,
+      borderColor: 'rgba(255,255,255,0.16)',
       flexDirection: 'row',
       alignItems: 'center',
       gap: 10,
@@ -29,21 +32,21 @@ export function FeedSinceLastLeapBanner({ count, loading }: Props) {
     text: {
       flex: 1,
       fontSize: 13,
-      fontWeight: '600',
-      color: c.coral,
+      fontFamily: typography.bodySemiBold,
+      color: '#FFFFFF',
       lineHeight: 18,
     },
     leapPill: {
-      paddingHorizontal: 14,
+      paddingHorizontal: 15,
       paddingVertical: 7,
-      borderRadius: 8,
-      backgroundColor: c.green,
+      borderRadius: 999,
+      backgroundColor: '#2F9E5A',
     },
     leapPillText: {
       fontSize: 13,
-      fontWeight: '800',
-      color: c.white,
-      letterSpacing: 0.4,
+      fontFamily: typography.bodyBold,
+      color: '#FFFFFF',
+      letterSpacing: 0.3,
     },
   }));
 

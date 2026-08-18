@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import {
   PanGestureHandler,
@@ -41,6 +42,7 @@ import {
 } from 'firebase/firestore';
 
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import { typography } from '../theme/typography';
 
 import { firestore, firebaseAuth, isFirebaseConfigured } from '../firebase/firebase';
 import { toggleVideoLike } from '../services/videoLikes';
@@ -63,6 +65,7 @@ import {
 import { EngagementCommentComposer } from './EngagementCommentComposer';
 import { EngagementCommentRow, type ReplyTargetPayload } from './EngagementCommentRow';
 import { EngagementThreadCollapseRow } from './EngagementThreadCollapseRow';
+import { FeedShareSheet } from './FeedShareSheet';
 
 export type { VideoComment };
 
@@ -120,7 +123,7 @@ export function FeedPostEngagement({
   actionsVertical: {
     flexDirection: 'column' as const,
     alignItems: 'center' as const,
-    gap: 14,
+    gap: 18,
   },
   actionBtn: {
     width: 44,
@@ -135,14 +138,20 @@ export function FeedPostEngagement({
   },
   actionBtnVertical: {
     width: 52,
-    minHeight: 52,
+    minHeight: 48,
     height: 'auto' as unknown as number,
     borderRadius: 26,
     borderWidth: 0,
     backgroundColor: 'transparent',
     flexDirection: 'column' as const,
     gap: 0,
-    paddingVertical: 2,
+    paddingVertical: 0,
+  },
+  /** Icons are glyphs, so a text shadow is what keeps them readable on bright clips. */
+  reelIcon: {
+    textShadowColor: 'rgba(0,0,0,0.38)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 5,
   },
   actionCount: {
     marginLeft: 6,
@@ -152,22 +161,13 @@ export function FeedPostEngagement({
   },
   actionCountVertical: {
     marginLeft: 0,
-    marginTop: 4,
-    fontSize: 12,
-    fontWeight: '800' as const,
+    marginTop: 5,
+    fontSize: 13,
+    fontFamily: typography.bodyBold,
     color: '#FFFFFF',
-    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  actionLabelVertical: {
-    marginTop: 2,
-    fontSize: 11,
-    fontWeight: '700' as const,
-    color: '#FFFFFF',
-    textShadowColor: 'rgba(0,0,0,0.45)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
+    textShadowRadius: 4,
   },
   modalRoot: {
     flex: 1,
@@ -254,6 +254,7 @@ export function FeedPostEngagement({
   const [reportOpen, setReportOpen] = React.useState(false);
   const [blockOpen, setBlockOpen] = React.useState(false);
   const [commentsModalOpen, setCommentsModalOpen] = React.useState(false);
+  const [shareSheetOpen, setShareSheetOpen] = React.useState(false);
   const [keyboardVisible, setKeyboardVisible] = React.useState(false);
   const [replyTarget, setReplyTarget] = React.useState<ReplyTargetPayload | null>(null);
   const [expandedThreads, setExpandedThreads] = React.useState<Record<string, boolean>>({});
@@ -503,13 +504,22 @@ export function FeedPostEngagement({
     }
   };
 
-  const onShare = () => {
-    Alert.alert('Share', shareTitle, [
-      { text: 'Share link', onPress: () => void shareLink() },
-      { text: 'Save to camera roll', onPress: () => void saveToCameraRoll() },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+  const copyShareLink = async () => {
+    try {
+      await Clipboard.setStringAsync(shareUrl);
+      showInfo('Link copied', 'Paste it anywhere to share this leap.');
+    } catch (e) {
+      showError('Could not copy link', e);
+    }
   };
+
+  const hidePost = React.useCallback(() => {
+    const nextHidden = Array.from(new Set([...(preferences.hiddenVideoIds ?? []), videoId]));
+    patch({ hiddenVideoIds: nextHidden });
+    showInfo('Hidden', 'You will not see this leap in your feed again.');
+  }, [preferences.hiddenVideoIds, patch, videoId]);
+
+  const onShare = () => setShareSheetOpen(true);
 
   const notifyCommentRecipients = async (
     text: string,
@@ -754,9 +764,10 @@ export function FeedPostEngagement({
             <ActivityIndicator size="small" color={reelLayout ? '#FFFFFF' : colors.coral} />
           ) : (
             <Ionicons
-              name={liked ? 'heart' : 'heart-outline'}
-              size={reelLayout ? 26 : 22}
-              color={reelLayout ? (liked ? '#FF5B39' : '#FFFFFF') : colors.coral}
+              name={liked || reelLayout ? 'heart' : 'heart-outline'}
+              size={reelLayout ? 34 : 22}
+              color={reelLayout ? (liked ? '#FF3B4E' : '#FFFFFF') : colors.coral}
+              style={reelLayout ? styles.reelIcon : undefined}
             />
           )}
           {reelLayout ? (
@@ -774,9 +785,10 @@ export function FeedPostEngagement({
           accessibilityLabel="View comments"
         >
           <Ionicons
-            name="chatbubble-outline"
-            size={reelLayout ? 24 : 20}
+            name={reelLayout ? 'chatbubble-ellipses' : 'chatbubble-outline'}
+            size={reelLayout ? 31 : 20}
             color={reelLayout ? '#FFFFFF' : colors.text}
+            style={reelLayout ? styles.reelIcon : undefined}
           />
           {reelLayout ? (
             <Text style={styles.actionCountVertical}>{displayComments}</Text>
@@ -785,32 +797,29 @@ export function FeedPostEngagement({
           )}
         </ActionTouchable>
 
-        <ActionTouchable
-          style={[styles.actionBtn, reelLayout && styles.actionBtnVertical]}
-          onPress={() => {
-            if (!viewerUid) {
-              showError('Sign in required', new Error('Log in to send clips to chat.'));
-              return;
-            }
-            navigateToChatSharePost(navigation, {
-              videoId,
-              videoUrl: shareUrl,
-              title: shareTitle,
-              ownerUid: videoOwnerUid,
-              ownerUsername: videoOwnerUsername,
-            });
-          }}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="Send this clip to someone in Leap"
-        >
-          <Ionicons
-            name="paper-plane-outline"
-            size={reelLayout ? 24 : 21}
-            color={reelLayout ? '#FFFFFF' : colors.text}
-          />
-          {reelLayout ? <Text style={styles.actionLabelVertical}>Send</Text> : null}
-        </ActionTouchable>
+        {!reelLayout ? (
+          <ActionTouchable
+            style={styles.actionBtn}
+            onPress={() => {
+              if (!viewerUid) {
+                showError('Sign in required', new Error('Log in to send clips to chat.'));
+                return;
+              }
+              navigateToChatSharePost(navigation, {
+                videoId,
+                videoUrl: shareUrl,
+                title: shareTitle,
+                ownerUid: videoOwnerUid,
+                ownerUsername: videoOwnerUsername,
+              });
+            }}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Send this clip to someone in Leap"
+          >
+            <Ionicons name="paper-plane-outline" size={21} color={colors.text} />
+          </ActionTouchable>
+        ) : null}
 
         <ActionTouchable
           style={[styles.actionBtn, reelLayout && styles.actionBtnVertical]}
@@ -818,36 +827,53 @@ export function FeedPostEngagement({
           disabled={savingToRoll}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel="Share video"
+          accessibilityLabel="Send or share this leap"
         >
           {savingToRoll ? (
             <ActivityIndicator size="small" color={reelLayout ? '#FFFFFF' : colors.text} />
           ) : (
             <Ionicons
-              name="share-outline"
-              size={reelLayout ? 24 : 22}
+              name={reelLayout ? 'arrow-redo' : 'share-outline'}
+              size={reelLayout ? 30 : 22}
               color={reelLayout ? '#FFFFFF' : colors.text}
+              style={reelLayout ? styles.reelIcon : undefined}
             />
           )}
-          {reelLayout ? <Text style={styles.actionLabelVertical}>Share</Text> : null}
         </ActionTouchable>
 
-        {viewerUid && viewerUid !== videoOwnerUid ? (
+        {!reelLayout && viewerUid && viewerUid !== videoOwnerUid ? (
           <ActionTouchable
-            style={[styles.actionBtn, reelLayout && styles.actionBtnVertical]}
+            style={styles.actionBtn}
             onPress={openSafety}
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="Report or block"
           >
-            <Ionicons
-              name="flag-outline"
-              size={reelLayout ? 22 : 21}
-              color={reelLayout ? '#FFFFFF' : colors.text}
-            />
+            <Ionicons name="flag-outline" size={21} color={colors.text} />
           </ActionTouchable>
         ) : null}
       </View>
+
+      <FeedShareSheet
+        visible={shareSheetOpen}
+        onClose={() => setShareSheetOpen(false)}
+        viewerUid={viewerUid}
+        viewerUsername={viewerUsername}
+        post={{
+          videoId,
+          videoUrl: shareUrl,
+          title: shareTitle,
+          ownerUid: videoOwnerUid,
+          ownerUsername: videoOwnerUsername,
+        }}
+        savingToRoll={savingToRoll}
+        onCopyLink={() => void copyShareLink()}
+        onShareExternal={() => void shareLink()}
+        onSaveToCameraRoll={() => void saveToCameraRoll()}
+        onNotInterested={hidePost}
+        onReport={() => setReportOpen(true)}
+        onBlock={() => setBlockOpen(true)}
+      />
 
       <Modal
         visible={commentsModalOpen}

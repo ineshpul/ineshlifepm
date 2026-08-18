@@ -12,7 +12,6 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RecordScreen } from '../screens/RecordScreen';
 import { BestPartCaptureScreen } from '../screens/BestPartCaptureScreen';
 import { BestPartWeekRecapScreen } from '../screens/BestPartWeekRecapScreen';
-import { BestPartPostScreen } from '../screens/BestPartPostScreen';
 import { TopScreen } from '../screens/TopScreen';
 import { useAuth } from '../state/auth';
 import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
@@ -26,9 +25,10 @@ import { MutedUsersScreen } from '../screens/MutedUsersScreen';
 import { LegalDocumentScreen } from '../screens/LegalDocumentScreen';
 import { UserProfileScreen } from '../screens/UserProfileScreen';
 import { FollowingListScreen } from '../screens/FollowingListScreen';
-import { VideoPostScreen } from '../screens/VideoPostScreen';
 import { ConfirmCoLeapScreen } from '../screens/ConfirmCoLeapScreen';
 import { AdminVideoModerationScreen } from '../screens/AdminVideoModerationScreen';
+import { AdminLeapSuggestionsScreen } from '../screens/AdminLeapSuggestionsScreen';
+import { PickTomorrowLeapScreen } from '../screens/PickTomorrowLeapScreen';
 import { YourLeapsScreen } from '../screens/YourLeapsScreen';
 import { UserLeapsScreen } from '../screens/UserLeapsScreen';
 import { TakeTheLeapForLeapsScreen } from '../screens/TakeTheLeapForLeapsScreen';
@@ -187,24 +187,28 @@ function LoggedInStack() {
         }}
       />
       <MainStack.Screen
-        name="VideoPost"
-        component={VideoPostScreen}
-        options={{ headerShown: true, title: 'Highest Leap' }}
-      />
-      <MainStack.Screen
         name="ConfirmCoLeap"
         component={ConfirmCoLeapScreen}
         options={{ headerShown: true, title: 'Confirm Co-Leap' }}
       />
       <MainStack.Screen
-        name="BestPartPost"
-        component={BestPartPostScreen}
-        options={{ headerShown: true, title: 'Moment' }}
-      />
-      <MainStack.Screen
         name="AdminVideoModeration"
         component={AdminVideoModerationScreen}
         options={{ headerShown: true, title: 'Moderate video' }}
+      />
+      <MainStack.Screen
+        name="AdminLeapSuggestions"
+        component={AdminLeapSuggestionsScreen}
+        options={{ headerShown: true, title: 'Leap suggestions' }}
+      />
+      <MainStack.Screen
+        name="PickTomorrowLeap"
+        component={PickTomorrowLeapScreen}
+        options={{
+          headerShown: false,
+          presentation: 'card',
+          animation: 'slide_from_right',
+        }}
       />
       <MainStack.Screen
         name="OnboardingIntro"

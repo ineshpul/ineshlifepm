@@ -200,6 +200,29 @@ export function getAdminPublishChallengeDateKey(nowMs: number): string {
   return computeFeedViewingFromNow(afterNextLock).viewingChallengeDateKey;
 }
 
+/**
+ * Ballot that closes at the next noon ET (or today's noon if still before noon).
+ * Winner becomes `challenges/{ballotDateKey}` when that noon hits.
+ */
+export function activeBallotDateKey(nowMs: number): string {
+  const { y, mo, d } = nyCalendarPartsFromUtc(nowMs);
+  const todayNoon = utcMsForNyWallClock(y, mo, d, 12, 0);
+  if (nowMs < todayNoon) {
+    return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  const next = nextNyCalendarDay(y, mo, d);
+  return `${next.y}-${String(next.mo).padStart(2, '0')}-${String(next.d).padStart(2, '0')}`;
+}
+
+/** Ms until the active ballot closes at noon ET. */
+export function msUntilBallotClose(nowMs: number): number {
+  const key = activeBallotDateKey(nowMs);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  if (!m) return 0;
+  const close = utcMsForNyWallClock(Number(m[1]), Number(m[2]), Number(m[3]), 12, 0);
+  return Math.max(0, close - nowMs);
+}
+
 /** Next UTC ms at or after `nowMs + 15s` for NY wall clock hour:minute today or a future NY day. */
 
 /**

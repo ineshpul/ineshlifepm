@@ -141,7 +141,7 @@ export function HighestLeapSheet({ visible, onClose, postId, fallbackInches }: P
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
         <View style={[styles.sheet, { maxHeight: WINDOW_H * 0.9 }]}>
           <View style={styles.handleRow}>
-            <Text style={styles.title}>Highest leap</Text>
+            <Text style={styles.title}>Best leap</Text>
             <TouchableOpacity onPress={onClose} hitSlop={12} accessibilityLabel="Close">
               <Ionicons name="close" size={24} color={colors.text} />
             </TouchableOpacity>

@@ -10,7 +10,13 @@ import {
   type ViewToken,
 } from 'react-native';
 import { FlatList, ScrollView } from 'react-native-gesture-handler';
-import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
+import {
+  useFocusEffect,
+  useIsFocused,
+  useNavigation,
+  useRoute,
+  type RouteProp,
+} from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { onSnapshot } from 'firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,6 +29,7 @@ import { deleteOwnedVideo } from '../services/deleteVideo';
 import { useAuth } from '../state/auth';
 import { isFirebaseConfigured } from '../firebase/firebase';
 import { userVideosQuery } from '../lib/userVideosQuery';
+import type { MainStackParamList } from '../navigation/types';
 import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { showError } from '../utils/ui';
 import { FeedPostVideo, ReelVideoPlaceholder } from '../components/FeedPostVideo';
@@ -149,6 +156,8 @@ export function YourLeapsScreen() {
   emptyBody: { marginTop: 8, fontSize: 15, fontWeight: '600', color: colors.muted },
 }));
   const nav = useNavigation();
+  const route = useRoute<RouteProp<MainStackParamList, 'MyLeaps'>>();
+  const initialVideoId = String(route.params?.initialVideoId ?? '').trim();
   const { user } = useAuth();
   const { preferences } = useSettingsPreferences();
   const isFocused = useIsFocused();
@@ -165,6 +174,8 @@ export function YourLeapsScreen() {
     Record<string, { scrollToEnd: (o?: { animated?: boolean }) => void } | null>
   >({});
   const flatListRef = React.useRef<FlatList<LeapVideo>>(null);
+  /** Cleared once the pager has jumped to the leap tapped on the profile grid. */
+  const pendingInitialIdRef = React.useRef(initialVideoId);
 
   const pageHeight = React.useMemo(() => {
     if (slotHeight > 0) return slotHeight;
@@ -178,7 +189,7 @@ export function YourLeapsScreen() {
       return;
     }
     setHydrated(false);
-    const q = userVideosQuery({ uid: user.uid, limitN: 40 });
+    const q = userVideosQuery({ uid: user.uid, limitN: 120 });
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -212,7 +223,7 @@ export function YourLeapsScreen() {
           })
           .filter(Boolean) as LeapVideo[];
         rows.sort((a, b) => b.createdAtMs - a.createdAtMs);
-        setVideos(rows.slice(0, 30));
+        setVideos(rows);
         setHydrated(true);
       },
       () => {
@@ -225,11 +236,13 @@ export function YourLeapsScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
+      /** Opened on a specific leap: let the jump effect own the scroll position. */
+      if (initialVideoId) return;
       const id = requestAnimationFrame(() => {
         flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
       });
       return () => cancelAnimationFrame(id);
-    }, [])
+    }, [initialVideoId])
   );
 
   const viewabilityConfig = React.useMemo(
@@ -263,6 +276,24 @@ export function YourLeapsScreen() {
     }
     setActiveVideoId((cur) => (cur && videos.some((v) => v.id === cur) ? cur : videos[0].id));
   }, [videos]);
+
+  React.useEffect(() => {
+    const targetId = pendingInitialIdRef.current;
+    if (!targetId || videos.length === 0 || slotHeight <= 0) return;
+    const index = videos.findIndex((v) => v.id === targetId);
+    if (index < 0) {
+      /** The leap is outside the loaded window; stay on the newest post. */
+      if (hydrated) pendingInitialIdRef.current = '';
+      return;
+    }
+    pendingInitialIdRef.current = '';
+    setActiveVideoId(targetId);
+    if (index === 0) return;
+    const frame = requestAnimationFrame(() => {
+      flatListRef.current?.scrollToOffset({ offset: pageHeight * index, animated: false });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [videos, hydrated, slotHeight, pageHeight]);
 
   const confirmDelete = (item: LeapVideo) => {
     if (!user?.uid) return;

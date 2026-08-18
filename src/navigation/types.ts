@@ -36,19 +36,19 @@ export type RootStackParamList = {
   UserProfile: { uid: string; username?: string };
   /** Own list when omitted; another user’s list when `uid` is set (requires their visibility setting). */
   FollowingList: { uid?: string; username?: string } | undefined;
-  /** Full-screen reel of only your posts (opened from Me, not a tab). */
-  MyLeaps: undefined;
+  /** Full-screen reel of only your posts (opened from Me, not a tab). `initialVideoId` starts the pager on that leap. */
+  MyLeaps: { initialVideoId?: string } | undefined;
   /** Full-screen reel for another user (opened from profile). */
   UserLeaps: { uid: string; username?: string };
   /** Explains posting before viewing someone else’s leaps; primary action opens Record. */
   TakeTheLeapForLeaps: { uid: string; username?: string };
-  /** Opens a single leap by Firestore `videos/{videoId}` (e.g. profile “best vertical gain” post). */
-  VideoPost: { videoId: string };
   /** Invitee confirms a Co-Leap for posted-today credit. */
   ConfirmCoLeap: { videoId: string };
-  /** Opens a single best-part moment (notification deep link). */
-  BestPartPost: { bestPartId: string };
   AdminVideoModeration: undefined;
+  /** Staff queue for pending community leap suggestions. */
+  AdminLeapSuggestions: undefined;
+  /** Community ballot to pick / suggest tomorrow’s leap. */
+  PickTomorrowLeap: undefined;
   /** Replay the first-run onboarding carousel (Settings). */
   OnboardingIntro: undefined;
 };

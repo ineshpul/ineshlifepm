@@ -14,7 +14,11 @@ import {
   type InAppNotification,
 } from '../services/social';
 import { setAppBadgeCount } from '../services/pushNotifications';
-import { navigateToUserProfile } from '../navigation/navigationHelpers';
+import {
+  navigateToBestPartInFeed,
+  navigateToUserProfile,
+  navigateToVideoInFeed,
+} from '../navigation/navigationHelpers';
 import { shareReferralInvite } from '../utils/shareReferralInvite';
 import { requestStaffAppReviewPrompt } from '../state/appReviewBroadcast';
 
@@ -177,7 +181,7 @@ export function NotificationsScreen() {
       return;
     }
     if (n.type === 'co_leap_confirmed' && n.videoId) {
-      nav.navigate('VideoPost', { videoId: n.videoId });
+      navigateToVideoInFeed(n.videoId, nav);
       return;
     }
     if (n.type === 'follow') {
@@ -185,11 +189,11 @@ export function NotificationsScreen() {
       return;
     }
     if ((n.type === 'like' || n.type === 'comment' || n.type === 'mention') && n.bestPartId) {
-      nav.navigate('BestPartPost', { bestPartId: n.bestPartId });
+      navigateToBestPartInFeed(n.bestPartId, nav);
       return;
     }
     if ((n.type === 'like' || n.type === 'comment' || n.type === 'mention') && n.videoId) {
-      nav.navigate('VideoPost', { videoId: n.videoId });
+      navigateToVideoInFeed(n.videoId, nav);
       return;
     }
     navigateToUserProfile(nav, { uid: n.fromUid, username: n.fromUsername });

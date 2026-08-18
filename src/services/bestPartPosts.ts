@@ -85,6 +85,14 @@ function mapDoc(id: string, data: Record<string, unknown>): BestPartPost | null 
   };
 }
 
+export async function getBestPartById(bestPartId: string): Promise<BestPartPost | null> {
+  const id = String(bestPartId ?? '').trim();
+  if (!id) return null;
+  const snap = await getDoc(doc(firestore(), BEST_PART_COLLECTION, id));
+  if (!snap.exists()) return null;
+  return mapDoc(snap.id, snap.data() as Record<string, unknown>);
+}
+
 export async function commitBestPartPost(args: {
   uid: string;
   username: string;

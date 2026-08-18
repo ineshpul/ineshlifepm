@@ -4,7 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
 import { PrimaryButton } from './PrimaryButton';
-import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import { useThemedStyles } from '../theme/ThemeProvider';
+import { typography } from '../theme/typography';
 import { navigateToRecord } from '../navigation/navigationHelpers';
 
 type Props = {
@@ -14,19 +15,18 @@ type Props = {
 
 export function FeedTeaserWallBar({ dissolving = false }: Props) {
   const nav = useNavigation<any>();
-  const { colors } = useTheme();
   const opacity = React.useRef(new Animated.Value(1)).current;
   const translateY = React.useRef(new Animated.Value(0)).current;
 
-  const styles = useThemedStyles((c) => ({
+  const styles = useThemedStyles(() => ({
     bar: {
       marginHorizontal: 12,
       paddingVertical: 12,
       paddingHorizontal: 14,
-      borderRadius: 12,
-      backgroundColor: c.cardTint,
+      borderRadius: 20,
+      backgroundColor: 'rgba(10, 17, 12, 0.78)',
       borderWidth: 1,
-      borderColor: c.profileAccentBorder,
+      borderColor: 'rgba(255,255,255,0.16)',
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12,
@@ -34,10 +34,8 @@ export function FeedTeaserWallBar({ dissolving = false }: Props) {
     lockBox: {
       width: 44,
       height: 44,
-      borderRadius: 12,
-      backgroundColor: c.card,
-      borderWidth: 1,
-      borderColor: c.profileAccentBorder,
+      borderRadius: 14,
+      backgroundColor: 'rgba(255,255,255,0.10)',
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -47,8 +45,8 @@ export function FeedTeaserWallBar({ dissolving = false }: Props) {
     },
     title: {
       fontSize: 14,
-      fontWeight: '900',
-      color: c.text,
+      fontFamily: typography.bodyBold,
+      color: '#FFFFFF',
       lineHeight: 19,
     },
     cta: {
@@ -84,7 +82,7 @@ export function FeedTeaserWallBar({ dissolving = false }: Props) {
   return (
     <Animated.View style={[styles.bar, { opacity, transform: [{ translateY }] }]}>
       <View style={styles.lockBox}>
-        <Ionicons name="lock-closed-outline" size={22} color={colors.green} />
+        <Ionicons name="lock-closed-outline" size={22} color="#8FE3A8" />
       </View>
       <View style={styles.textCol}>
         <Text style={styles.title}>Post today&apos;s Leap to keep going.</Text>

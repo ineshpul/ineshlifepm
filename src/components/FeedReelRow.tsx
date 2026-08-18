@@ -1,9 +1,18 @@
 import * as React from 'react';
-import { Text, TouchableOpacity, View, type LayoutChangeEvent } from 'react-native';
+import {
+  ActivityIndicator,
+  Text,
+  TouchableOpacity,
+  View,
+  type LayoutChangeEvent,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 
+import { useUserAvatar } from '../hooks/useUserAvatar';
 import { FeedPostEngagement } from './FeedPostEngagement';
 import { FeedPostVideo, ReelVideoPlaceholder } from './FeedPostVideo';
+import { FeedReelScrim } from './FeedReelScrim';
 import { FollowButton } from './FollowButton';
 import { LockedLeapFrame } from './LockedLeapFrame';
 import { UsernameLink } from './UsernameLink';
@@ -13,6 +22,10 @@ import { typography } from '../theme/typography';
 
 /** Delay Firestore engagement listeners until the swipe has settled. */
 const ENGAGEMENT_MOUNT_DELAY_MS = 220;
+
+/** Fade heights for the legibility gradients behind the top tabs and the caption block. */
+const REEL_TOP_SCRIM_HEIGHT = 190;
+const REEL_BOTTOM_SCRIM_HEIGHT = 340;
 
 type FeedReelItem = {
   id: string;
@@ -29,6 +42,8 @@ type FeedReelItem = {
   likesCount: number;
   commentsCount: number;
   coLeapInvitees?: Array<{ uid: string; username: string; status: 'pending' | 'confirmed' }>;
+  /** Denormalized owner avatar on the post; falls back to a `users/{uid}` lookup. */
+  photoUrl?: string;
 };
 
 type Props = {
@@ -44,9 +59,7 @@ type Props = {
   freezeLocked: boolean;
   showLockedOverlay: boolean;
   overlayUnlocking: boolean;
-  showPreviousLeapsChip: boolean;
   showSwipeHint: boolean;
-  dayTag: string | null;
   playback: FeedPlaybackUrls;
   posterUrl?: string | null;
   dataSaver: boolean;
@@ -101,9 +114,7 @@ function FeedReelRowInner({
   freezeLocked,
   showLockedOverlay,
   overlayUnlocking,
-  showPreviousLeapsChip,
   showSwipeHint,
-  dayTag,
   playback,
   posterUrl,
   dataSaver,
@@ -122,6 +133,7 @@ function FeedReelRowInner({
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles();
+  const avatarUrl = useUserAvatar(item.ownerUid, item.photoUrl);
 
   const onSheetLayout = React.useCallback(
     (e: LayoutChangeEvent) => onReelSheetLayout(item.id, e),
@@ -157,8 +169,8 @@ function FeedReelRowInner({
           <ReelVideoPlaceholder posterUrl={posterUrl} />
         )}
       </View>
-      <View style={styles.topScrim} pointerEvents="none" />
-      <View style={styles.bottomScrim} pointerEvents="none" />
+      <FeedReelScrim edge="top" height={REEL_TOP_SCRIM_HEIGHT} strength={0.5} />
+      <FeedReelScrim edge="bottom" height={REEL_BOTTOM_SCRIM_HEIGHT} strength={0.72} />
 
       <View
         style={[styles.overlayBottom, { paddingBottom: tabBarClearance }]}
@@ -167,7 +179,17 @@ function FeedReelRowInner({
         <View style={styles.metaCol}>
           <View style={styles.metaTopRow}>
             <View style={styles.reelAvatar}>
-              <Text style={styles.reelAvatarText}>{item.username[0]?.toUpperCase()}</Text>
+              {avatarUrl ? (
+                <Image
+                  source={{ uri: avatarUrl }}
+                  recyclingKey={`${item.ownerUid}|${avatarUrl}`}
+                  style={styles.reelAvatarImg}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                />
+              ) : (
+                <Text style={styles.reelAvatarText}>{item.username[0]?.toUpperCase()}</Text>
+              )}
             </View>
             <UsernameLink uid={item.ownerUid} username={item.username} style={styles.reelUser} />
             {showFollowButton && viewerUid && viewerUsername ? (
@@ -176,7 +198,18 @@ function FeedReelRowInner({
                 viewerUsername={viewerUsername}
                 targetUid={item.ownerUid}
                 targetUsername={item.username}
+                hideWhenFollowing
               />
+            ) : null}
+            {viewerUid === item.ownerUid && item.moderationStatus === 'pending' ? (
+              <View style={styles.statusPill}>
+                <Text style={styles.statusPillText}>Pending review</Text>
+              </View>
+            ) : null}
+            {canStaffMod && item.moderationStatus === 'nulled' ? (
+              <View style={[styles.statusPill, styles.statusPillMuted]}>
+                <Text style={styles.statusPillText}>Nulled</Text>
+              </View>
             ) : null}
           </View>
           {item.coLeapInvitees && item.coLeapInvitees.length > 0 ? (
@@ -190,43 +223,9 @@ function FeedReelRowInner({
                 .join(' · ')}
             </Text>
           ) : null}
-          {dayTag ? <Text style={styles.reelDayTag}>{dayTag}</Text> : null}
           <Text style={styles.reelPrompt} numberOfLines={3}>
             {item.prompt}
           </Text>
-          <View style={styles.metaActions}>
-            {canStaffMod && item.ownerUid !== viewerUid ? (
-              item.moderationStatus === 'nulled' ? (
-                <Text style={styles.nulledBadge}>Nulled</Text>
-              ) : item.moderationStatus === 'approved' ? (
-                <TouchableOpacity
-                  onPress={() => onConfirmStaffNull(item)}
-                  disabled={nullingId === item.id}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel="Null this leap"
-                >
-                  <Text style={styles.nullLink}>{nullingId === item.id ? '…' : 'Null'}</Text>
-                </TouchableOpacity>
-              ) : null
-            ) : null}
-            {viewerUid && item.ownerUid === viewerUid ? (
-              <>
-                {item.moderationStatus === 'pending' ? (
-                  <Text style={styles.pendingBadge}>Pending review</Text>
-                ) : null}
-                <TouchableOpacity
-                  onPress={() => onConfirmDelete(item)}
-                  disabled={deletingId === item.id}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel="Delete video"
-                >
-                  <Text style={styles.deleteLink}>{deletingId === item.id ? '…' : 'Delete'}</Text>
-                </TouchableOpacity>
-              </>
-            ) : null}
-          </View>
           {showSwipeHint ? (
             <View style={styles.reelSwipeRail} pointerEvents="none">
               <Ionicons name="chevron-down" size={13} color="rgba(255,255,255,0.7)" />
@@ -235,38 +234,74 @@ function FeedReelRowInner({
             </View>
           ) : null}
         </View>
-
-        {viewerUid && viewerUsername ? (
-          <DeferredMount
-            active={showEngagement && !showLockedOverlay}
-            delayMs={ENGAGEMENT_MOUNT_DELAY_MS}
-            placeholder={<View style={styles.railPlaceholder} />}
-          >
-            <View style={styles.actionRail}>
-              <FeedPostEngagement
-                reelLayout
-                videoId={item.id}
-                videoOwnerUid={item.ownerUid}
-                videoOwnerUsername={item.username}
-                shareTitle={`${item.username} on Leap`}
-                shareUrl={item.url}
-                challengePrompt={item.prompt}
-                viewerUid={viewerUid}
-                viewerUsername={viewerUsername}
-                initialLikesCount={item.likesCount}
-                initialCommentsCount={item.commentsCount}
-              />
-            </View>
-          </DeferredMount>
-        ) : null}
       </View>
 
-      {showPreviousLeapsChip ? (
-        <View style={[styles.previousLeapsChip, { bottom: sheetBottom + 12 }]} pointerEvents="none">
-          <Ionicons name="calendar-outline" size={15} color={colors.moss} />
-          <Text style={styles.previousLeapsChipText}>Previous leaps</Text>
-        </View>
-      ) : null}
+      <View
+        style={[styles.actionRailAnchor, { paddingBottom: tabBarClearance + 6 }]}
+        pointerEvents="box-none"
+      >
+        {viewerUid ? (
+          <View style={styles.actionRail}>
+            {viewerUsername ? (
+              <DeferredMount
+                active={showEngagement && !showLockedOverlay}
+                delayMs={ENGAGEMENT_MOUNT_DELAY_MS}
+                placeholder={<View style={styles.railPlaceholder} />}
+              >
+                <FeedPostEngagement
+                  reelLayout
+                  videoId={item.id}
+                  videoOwnerUid={item.ownerUid}
+                  videoOwnerUsername={item.username}
+                  shareTitle={`${item.username} on Leap`}
+                  shareUrl={item.url}
+                  challengePrompt={item.prompt}
+                  viewerUid={viewerUid}
+                  viewerUsername={viewerUsername}
+                  initialLikesCount={item.likesCount}
+                  initialCommentsCount={item.commentsCount}
+                />
+              </DeferredMount>
+            ) : null}
+
+            {item.ownerUid === viewerUid ? (
+              <TouchableOpacity
+                style={styles.railChip}
+                onPress={() => onConfirmDelete(item)}
+                disabled={deletingId === item.id}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel="Delete this leap"
+              >
+                {deletingId === item.id ? (
+                  <ActivityIndicator size="small" color="#FFB4A2" />
+                ) : (
+                  <Ionicons name="trash-outline" size={19} color="#FFB4A2" />
+                )}
+              </TouchableOpacity>
+            ) : null}
+
+            {canStaffMod &&
+            item.ownerUid !== viewerUid &&
+            item.moderationStatus === 'approved' ? (
+              <TouchableOpacity
+                style={styles.railChip}
+                onPress={() => onConfirmStaffNull(item)}
+                disabled={nullingId === item.id}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel="Null this leap"
+              >
+                {nullingId === item.id ? (
+                  <ActivityIndicator size="small" color="#FF8A75" />
+                ) : (
+                  <Ionicons name="ban-outline" size={19} color="#FF8A75" />
+                )}
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -283,9 +318,7 @@ function propsEqual(a: Props, b: Props): boolean {
     a.freezeLocked === b.freezeLocked &&
     a.showLockedOverlay === b.showLockedOverlay &&
     a.overlayUnlocking === b.overlayUnlocking &&
-    a.showPreviousLeapsChip === b.showPreviousLeapsChip &&
     a.showSwipeHint === b.showSwipeHint &&
-    a.dayTag === b.dayTag &&
     a.playback.url === b.playback.url &&
     a.playback.secondaryUrl === b.playback.secondaryUrl &&
     a.playback.dualFrontIsPrimary === b.playback.dualFrontIsPrimary &&
@@ -322,22 +355,6 @@ const useStyles = () =>
       top: 0,
       bottom: 0,
     },
-    topScrim: {
-      position: 'absolute' as const,
-      left: 0,
-      right: 0,
-      top: 0,
-      height: 140,
-      backgroundColor: 'rgba(5,10,7,0.22)',
-    },
-    bottomScrim: {
-      position: 'absolute' as const,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      height: 280,
-      backgroundColor: 'rgba(5,10,7,0.5)',
-    },
     overlayBottom: {
       position: 'absolute' as const,
       left: 0,
@@ -352,7 +369,8 @@ const useStyles = () =>
     metaCol: {
       flex: 1,
       minWidth: 0,
-      paddingRight: 4,
+      /** Clears the floating right rail so captions never run under it. */
+      paddingRight: 64,
       paddingBottom: 6,
       gap: 4,
     },
@@ -366,11 +384,16 @@ const useStyles = () =>
       width: 36,
       height: 36,
       borderRadius: 18,
+      overflow: 'hidden' as const,
       backgroundColor: '#1C7C43',
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.34)',
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
+    },
+    reelAvatarImg: {
+      width: '100%' as const,
+      height: '100%' as const,
     },
     reelAvatarText: {
       fontFamily: typography.bodyBold,
@@ -387,10 +410,23 @@ const useStyles = () =>
       fontFamily: typography.bodySemiBold,
       color: '#8FE3A8',
     },
-    reelDayTag: {
+    statusPill: {
+      flexShrink: 0,
+      paddingHorizontal: 9,
+      paddingVertical: 4,
+      borderRadius: 999,
+      backgroundColor: 'rgba(12, 20, 15, 0.5)',
+      borderWidth: 1,
+      borderColor: 'rgba(143, 227, 168, 0.45)',
+    },
+    statusPillMuted: {
+      borderColor: 'rgba(255,255,255,0.28)',
+    },
+    statusPillText: {
       fontSize: 11,
       fontFamily: typography.bodyBold,
-      color: '#8FE3A8',
+      color: '#DCF5E3',
+      letterSpacing: 0.2,
     },
     reelPrompt: {
       fontSize: 14,
@@ -398,42 +434,32 @@ const useStyles = () =>
       fontFamily: typography.bodyMedium,
       color: 'rgba(255,255,255,0.92)',
     },
-    metaActions: {
-      flexDirection: 'row' as const,
+    /** Rail bottom-aligns with the caption baseline, TikTok/Reels style. */
+    actionRailAnchor: {
+      position: 'absolute' as const,
+      right: 6,
+      top: 0,
+      bottom: 0,
+      justifyContent: 'flex-end' as const,
       alignItems: 'center' as const,
-      gap: 10,
-      marginTop: 2,
-    },
-    nullLink: {
-      fontSize: 13,
-      fontWeight: '800' as const,
-      color: '#C0392B',
-    },
-    nulledBadge: {
-      fontSize: 12,
-      fontWeight: '900' as const,
-      color: colors.muted,
-      letterSpacing: 0.4,
-    },
-    pendingBadge: {
-      fontSize: 12,
-      fontFamily: typography.bodyBold,
-      color: '#8FE3A8',
-      letterSpacing: 0.3,
-    },
-    deleteLink: {
-      fontSize: 13,
-      fontWeight: '800' as const,
-      color: colors.coral,
     },
     actionRail: {
       width: 56,
       alignItems: 'center' as const,
-      paddingBottom: 8,
     },
+    /** Owner delete / staff null — quiet glyphs under the engagement stack. */
+    railChip: {
+      marginTop: 18,
+      width: 34,
+      height: 34,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      opacity: 0.75,
+    },
+    /** Matches the mounted rail height so icons don't shift when engagement attaches. */
     railPlaceholder: {
       width: 56,
-      height: 180,
+      height: 172,
     },
     reelSwipeRail: {
       flexDirection: 'row' as const,
@@ -447,33 +473,5 @@ const useStyles = () =>
       fontFamily: typography.bodyBold,
       color: 'rgba(255,255,255,0.72)',
       letterSpacing: 0.3,
-    },
-    previousLeapsChip: {
-      position: 'absolute' as const,
-      alignSelf: 'center' as const,
-      left: 0,
-      right: 0,
-      flexDirection: 'row' as const,
-      alignItems: 'center' as const,
-      justifyContent: 'center' as const,
-      gap: 8,
-      marginHorizontal: 24,
-      paddingVertical: 9,
-      paddingHorizontal: 16,
-      borderRadius: 999,
-      backgroundColor: 'rgba(255,255,255,0.94)',
-      borderWidth: 1,
-      borderColor: 'rgba(45, 90, 61, 0.25)',
-      shadowColor: '#000',
-      shadowOpacity: 0.12,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 2 },
-      elevation: 4,
-    },
-    previousLeapsChipText: {
-      fontSize: 13,
-      fontWeight: '900' as const,
-      color: colors.moss,
-      letterSpacing: 0.4,
     },
   }));

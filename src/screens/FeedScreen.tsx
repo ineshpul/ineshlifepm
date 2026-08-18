@@ -20,22 +20,25 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import {
   doc,
+  getDoc,
   onSnapshot,
+  type DocumentSnapshot,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 
 import { patchAudioMode } from '../camera/audioSessionGate';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import { typography } from '../theme/typography';
 
 import { FeedCameraRollSaveBanner } from '../components/FeedCameraRollSaveBanner';
 import { FeedGraduationMoment } from '../components/FeedGraduationMoment';
 import { FeedPreviewChoice } from '../components/FeedPreviewChoice';
 import { FeedLastLeapJumpChip } from '../components/FeedLastLeapJumpChip';
-import { FeedSinceLastLeapBanner } from '../components/FeedSinceLastLeapBanner';
 import { FeedTier1ExploreBanner } from '../components/FeedTier1ExploreBanner';
 import { FeedTeaserWallBar } from '../components/FeedTeaserWallBar';
 import { TakeTheLeapGate } from '../components/TakeTheLeapGate';
@@ -68,7 +71,6 @@ import {
 } from '../state/feedGate';
 import { useFeedTeaserCardLimit } from '../state/feedTeaserLimit';
 import { useHasPostedAnyVideo, todayVideoDocId } from '../state/posting';
-import { useLeapsSinceLastPostCount } from '../hooks/useLeapsSinceLastPostCount';
 import { useUserPostedDates } from '../hooks/useUserPostedDates';
 import { showError } from '../utils/ui';
 import {
@@ -91,7 +93,6 @@ import {
   nyDateKey,
   nyDateKeyToSortUtcMs,
   nyLeapDayChainBackward,
-  prevNyDateKey,
 } from '../utils/nyTime';
 import {
   fetchFirstApprovedFeedPage,
@@ -105,6 +106,7 @@ import {
   persistReferralNudgeShownForDay,
 } from '../state/referralNudgeDay';
 import { resolveFeedPlaybackUrls } from '../lib/feedPlaybackUrls';
+import { photoUrlFromRecord } from '../lib/resolveProfileIdentity';
 import { useBackgroundPostUpload } from '../state/backgroundPostUpload';
 
 /**
@@ -140,6 +142,8 @@ type FeedVideo = {
   commentsCount: number;
   /** Co-Leap invitees on the source post (credit docs are hidden from feed). */
   coLeapInvitees?: Array<{ uid: string; username: string; status: 'pending' | 'confirmed' }>;
+  /** Owner avatar denormalized at post time; older posts resolve it from `users/{uid}`. */
+  photoUrl?: string;
 };
 
 /** Bottom sheet height (instructions + engagement) per reel page — matches Tabs tab bar feel. */
@@ -211,6 +215,67 @@ function feedVideosRowEqual(a: readonly FeedVideo[], b: readonly FeedVideo[]): b
   return true;
 }
 
+function documentToFeedVideo(
+  d: Pick<DocumentSnapshot, 'id' | 'data'>,
+  fallbackChallengeDate: string
+): FeedVideo {
+  const data: any = d.data();
+  if (isHiddenCoLeapCreditDoc(data)) {
+    return {
+      id: d.id,
+      username: String(data?.username ?? 'user'),
+      prompt: '',
+      url: '',
+      createdAtMs: 0,
+      ownerUid: String(data?.uid ?? ''),
+      moderationStatus: String(data?.moderationStatus ?? 'approved'),
+      maxDurationSeconds: 0,
+      challengeDate: fallbackChallengeDate,
+      likesCount: 0,
+      commentsCount: 0,
+    };
+  }
+  const createdAtMs =
+    typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
+  const rawCd = data?.challengeDate;
+  const cdRaw =
+    rawCd && typeof (rawCd as { toDate?: () => Date }).toDate === 'function'
+      ? nyDateKey((rawCd as { toDate: () => Date }).toDate())
+      : String(rawCd ?? '');
+  const challengeDate = normalizeNyDateKey(cdRaw, fallbackChallengeDate);
+  const secondaryUrlRaw = String(data?.secondaryUrl ?? '').trim();
+  const feedUrlRaw = String(data?.feedUrl ?? '').trim();
+  const feedSecondaryUrlRaw = String(data?.feedSecondaryUrl ?? '').trim();
+  const posterUrlRaw = String(data?.posterUrl ?? '').trim();
+  const dualFrontIsPrimary = data?.dualFrontIsPrimary === true;
+  const coLeapInvitees = parseCoLeapInvitees(data?.coLeapInvitees).map((i) => ({
+    uid: i.uid,
+    username: i.username,
+    status: i.status,
+  }));
+  return {
+    id: d.id,
+    username: String(data?.username ?? 'user'),
+    prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
+    url: String(data?.url ?? '').trim() || feedUrlRaw,
+    ...(secondaryUrlRaw ? { secondaryUrl: secondaryUrlRaw } : {}),
+    ...(feedUrlRaw ? { feedUrl: feedUrlRaw } : {}),
+    ...(feedSecondaryUrlRaw ? { feedSecondaryUrl: feedSecondaryUrlRaw } : {}),
+    ...(posterUrlRaw ? { posterUrl: posterUrlRaw } : {}),
+    ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
+    ...(data?.mediaType === 'photo' ? { mediaType: 'photo' as const } : {}),
+    createdAtMs,
+    ownerUid: String(data?.uid ?? ''),
+    moderationStatus: String(data?.moderationStatus ?? 'approved'),
+    maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
+    challengeDate,
+    likesCount: Math.max(0, Number(data?.likesCount ?? 0)),
+    commentsCount: Math.max(0, Number(data?.commentsCount ?? 0)),
+    ...(coLeapInvitees.length > 0 ? { coLeapInvitees } : {}),
+    ...(photoUrlFromRecord(data) ? { photoUrl: photoUrlFromRecord(data) } : {}),
+  };
+}
+
 /** Pick the feed item that should play: prefer highest reported visible %, else bottom-most row. */
 function pickPrimaryViewable(viewableItems: ViewToken[]): FeedVideo | null {
   const vis = viewableItems.filter(
@@ -242,7 +307,6 @@ export function FeedScreen() {
   },
   feedBannerStack: {
     position: 'absolute',
-    top: 108,
     left: 0,
     right: 0,
     zIndex: 10,
@@ -300,10 +364,8 @@ export function FeedScreen() {
   },
   modeSwitch: {
     position: 'absolute',
-    top: 8,
-    left: '50%',
-    width: 290,
-    transform: [{ translateX: -145 }],
+    left: 0,
+    right: 0,
     zIndex: 25,
   },
   feedSlot: {
@@ -429,12 +491,6 @@ export function FeedScreen() {
     fontSize: 14,
     fontWeight: '900',
   },
-  reelDayTag: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: colors.moss,
-    marginBottom: 2,
-  },
   reelPrompt: {
     fontSize: 13,
     fontWeight: '600',
@@ -475,34 +531,6 @@ export function FeedScreen() {
     fontWeight: '800',
     color: colors.muted,
     letterSpacing: 0.3,
-  },
-  previousLeapsChip: {
-    position: 'absolute',
-    alignSelf: 'center',
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginHorizontal: 24,
-    paddingVertical: 9,
-    paddingHorizontal: 16,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    borderWidth: 1,
-    borderColor: 'rgba(45, 90, 61, 0.25)',
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
-  },
-  previousLeapsChipText: {
-    fontSize: 13,
-    fontWeight: '900',
-    color: colors.moss,
-    letterSpacing: 0.4,
   },
   list: {
     paddingBottom: 10,
@@ -578,45 +606,56 @@ export function FeedScreen() {
     color: colors.muted,
     fontWeight: '600',
   },
+  /** Reel surface is always dark, so empty/loading states use fixed light-on-dark text. */
   empty: {
     paddingTop: 16,
+    paddingHorizontal: 28,
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'center',
+    gap: 10,
   },
   emptyTitle: {
     fontSize: 18,
-    fontWeight: '900',
-    color: colors.text,
+    fontFamily: typography.displayBold,
+    color: '#FFFFFF',
+    textAlign: 'center',
   },
   emptyBody: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: typography.bodyMedium,
+    color: 'rgba(255,255,255,0.62)',
     textAlign: 'center',
-    paddingHorizontal: 24,
   },
   emptyLoading: {
-    justifyContent: 'center',
     gap: 14,
   },
   emptyLoadingText: {
     fontSize: 14,
-    fontWeight: '700',
-    color: colors.muted,
+    fontFamily: typography.bodySemiBold,
+    color: 'rgba(255,255,255,0.62)',
   },
 }));
   const isFocused = useIsFocused();
   const nav = useNavigation<any>();
   const route = useRoute<RouteProp<TabsParamList, 'Feed'>>();
+  const requestedVideoId = String(route.params?.initialVideoId ?? '').trim();
+  const requestedBestPartId = String(route.params?.initialBestPartId ?? '').trim();
   const [feedMode, setFeedMode] = React.useState<'daily' | 'bpotd'>(
     () => route.params?.mode ?? 'daily'
   );
   React.useEffect(() => {
-    setFeedMode(route.params?.mode ?? 'daily');
-  }, [route.params?.mode]);
+    setFeedMode(
+      requestedVideoId
+        ? 'daily'
+        : requestedBestPartId
+          ? 'bpotd'
+          : (route.params?.mode ?? 'daily')
+    );
+  }, [requestedBestPartId, requestedVideoId, route.params?.mode]);
   const { preferences } = useSettingsPreferences();
   const { clearPostedOverride, hasPostedToday } = useAppState();
-  const { pendingFeedPlayback, clearPendingFeedPlayback } = useBackgroundPostUpload();
+  const { pendingFeedPlayback } = useBackgroundPostUpload();
   const { user } = useAuth();
   const isStaffUser = Boolean(user?.isAdmin || user?.isModerator);
   /** Review demo, experiment `gate_off`, or full gate kill-switch — unlocked playable feed. */
@@ -896,6 +935,9 @@ export function FeedScreen() {
     };
   }, []);
   const [videos, setVideos] = React.useState<FeedVideo[]>([]);
+  const [notificationTargetVideo, setNotificationTargetVideo] = React.useState<FeedVideo | null>(
+    null
+  );
   /** False until auth is ready and we have had at least one merge from Firestore listeners. */
   const [feedHydrated, setFeedHydrated] = React.useState(false);
   const [followingRows, setFollowingRows] = React.useState<FollowingRow[]>([]);
@@ -918,6 +960,7 @@ export function FeedScreen() {
   /** Measured bottom-sheet height per video so the video slot clears the sheet without extra whitespace. */
   const [reelSheetHeights, setReelSheetHeights] = React.useState<Record<string, number>>({});
   const flatListRef = React.useRef<FlatList<FeedVideo>>(null);
+  const pendingNotificationVideoIdRef = React.useRef(requestedVideoId);
   const displayVideosRef = React.useRef<FeedVideo[]>([]);
   const feedSlotRef = React.useRef<View>(null);
   const loadMoreFeedRef = React.useRef<(() => void) | null>(null);
@@ -925,6 +968,26 @@ export function FeedScreen() {
   const pollNewerFeedRef = React.useRef<(() => void) | null>(null);
   const canViewEveryoneFeedRef = React.useRef(canViewEveryoneFeed);
   canViewEveryoneFeedRef.current = canViewEveryoneFeed;
+
+  React.useEffect(() => {
+    if (!requestedVideoId) return;
+    pendingNotificationVideoIdRef.current = requestedVideoId;
+    if (!isFirebaseConfigured()) return;
+    let cancelled = false;
+    void getDoc(doc(firestore(), 'videos', requestedVideoId))
+      .then((snap) => {
+        if (cancelled || !snap.exists()) return;
+        const target = documentToFeedVideo(snap, viewingChallengeDateKey);
+        if (!target.url) return;
+        setNotificationTargetVideo(target);
+      })
+      .catch(() => {
+        // The normal feed gate / Firestore rules still apply to direct notification opens.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedVideoId, viewingChallengeDateKey]);
 
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -936,8 +999,10 @@ export function FeedScreen() {
   const tabBarClearance = floatingTabContentClearance(insets.bottom);
   const pageHeight = React.useMemo(() => {
     if (slotHeight > 0) return slotHeight;
-    return Math.max(380, windowHeight - insets.top - 52);
-  }, [slotHeight, windowHeight, insets.top]);
+    return Math.max(380, windowHeight);
+  }, [slotHeight, windowHeight]);
+  /** Reels run edge-to-edge, so top chrome carries the status-bar inset itself. */
+  const topChromeInset = insets.top + 8;
 
   const maxTier1ScrollOffset = React.useMemo(
     () => tier1MaxScrollOffset(effectiveTeaserLimit, pageHeight),
@@ -958,14 +1023,6 @@ export function FeedScreen() {
   const tier2CardLocksApply =
     TIER2_CARD_LOCKS_ENABLED && isTier2Established && !hasPostedToday;
 
-  const { leapsSinceLastPost, leapsSinceLastPostReady } = useLeapsSinceLastPostCount({
-    enabled: tier2NeedsPostToUnlock,
-    postedDates,
-    viewingChallengeDateKey,
-  });
-
-  const showSinceLastLeapBanner = tier2NeedsPostToUnlock && TIER2_CARD_LOCKS_ENABLED;
-
   const showTier1ExploreBanner =
     isTier1Teaser && teaserLimitReady && !showTeaserWallBar && !graduationWallDissolving;
 
@@ -973,11 +1030,6 @@ export function FeedScreen() {
   const maxFeedPreviewOffset = React.useMemo(
     () => Math.max(0, (FEED_PREVIEW_SCROLL_LIMIT - 1) * pageHeight),
     [pageHeight]
-  );
-
-  const previousChallengeDateKey = React.useMemo(
-    () => prevNyDateKey(viewingChallengeDateKey),
-    [viewingChallengeDateKey]
   );
 
   const [feedRefreshing, setFeedRefreshing] = React.useState(false);
@@ -1061,6 +1113,13 @@ export function FeedScreen() {
       }
     }
 
+    if (
+      notificationTargetVideo?.url &&
+      !v.some((item) => item.id === notificationTargetVideo.id)
+    ) {
+      v = [notificationTargetVideo, ...v];
+    }
+
     if (feedPreviewMode) {
       v = v.slice(0, FEED_PREVIEW_SCROLL_LIMIT);
     }
@@ -1075,10 +1134,31 @@ export function FeedScreen() {
     followingTargetUids,
     feedPreviewMode,
     pendingFeedPlayback,
+    notificationTargetVideo,
     viewingChallengeDateKey,
   ]);
 
   displayVideosRef.current = displayVideos;
+
+  React.useEffect(() => {
+    const targetId = pendingNotificationVideoIdRef.current;
+    if (!targetId || feedMode !== 'daily' || pageHeight <= 40) return;
+    const targetIndex = displayVideos.findIndex((item) => item.id === targetId);
+    if (targetIndex < 0) return;
+
+    const frame = requestAnimationFrame(() => {
+      flatListRef.current?.scrollToOffset({
+        offset: targetIndex * pageHeight,
+        animated: false,
+      });
+      activeScrollIndexRef.current = targetIndex;
+      setActiveScrollIndex(targetIndex);
+      setActiveVideoId(targetId);
+      pendingNotificationVideoIdRef.current = '';
+      nav.setParams({ mode: 'daily', initialVideoId: undefined });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [displayVideos, feedMode, nav, pageHeight]);
 
   const onFeedScroll = React.useCallback(
     (e: any) => {
@@ -1208,26 +1288,22 @@ export function FeedScreen() {
 
   // Hard-silence the audio session while the active reel is a locked tile.
   // Belt-and-suspenders if any native player was left alive from a prior row.
-  React.useEffect(() => {
-    if (!isFocused || !tier2CardLocksApply) {
-      void Audio.setIsEnabledAsync(true).catch(() => {});
-      return;
-    }
-    if (!postedDatesReady) {
-      void Audio.setIsEnabledAsync(false).catch(() => {});
-      return;
-    }
+  // Only call setIsEnabledAsync when the desired state actually changes —
+  // reapplying on every Firestore merge chops up in-progress playback.
+  const audioEnabledDesired = React.useMemo(() => {
+    if (!isFocused || !tier2CardLocksApply) return true;
+    if (!postedDatesReady) return false;
     const active = displayVideos.find((v) => v.id === activeVideoId);
-    const locked = active
-      ? !lastPostedDateKey ||
-        isTier2CardLocked({
-          challengeDate: active.challengeDate,
-          lastPostedDateKey,
-          hasPostedToday: false,
-          bypassFeedGate,
-        })
-      : false;
-    void Audio.setIsEnabledAsync(!locked).catch(() => {});
+    if (!active) return true;
+    const locked =
+      !lastPostedDateKey ||
+      isTier2CardLocked({
+        challengeDate: active.challengeDate,
+        lastPostedDateKey,
+        hasPostedToday: false,
+        bypassFeedGate,
+      });
+    return !locked;
   }, [
     isFocused,
     tier2CardLocksApply,
@@ -1237,6 +1313,13 @@ export function FeedScreen() {
     displayVideos,
     bypassFeedGate,
   ]);
+  const audioEnabledAppliedRef = React.useRef<boolean | null>(null);
+
+  React.useEffect(() => {
+    if (audioEnabledAppliedRef.current === audioEnabledDesired) return;
+    audioEnabledAppliedRef.current = audioEnabledDesired;
+    void Audio.setIsEnabledAsync(audioEnabledDesired).catch(() => {});
+  }, [audioEnabledDesired]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -1246,12 +1329,6 @@ export function FeedScreen() {
       const id = list[idx]?.id;
       if (id) setActiveVideoId(id);
     }, [])
-  );
-
-  /** First reel for the immediate prior leap day (T−1) — do not jump to older days. */
-  const firstPreviousLeapsIndex = React.useMemo(
-    () => displayVideos.findIndex((v) => v.challengeDate === previousChallengeDateKey),
-    [displayVideos, previousChallengeDateKey]
   );
 
   /** Preload window follows settled active id — avoids mount thrash mid-fling. */
@@ -1290,7 +1367,6 @@ export function FeedScreen() {
         postedDatesReady ? [...postedDates].sort().join(',') : 'pending',
         lastLeapJumpIndex,
         lastPostedDateKey ?? '',
-        firstPreviousLeapsIndex,
       ].join('|'),
     [
       pageHeight,
@@ -1307,7 +1383,6 @@ export function FeedScreen() {
       postedDates,
       lastLeapJumpIndex,
       lastPostedDateKey,
-      firstPreviousLeapsIndex,
     ]
   );
 
@@ -1362,6 +1437,7 @@ export function FeedScreen() {
       return;
     }
     if (!feedHydrated || pageHeight <= 40) return;
+    if (pendingNotificationVideoIdRef.current) return;
 
     const n = displayVideos.length;
     if (n === 0) {
@@ -1433,7 +1509,6 @@ export function FeedScreen() {
                   showError('Delete failed', e);
                 } finally {
                   clearPostedOverride();
-                  clearPendingFeedPlayback();
                   setDeletingId(null);
                 }
               })(),
@@ -1441,7 +1516,7 @@ export function FeedScreen() {
         ]
       );
     },
-    [user?.uid, clearPostedOverride, clearPendingFeedPlayback]
+    [user?.uid, clearPostedOverride]
   );
 
   React.useEffect(() => {
@@ -1474,63 +1549,8 @@ export function FeedScreen() {
       }
     };
 
-    const docToFeedVideo = (d: QueryDocumentSnapshot): FeedVideo => {
-      const data: any = d.data();
-      // Credit mirrors stay off the shared feed (posted-today still uses the credit doc).
-      if (isHiddenCoLeapCreditDoc(data)) {
-        return {
-          id: d.id,
-          username: String(data?.username ?? 'user'),
-          prompt: '',
-          url: '',
-          createdAtMs: 0,
-          ownerUid: String(data?.uid ?? ''),
-          moderationStatus: String(data?.moderationStatus ?? 'approved'),
-          maxDurationSeconds: 0,
-          challengeDate: viewingChallengeDateKey,
-          likesCount: 0,
-          commentsCount: 0,
-        };
-      }
-      const createdAtMs =
-        typeof data?.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0;
-      const rawCd = data?.challengeDate;
-      const cdRaw =
-        rawCd && typeof (rawCd as { toDate?: () => Date }).toDate === 'function'
-          ? nyDateKey((rawCd as { toDate: () => Date }).toDate())
-          : String(rawCd ?? '');
-      const challengeDate = normalizeNyDateKey(cdRaw, viewingChallengeDateKey);
-      const secondaryUrlRaw = String(data?.secondaryUrl ?? '').trim();
-      const feedUrlRaw = String(data?.feedUrl ?? '').trim();
-      const feedSecondaryUrlRaw = String(data?.feedSecondaryUrl ?? '').trim();
-      const posterUrlRaw = String(data?.posterUrl ?? '').trim();
-      const dualFrontIsPrimary = data?.dualFrontIsPrimary === true;
-      const coLeapInvitees = parseCoLeapInvitees(data?.coLeapInvitees).map((i) => ({
-        uid: i.uid,
-        username: i.username,
-        status: i.status,
-      }));
-      return {
-        id: d.id,
-        username: String(data?.username ?? 'user'),
-        prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
-        url: String(data?.url ?? ''),
-        ...(secondaryUrlRaw ? { secondaryUrl: secondaryUrlRaw } : {}),
-        ...(feedUrlRaw ? { feedUrl: feedUrlRaw } : {}),
-        ...(feedSecondaryUrlRaw ? { feedSecondaryUrl: feedSecondaryUrlRaw } : {}),
-        ...(posterUrlRaw ? { posterUrl: posterUrlRaw } : {}),
-        ...(dualFrontIsPrimary ? { dualFrontIsPrimary: true } : {}),
-        ...(data?.mediaType === 'photo' ? { mediaType: 'photo' as const } : {}),
-        createdAtMs,
-        ownerUid: String(data?.uid ?? ''),
-        moderationStatus: String(data?.moderationStatus ?? 'approved'),
-        maxDurationSeconds: normalizeTaskDurationSeconds(data?.maxDurationSeconds),
-        challengeDate,
-        likesCount: Math.max(0, Number(data?.likesCount ?? 0)),
-        commentsCount: Math.max(0, Number(data?.commentsCount ?? 0)),
-        ...(coLeapInvitees.length > 0 ? { coLeapInvitees } : {}),
-      };
-    };
+    const docToFeedVideo = (d: QueryDocumentSnapshot): FeedVideo =>
+      documentToFeedVideo(d, viewingChallengeDateKey);
 
     const merge = () => {
       if (cancelled) return;
@@ -1667,7 +1687,7 @@ export function FeedScreen() {
               id: snap.id,
               username: String(data?.username ?? 'user'),
               prompt: String(data?.prompt ?? data?.challengeTitle ?? ''),
-              url: String(data?.url ?? ''),
+              url: String(data?.url ?? '').trim() || mineFeedUrl,
               ...(mineSecondaryUrl ? { secondaryUrl: mineSecondaryUrl } : {}),
               ...(mineFeedUrl ? { feedUrl: mineFeedUrl } : {}),
               ...(mineFeedSecondaryUrl ? { feedSecondaryUrl: mineFeedSecondaryUrl } : {}),
@@ -1682,6 +1702,7 @@ export function FeedScreen() {
               likesCount: Math.max(0, Number(data?.likesCount ?? 0)),
               commentsCount: Math.max(0, Number(data?.commentsCount ?? 0)),
               ...(mineCoLeap.length > 0 ? { coLeapInvitees: mineCoLeap } : {}),
+              ...(photoUrlFromRecord(data) ? { photoUrl: photoUrlFromRecord(data) } : {}),
             },
           ];
           }
@@ -1717,7 +1738,16 @@ export function FeedScreen() {
   );
 
   if (feedMode === 'bpotd') {
-    return <BestPartScreen embedded onRequestDaily={() => setFeedMode('daily')} />;
+    return (
+      <BestPartScreen
+        embedded
+        initialPostId={requestedBestPartId}
+        onInitialPostHandled={() =>
+          nav.setParams({ mode: 'bpotd', initialBestPartId: undefined })
+        }
+        onRequestDaily={() => setFeedMode('daily')}
+      />
+    );
   }
 
   if (!user?.uid) {
@@ -1780,13 +1810,14 @@ export function FeedScreen() {
   }
 
   return (
-    <Screen style={styles.feedScreen}>
+    <Screen style={styles.feedScreen} withSafeArea={false}>
+      {isFocused ? <StatusBar style="light" animated /> : null}
       <View ref={feedSlotRef} style={styles.feedSlot} onLayout={onSlotLayout} collapsable={false}>
         <ModernFeedModeSwitch
           active="daily"
           onDailyPress={scrollToTop}
           onBestPress={() => setFeedMode('bpotd')}
-          style={styles.modeSwitch}
+          style={[styles.modeSwitch, { top: topChromeInset }]}
         />
         <FlatList
           ref={flatListRef}
@@ -1801,6 +1832,7 @@ export function FeedScreen() {
                 onRefresh={onPullRefreshFeed}
                 tintColor={colors.moss}
                 colors={[colors.moss]}
+                progressViewOffset={topChromeInset + 4}
               />
             ) : undefined
           }
@@ -1838,8 +1870,11 @@ export function FeedScreen() {
                 <Text style={styles.emptyLoadingText}>Loading feed…</Text>
               </View>
             ) : (
-              <View style={[styles.empty, { minHeight: pageHeight }]}>
-                <Text style={styles.emptyTitle}>No posts yet.</Text>
+              <View
+                style={[styles.empty, { minHeight: pageHeight, paddingTop: topChromeInset + 72 }]}
+              >
+                <Ionicons name="videocam-outline" size={42} color={colors.moss} />
+                <Text style={styles.emptyTitle}>No posts yet</Text>
                 <Text style={styles.emptyBody}>Be the first to Leap today.</Text>
                 <PrimaryButton
                   title="Leap"
@@ -1852,10 +1887,6 @@ export function FeedScreen() {
           }
           renderItem={({ item, index }) => {
             const sheetBottom = reelSheetHeights[item.id] ?? REEL_BOTTOM_SHEET;
-            const showPreviousLeapsChip =
-              activeVideoId === item.id &&
-              firstPreviousLeapsIndex >= 0 &&
-              index === firstPreviousLeapsIndex;
 
             /**
              * Locked tiles must NEVER mount FeedPostVideo / expo-av / expo-video.
@@ -1890,12 +1921,6 @@ export function FeedScreen() {
             const mountVideo = isFocused && !freezeLocked && (isActive || warmNeighbor);
             const shouldPlay = isFocused && !freezeLocked && isActive;
             const playback = resolveFeedPlaybackUrls(item, pendingFeedPlayback);
-            const dayTag =
-              item.challengeDate && item.challengeDate !== viewingChallengeDateKey
-                ? item.challengeDate === previousChallengeDateKey
-                  ? 'Previous challenge'
-                  : item.challengeDate
-                : null;
 
             return (
               <FeedReelRow
@@ -1909,9 +1934,7 @@ export function FeedScreen() {
                 freezeLocked={freezeLocked}
                 showLockedOverlay={showLockedOverlay}
                 overlayUnlocking={overlayUnlocking}
-                showPreviousLeapsChip={showPreviousLeapsChip}
                 showSwipeHint={displayVideos.length > 1}
-                dayTag={dayTag}
                 playback={playback}
                 posterUrl={item.posterUrl}
                 dataSaver={preferences.dataSaver}
@@ -1964,14 +1987,15 @@ export function FeedScreen() {
         showTeaserWallBar ||
         graduationWallDissolving ||
         showTier1ExploreBanner ||
-        showSinceLastLeapBanner ||
         (showReferralNudge &&
           referralNudgeHydrated &&
           !showTeaserWallBar &&
           !graduationWallDissolving &&
-          !showTier1ExploreBanner &&
-          !showSinceLastLeapBanner) ? (
-          <View style={styles.feedBannerStack} pointerEvents="box-none">
+          !showTier1ExploreBanner) ? (
+          <View
+            style={[styles.feedBannerStack, { top: topChromeInset + 56 }]}
+            pointerEvents="box-none"
+          >
             {cameraRollSaveOffer ? (
               <FeedCameraRollSaveBanner
                 clipUri={cameraRollSaveOffer.uri}
@@ -1992,18 +2016,11 @@ export function FeedScreen() {
             {showTier1ExploreBanner ? (
               <FeedTier1ExploreBanner teaserLimit={effectiveTeaserLimit} />
             ) : null}
-            {showSinceLastLeapBanner ? (
-              <FeedSinceLastLeapBanner
-                count={leapsSinceLastPost}
-                loading={!leapsSinceLastPostReady}
-              />
-            ) : null}
             {showReferralNudge &&
             referralNudgeHydrated &&
             !showTeaserWallBar &&
             !graduationWallDissolving &&
-            !showTier1ExploreBanner &&
-            !showSinceLastLeapBanner ? (
+            !showTier1ExploreBanner ? (
               <View style={styles.referralNudge}>
                 <Text style={styles.referralNudgeText}>
                   Know someone who&apos;d leap with you?{' '}

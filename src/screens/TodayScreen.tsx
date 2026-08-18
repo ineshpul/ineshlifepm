@@ -17,7 +17,6 @@ import { typography } from '../theme/typography';
 
 import { LeapLoadingFrog } from '../components/LeapLoadingFrog';
 import { Screen } from '../components/Screen';
-import { CreatePostSheet } from '../components/modern/CreatePostSheet';
 import { ModernActionRow } from '../components/modern/ModernActionRow';
 import {
   ModernPromptEyebrow,
@@ -29,10 +28,7 @@ import { useLiveCount } from '../state/live';
 import { useCanViewOtherUsersVideos } from '../state/posting';
 import { useAuth } from '../state/auth';
 import { useAppState } from '../state/appState';
-import {
-  navigateToLeaperboard,
-  navigateToRecord,
-} from '../navigation/navigationHelpers';
+import { navigateToLeaperboard } from '../navigation/navigationHelpers';
 import { shareReferralInvite } from '../utils/shareReferralInvite';
 import { floatingTabContentClearance } from '../navigation/tabBarMetrics';
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
@@ -59,8 +55,7 @@ function promptTitleTypography(
 
 function leapedLabel(count: number | null): string {
   if (count == null) return 'Counting today’s leaps…';
-  if (count === 1) return '1 person has leaped';
-  return `${count} people have leaped`;
+  return `${count} posted today`;
 }
 
 function initialsFromUsername(username: string | undefined): string {
@@ -208,8 +203,9 @@ export function TodayScreen() {
       color: c.muted2,
     },
     body: {
-      paddingTop: 18,
-      gap: 14,
+      /** Sit in the open lower half — not tight under the hero, not on the tab bar. */
+      paddingTop: 56,
+      gap: 28,
     },
     suggestTile: {
       backgroundColor: c.cardTint,
@@ -218,11 +214,10 @@ export function TodayScreen() {
     },
     bottom: {
       alignItems: 'center' as const,
-      paddingTop: 2,
+      paddingTop: 4,
     },
     inviteBtn: {
-      marginTop: 4,
-      paddingVertical: 10,
+      paddingVertical: 12,
       paddingHorizontal: 12,
     },
     inviteBtnText: {
@@ -252,7 +247,6 @@ export function TodayScreen() {
   const [streakDays, setStreakDays] = React.useState(0);
   const [photoUrl, setPhotoUrl] = React.useState('');
   const [dailyInches, setDailyInches] = React.useState(0);
-  const [suggestOpen, setSuggestOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !user?.uid) {
@@ -291,26 +285,16 @@ export function TodayScreen() {
     : `opens in ${formatCountdownHMS(countdownMs)}`;
   const showBeFirst = window.isLive && liveCount === 0;
 
-  const boardTitle = hasPostedToday
-    ? dailyInches > 0
-      ? `Today · ${formatLeapInchesDisplay(dailyInches)}`
-      : 'You’re on today’s board'
-    : 'Post Today to Earn Inches';
+  const boardTitle = 'Leaperboard';
   const boardSubtitle = hasPostedToday
-    ? 'See where you stand on the Leaperboard'
+    ? dailyInches > 0
+      ? `Today · ${formatLeapInchesDisplay(dailyInches)} · See where you stand`
+      : 'You’re on today’s board — see where you stand'
     : window.isLive
       ? 'Complete today’s leap to climb the board'
       : 'Today’s board opens at noon ET';
 
   const onBoardPress = () => {
-    if (!hasPostedToday && facing.canRecord) {
-      navigateToRecord(nav);
-      return;
-    }
-    if (!hasPostedToday && !facing.canRecord) {
-      navigateToLeaperboard(nav);
-      return;
-    }
     navigateToLeaperboard(nav);
   };
 
@@ -425,11 +409,11 @@ export function TodayScreen() {
         <View style={styles.body}>
           <ModernActionRow
             title="Suggest tomorrow's leap"
-            subtitle="Send an idea to the Leap team"
+            subtitle="Vote + suggest · winners get +5″"
             leading={<Ionicons name="bulb-outline" size={21} color={colors.green} />}
             leadingStyle={styles.suggestTile}
-            onPress={() => setSuggestOpen(true)}
-            accessibilityHint="Opens the suggestion composer"
+            onPress={() => nav.navigate('PickTomorrowLeap')}
+            accessibilityHint="Opens tomorrow’s leap ballot"
           />
 
           <View style={styles.bottom}>
@@ -449,12 +433,6 @@ export function TodayScreen() {
           </View>
         </View>
       </ScrollView>
-
-      <CreatePostSheet
-        visible={suggestOpen}
-        onClose={() => setSuggestOpen(false)}
-        initialStep="suggest"
-      />
     </Screen>
   );
 }

@@ -124,6 +124,7 @@ export function ChallengeAdminScreen() {
   const [attemptsInput, setAttemptsInput] = React.useState(String(DEFAULT_MAX_RECORDING_ATTEMPTS));
   const [allowLibraryAttach, setAllowLibraryAttach] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const [voteSourceNote, setVoteSourceNote] = React.useState('');
 
   const durationParsed = normalizeTaskDurationSeconds(durationInput);
   const attemptsParsed = normalizeMaxRecordingAttempts(attemptsInput);
@@ -144,7 +145,10 @@ export function ChallengeAdminScreen() {
       if (!isFirebaseConfigured()) return;
       try {
         const snap = await getDoc(doc(firestore(), 'challenges', publishChallengeDateKey));
-        if (cancelled || !snap.exists()) return;
+        if (cancelled || !snap.exists()) {
+          if (!cancelled) setVoteSourceNote('');
+          return;
+        }
         const data: any = snap.data();
         setTitle(String(data?.title ?? ''));
         const d = normalizeTaskDurationSeconds(data?.maxDurationSeconds);
@@ -152,6 +156,12 @@ export function ChallengeAdminScreen() {
         const a = normalizeMaxRecordingAttempts(data?.maxRecordingAttempts);
         setAttemptsInput(String(a));
         setAllowLibraryAttach(data?.allowLibraryAttach === true);
+        const src = String(data?.sourceSuggestionId ?? '').trim();
+        setVoteSourceNote(
+          src
+            ? `Filled by community vote (suggestion ${src}). Editing here overrides the title only — the winner keeps +5″.`
+            : ''
+        );
       } catch {
         // leave fields as-is
       }
@@ -214,6 +224,7 @@ export function ChallengeAdminScreen() {
         <Text style={styles.kicker}>ADMIN</Text>
         <Text style={styles.title}>Set today’s challenge</Text>
         <Text style={styles.meta}>Challenge doc (noon→noon ET): {publishChallengeDateKey}</Text>
+        {voteSourceNote ? <Text style={styles.helper}>{voteSourceNote}</Text> : null}
 
         <View style={styles.field}>
           <Text style={styles.label}>TITLE</Text>
@@ -222,7 +233,8 @@ export function ChallengeAdminScreen() {
 
         <Text style={styles.helper}>
           Players only see this title and length after 12:00 PM Eastern. Before noon they see “Today’s leap is loading…”;
-          your edits here stay hidden until the drop.
+          your edits here stay hidden until the drop. Community vote winners also land here at noon — you can still
+          change the title anytime; the suggester keeps their +5″.
         </Text>
 
         <View style={styles.field}>

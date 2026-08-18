@@ -61,10 +61,11 @@ export function ReelSinglePlayback({
     p.volume = 0;
     p.timeUpdateEventInterval = dataSaver ? 0.75 : 0.4;
     p.bufferOptions = {
-      // Tiny slice — start ASAP on progressive MP4; grow while playing.
-      preferredForwardBufferDuration: dataSaver ? 1 : 2,
+      // Enough headroom to avoid underrun choppiness on progressive Storage MP4s,
+      // without waiting for a huge buffer before the first audible frame.
+      preferredForwardBufferDuration: dataSaver ? 1.5 : 3.5,
       waitsToMinimizeStalling: false,
-      minBufferForPlayback: 0.3,
+      minBufferForPlayback: 0.35,
     };
   });
 
@@ -118,8 +119,16 @@ export function ReelSinglePlayback({
          * DualClipPlayback already did this, which is why only *some* feed videos
          * stalled or played silent. Scoped to the clip becoming active so we don't
          * serialize every mounted player behind a setAudioModeAsync call.
-         * No-ops while a capture surface still holds the record category.
+         * No-ops while a capture surface still holds the record category, and
+         * no-ops when the session is already in playback (avoids mid-play glitches).
          */
+        const alreadyPlaying = player.playing && !muted;
+        if (alreadyPlaying) {
+          emitStatus();
+          return () => {
+            cancelled = true;
+          };
+        }
         void enterPlayback()
           .catch(() => undefined)
           .finally(() => {

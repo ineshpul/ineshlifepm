@@ -94,7 +94,10 @@ export async function handleNotificationNavigation(
     return;
   }
   if (type === 'co_leap_confirmed' && videoId) {
-    ref.navigate('VideoPost', { videoId });
+    ref.navigate('Tabs', {
+      screen: 'Feed',
+      params: { mode: 'daily', initialVideoId: videoId },
+    });
     return;
   }
 
@@ -104,11 +107,17 @@ export async function handleNotificationNavigation(
       return;
     }
     if ((type === 'like' || type === 'comment' || type === 'mention') && bestPartId) {
-      ref.navigate('BestPartPost', { bestPartId });
+      ref.navigate('Tabs', {
+        screen: 'Feed',
+        params: { mode: 'bpotd', initialBestPartId: bestPartId },
+      });
       return;
     }
     if ((type === 'like' || type === 'comment' || type === 'mention') && videoId) {
-      ref.navigate('VideoPost', { videoId });
+      ref.navigate('Tabs', {
+        screen: 'Feed',
+        params: { mode: 'daily', initialVideoId: videoId },
+      });
       return;
     }
   }

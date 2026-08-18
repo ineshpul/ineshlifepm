@@ -15,11 +15,15 @@ export type ProfileLeapGridItem = {
 export function ProfileLeapsGrid({
   videos,
   onOpen,
+  collapsedCount = 9,
 }: {
   videos: ProfileLeapGridItem[];
   onOpen: (videoId: string) => void;
+  /** Tiles shown before the grid has to be expanded. */
+  collapsedCount?: number;
 }) {
   const { colors } = useTheme();
+  const [expanded, setExpanded] = React.useState(false);
   const styles = useThemedStyles((c) => ({
     grid: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 4, paddingTop: 4 },
     tile: {
@@ -58,7 +62,23 @@ export function ProfileLeapsGrid({
       borderColor: c.border2,
     },
     emptyText: { fontFamily: typography.bodySemiBold, fontSize: 13, color: c.muted },
+    toggle: {
+      marginTop: 10,
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      gap: 6,
+      paddingVertical: 11,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: c.border2,
+      backgroundColor: c.card,
+    },
+    toggleText: { fontFamily: typography.bodyBold, fontSize: 13, color: c.text },
   }));
+
+  const canCollapse = videos.length > collapsedCount;
+  const visibleVideos = canCollapse && !expanded ? videos.slice(0, collapsedCount) : videos;
 
   if (videos.length === 0) {
     return (
@@ -69,33 +89,53 @@ export function ProfileLeapsGrid({
   }
 
   return (
-    <View style={styles.grid}>
-      {videos.map((video) => {
-        const posterUrl = String(video.posterUrl ?? '').trim();
-        const inches = Number(video.leapInches ?? 0);
-        return (
-          <Pressable
-            key={video.id}
-            style={({ pressed }) => [styles.tile, pressed && { opacity: 0.82 }]}
-            onPress={() => onOpen(video.id)}
-            accessibilityRole="button"
-            accessibilityLabel="Open leap video"
-          >
-            {posterUrl ? (
-              <Image source={{ uri: posterUrl }} style={styles.image} contentFit="cover" />
-            ) : (
-              <View style={styles.placeholder}>
-                <Ionicons name="play" size={24} color={colors.muted2} />
-              </View>
-            )}
-            {Number.isFinite(inches) && inches > 0 ? (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{Math.round(inches)} in</Text>
-              </View>
-            ) : null}
-          </Pressable>
-        );
-      })}
+    <View>
+      <View style={styles.grid}>
+        {visibleVideos.map((video) => {
+          const posterUrl = String(video.posterUrl ?? '').trim();
+          const inches = Number(video.leapInches ?? 0);
+          return (
+            <Pressable
+              key={video.id}
+              style={({ pressed }) => [styles.tile, pressed && { opacity: 0.82 }]}
+              onPress={() => onOpen(video.id)}
+              accessibilityRole="button"
+              accessibilityLabel="Open leap video"
+            >
+              {posterUrl ? (
+                <Image source={{ uri: posterUrl }} style={styles.image} contentFit="cover" />
+              ) : (
+                <View style={styles.placeholder}>
+                  <Ionicons name="play" size={24} color={colors.muted2} />
+                </View>
+              )}
+              {Number.isFinite(inches) && inches > 0 ? (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{Math.round(inches)} in</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {canCollapse ? (
+        <Pressable
+          style={({ pressed }) => [styles.toggle, pressed && { opacity: 0.85 }]}
+          onPress={() => setExpanded((prev) => !prev)}
+          accessibilityRole="button"
+          accessibilityLabel={expanded ? 'Show fewer leaps' : 'Show all leaps'}
+        >
+          <Text style={styles.toggleText}>
+            {expanded ? 'Show less' : `Show all ${videos.length} leaps`}
+          </Text>
+          <Ionicons
+            name={expanded ? 'chevron-up' : 'chevron-down'}
+            size={16}
+            color={colors.text}
+          />
+        </Pressable>
+      ) : null}
     </View>
   );
 }

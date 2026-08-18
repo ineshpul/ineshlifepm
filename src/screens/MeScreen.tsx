@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -31,10 +31,12 @@ import { setAppBadgeCount } from '../services/pushNotifications';
 import { formatLeapGainTodayBanner, formatLeapInchesDisplay } from '../lib/verticalScore';
 import { useProfileStats } from '../components/profile/useProfileStats';
 import { ProfileLeapsGrid } from '../components/profile/ProfileLeapsGrid';
+import { HighestLeapSheet } from '../components/profile/HighestLeapSheet';
 import { ProfileBpotdCalendar } from '../components/profile/ProfileBpotdCalendar';
 import { ProfileWeeklyRecapRail } from '../components/profile/ProfileWeeklyRecapRail';
 import { saveUserPublicProfile } from '../services/userProfile';
 import { subscribeMyBestParts } from '../services/bestPartPosts';
+import { navigateToBestPartInFeed } from '../navigation/navigationHelpers';
 import type { BestPartPost } from '../types/bestPart';
 import { UsernameTakenError } from '../services/usernameClaim';
 import { useChallengeWindow } from '../state/challenge';
@@ -398,6 +400,7 @@ export function MeScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const tabBarClearance = floatingTabContentClearance(insets.bottom);
+  const scrollRef = React.useRef<ScrollView>(null);
   const { user, signOut } = useAuth();
   const [profile, setProfile] = React.useState<any>(null);
   const [myVideos, setMyVideos] = React.useState<MyVideo[]>([]);
@@ -409,6 +412,26 @@ export function MeScreen() {
   const [draftBio, setDraftBio] = React.useState('');
   const [draftPhotoUri, setDraftPhotoUri] = React.useState<string | null>(null);
   const [profileSection, setProfileSection] = React.useState<'leaps' | 'best'>('leaps');
+  const [bestLeapOpen, setBestLeapOpen] = React.useState(false);
+
+  const scrollProfileToTop = React.useCallback((animated: boolean) => {
+    scrollRef.current?.scrollTo({ y: 0, animated });
+  }, []);
+
+  /** Always land at the top when opening Me from another tab (or swiping onto it). */
+  useFocusEffect(
+    React.useCallback(() => {
+      scrollProfileToTop(false);
+    }, [scrollProfileToTop])
+  );
+
+  /** Re-tapping the profile tab while already on Me also jumps to the top. */
+  React.useEffect(() => {
+    const unsub = nav.addListener('tabPress', () => {
+      scrollProfileToTop(true);
+    });
+    return unsub;
+  }, [nav, scrollProfileToTop]);
 
   React.useEffect(() => {
     if (!isFirebaseConfigured() || !user?.uid) return;
@@ -473,6 +496,7 @@ export function MeScreen() {
     profile?.school != null && String(profile.school).trim() !== '' ? String(profile.school).trim() : '';
   useChallengeWindow();
   const stats = useProfileStats(profile as Record<string, unknown> | undefined, myVideos);
+  const canOpenBestLeap = Boolean(stats.bestPostId) || stats.highestDayIn > 0;
 
   const initials =
     (username.split(/[\s_]+/).filter(Boolean)[0]?.[0] ?? 'U').toUpperCase() +
@@ -533,6 +557,7 @@ export function MeScreen() {
   return (
     <Screen style={styles.screen}>
       <ScrollView
+        ref={scrollRef}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scroll, { paddingBottom: tabBarClearance }]}
       >
@@ -601,10 +626,20 @@ export function MeScreen() {
         </View>
 
         <View style={styles.statsRow}>
-          <View style={styles.stat}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.stat,
+              canOpenBestLeap && styles.statTappable,
+              pressed && styles.statPressed,
+            ]}
+            onPress={() => setBestLeapOpen(true)}
+            disabled={!canOpenBestLeap}
+            accessibilityRole="button"
+            accessibilityLabel="View your best leap"
+          >
             <Text style={styles.statNum}>{formatLeapInchesDisplay(stats.highestDayIn)}</Text>
-            <Text style={styles.statLabel} numberOfLines={1}>BEST DAY</Text>
-          </View>
+            <Text style={styles.statLabel} numberOfLines={1}>BEST LEAP</Text>
+          </Pressable>
           <View style={styles.stat}>
             <Text style={styles.statNum}>{formatLeapInchesDisplay(stats.weeklyLeapIn)}</Text>
             <Text style={styles.statLabel} numberOfLines={1}>THIS WEEK</Text>
@@ -644,13 +679,13 @@ export function MeScreen() {
           {profileSection === 'leaps' ? (
             <ProfileLeapsGrid
               videos={myVideos}
-              onOpen={(videoId) => nav.navigate('VideoPost', { videoId })}
+              onOpen={(videoId) => nav.navigate('MyLeaps', { initialVideoId: videoId })}
             />
           ) : (
             <>
               <ProfileBpotdCalendar
                 posts={bestParts}
-                onOpenPost={(bestPartId) => nav.navigate('BestPartPost', { bestPartId })}
+                onOpenPost={(bestPartId) => navigateToBestPartInFeed(bestPartId, nav)}
               />
               <ProfileWeeklyRecapRail posts={bestParts} username={username} />
             </>
@@ -744,6 +779,13 @@ export function MeScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <HighestLeapSheet
+        visible={bestLeapOpen}
+        onClose={() => setBestLeapOpen(false)}
+        postId={stats.bestPostId}
+        fallbackInches={stats.highestDayIn}
+      />
     </Screen>
   );
 }

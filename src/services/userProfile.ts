@@ -2,6 +2,7 @@ import { updateProfile } from 'firebase/auth';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
 import { firebaseAuth, isFirebaseConfigured, storage } from '../firebase/firebase';
+import { invalidateUserAvatar } from '../hooks/useUserAvatar';
 import { runUserProfileUsernameTransaction } from './usernameClaim';
 
 async function uriToBlob(uri: string): Promise<Blob> {
@@ -60,6 +61,8 @@ export async function saveUserPublicProfile(args: SavePublicProfileArgs): Promis
     bio,
     extraFields,
   });
+
+  if (uploadedUrl) invalidateUserAvatar(args.uid);
 
   const cur = firebaseAuth().currentUser;
   if (cur && cur.uid === args.uid) {

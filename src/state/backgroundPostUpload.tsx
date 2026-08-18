@@ -4,7 +4,11 @@ import { AppState, type AppStateStatus } from 'react-native';
 
 import { firestore, isFirebaseConfigured } from '../firebase/firebase';
 import { blocksSoloLeapRepost } from '../lib/leapVideoDoc';
-import { cleanupStagedFeedPlaybackClips, stageFeedPlaybackClip } from '../lib/stageFeedPlaybackClip';
+import {
+  cleanupStagedFeedPlaybackClips,
+  localMediaFileExists,
+  stageFeedPlaybackClip,
+} from '../lib/stageFeedPlaybackClip';
 import {
   allocateLeapStoragePaths,
   type CancelableUpload,
@@ -107,25 +111,47 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
   const runningRef = React.useRef(false);
   const uploadSessionIdRef = React.useRef(0);
   const uploadTaskRef = React.useRef<CancelableUpload | null>(null);
+  const persistEpochRef = React.useRef(0);
   const resumeCheckedRef = React.useRef(false);
 
   const resetIdle = React.useCallback(() => {
+    const epoch = ++persistEpochRef.current;
     setPhase('idle');
     setProgress(0);
     setErrorMessage(null);
     jobRef.current = null;
     runningRef.current = false;
     uploadTaskRef.current = null;
-    void clearPendingPostUpload();
+    void (async () => {
+      await clearPendingPostUpload();
+      if (persistEpochRef.current !== epoch) {
+        const job = jobRef.current;
+        if (job?.primaryStoragePath) {
+          await savePendingPostUpload({
+            params: job,
+            primaryStoragePath: job.primaryStoragePath,
+            secondaryStoragePath: job.secondaryStoragePath ?? null,
+            savedAtMs: Date.now(),
+            sessionId: uploadSessionIdRef.current,
+          });
+        }
+      }
+    })();
   }, []);
 
   const clearPendingFeedPlayback = React.useCallback(() => {
+    // A replacement post may already be running (same leap-day doc id). Never
+    // delete that take's staged files because the user deleted the previous one.
+    if (runningRef.current) return;
     setPendingFeedPlayback(null);
-    void cleanupStagedFeedPlaybackClips();
+    const sessionToClean = uploadSessionIdRef.current;
+    void cleanupStagedFeedPlaybackClips(sessionToClean);
   }, []);
 
   const cancelBackgroundPost = React.useCallback(() => {
+    const cancelledSession = uploadSessionIdRef.current;
     uploadSessionIdRef.current += 1;
+    persistEpochRef.current += 1;
     try {
       uploadTaskRef.current?.cancel();
     } catch {
@@ -134,9 +160,10 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
     uploadTaskRef.current = null;
     runningRef.current = false;
     clearPostedOverride();
-    clearPendingFeedPlayback();
+    setPendingFeedPlayback(null);
+    void cleanupStagedFeedPlaybackClips(cancelledSession);
     resetIdle();
-  }, [clearPostedOverride, resetIdle, clearPendingFeedPlayback]);
+  }, [clearPostedOverride, resetIdle]);
 
   React.useEffect(() => {
     registerBackgroundPostCancel(cancelBackgroundPost);
@@ -145,62 +172,107 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
 
   const persistJob = React.useCallback(async (params: PostVideoUploadParams) => {
     if (!params.primaryStoragePath) return;
+    const epoch = persistEpochRef.current;
     await savePendingPostUpload({
       params,
       primaryStoragePath: params.primaryStoragePath,
       secondaryStoragePath: params.secondaryStoragePath ?? null,
       savedAtMs: Date.now(),
+      sessionId: uploadSessionIdRef.current,
     });
+    if (persistEpochRef.current !== epoch && !jobRef.current) {
+      await clearPendingPostUpload();
+    }
   }, []);
+
+  const stageClips = React.useCallback(
+    async (params: PostVideoUploadParams, sessionId: number): Promise<PostVideoUploadParams> => {
+      const mediaType = params.mediaType === 'photo' ? 'photo' : 'video';
+      const stageOne = async (
+        preferred: string,
+        fallback: string | null | undefined,
+        tag: 'primary' | 'pip'
+      ) => {
+        const candidates = [preferred, fallback].filter((u, i, all): u is string => {
+          if (!u || u.startsWith('demo://')) return false;
+          return all.indexOf(u) === i;
+        });
+        let lastErr: unknown = new Error('No video to stage.');
+        for (const uri of candidates) {
+          try {
+            return await stageFeedPlaybackClip(uri, tag, { sessionId, mediaType });
+          } catch (e) {
+            lastErr = e;
+          }
+        }
+        throw lastErr;
+      };
+
+      const [stagedPrimary, stagedSecondary] = await Promise.all([
+        stageOne(params.clipUri, params.sourceClipUri, 'primary'),
+        params.secondaryClipUri || params.sourceSecondaryClipUri
+          ? stageOne(
+              params.secondaryClipUri || params.sourceSecondaryClipUri || '',
+              params.sourceSecondaryClipUri,
+              'pip'
+            )
+          : Promise.resolve(null),
+      ]);
+
+      return {
+        ...params,
+        clipUri: stagedPrimary,
+        secondaryClipUri: stagedSecondary,
+        sourceClipUri: params.sourceClipUri || params.clipUri,
+        sourceSecondaryClipUri:
+          params.sourceSecondaryClipUri !== undefined
+            ? params.sourceSecondaryClipUri
+            : params.secondaryClipUri,
+      };
+    },
+    []
+  );
 
   const runJob = React.useCallback(
     async (params: PostVideoUploadParams) => {
       if (runningRef.current) {
+        const previousSession = uploadSessionIdRef.current;
         uploadSessionIdRef.current += 1;
         try {
           uploadTaskRef.current?.cancel();
         } catch {
           /* ignore */
         }
+        void cleanupStagedFeedPlaybackClips(previousSession);
       }
       const sessionId = uploadSessionIdRef.current;
       runningRef.current = true;
-      const stableParams = withStableStoragePaths(params);
+      persistEpochRef.current += 1;
+      const withSources: PostVideoUploadParams = {
+        ...params,
+        sourceClipUri: params.sourceClipUri || params.clipUri,
+        sourceSecondaryClipUri:
+          params.sourceSecondaryClipUri !== undefined
+            ? params.sourceSecondaryClipUri
+            : params.secondaryClipUri,
+      };
+      const stableParams = withStableStoragePaths(withSources);
       jobRef.current = stableParams;
       setPhase('uploading');
       setProgress(0);
       setErrorMessage(null);
-      void persistJob(stableParams);
 
       try {
-        if (await alreadyPostedLeap(stableParams.uid, stableParams.viewingChallengeDateKey)) {
-          if (sessionId !== uploadSessionIdRef.current) return;
-          markPostedToday();
-          resetIdle();
-          return;
-        }
-
+        // Copy off camera temp BEFORE any network so iOS/Android can reclaim
+        // the recording as soon as Record unmounts.
         let uploadParams = stableParams;
         try {
-          const [stagedPrimary, stagedSecondary] = await Promise.all([
-            stageFeedPlaybackClip(stableParams.clipUri, 'primary'),
-            stableParams.secondaryClipUri
-              ? stageFeedPlaybackClip(stableParams.secondaryClipUri, 'pip')
-              : Promise.resolve(null),
-          ]);
+          uploadParams = await stageClips(stableParams, sessionId);
           if (sessionId !== uploadSessionIdRef.current) {
             throw new BackgroundPostAbortedError();
           }
-          setPendingFeedPlayback({
-            ...buildPending(stableParams),
-            clipUri: stagedPrimary,
-            secondaryClipUri: stagedSecondary,
-          });
-          uploadParams = {
-            ...stableParams,
-            clipUri: stagedPrimary,
-            secondaryClipUri: stagedSecondary,
-          };
+          jobRef.current = uploadParams;
+          setPendingFeedPlayback(buildPending(uploadParams));
           void persistJob(uploadParams);
         } catch (e) {
           if (e instanceof BackgroundPostAbortedError) throw e;
@@ -208,8 +280,15 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
           if (msg.includes('no longer on this device') || msg.includes('No video to stage')) {
             throw e;
           }
-          // Fall back to camera temp paths when staging fails for transient reasons.
           setPendingFeedPlayback(buildPending(stableParams));
+          void persistJob(stableParams);
+        }
+
+        if (await alreadyPostedLeap(uploadParams.uid, uploadParams.viewingChallengeDateKey)) {
+          if (sessionId !== uploadSessionIdRef.current) return;
+          markPostedToday();
+          resetIdle();
+          return;
         }
 
         await runPostVideoUpload(uploadParams, {
@@ -256,18 +335,29 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
         showError('Post failed', e);
       }
     },
-    [clearPostedOverride, markPostedToday, persistJob, resetIdle]
+    [clearPostedOverride, markPostedToday, persistJob, resetIdle, stageClips]
   );
 
   const startBackgroundPost = React.useCallback(
     (params: PostVideoUploadParams) => {
+      const previousSession = uploadSessionIdRef.current;
       uploadSessionIdRef.current += 1;
+      persistEpochRef.current += 1;
       try {
         uploadTaskRef.current?.cancel();
       } catch {
         /* ignore */
       }
-      const stable = withStableStoragePaths(params);
+      runningRef.current = false;
+      void cleanupStagedFeedPlaybackClips(previousSession);
+      const stable = withStableStoragePaths({
+        ...params,
+        sourceClipUri: params.sourceClipUri || params.clipUri,
+        sourceSecondaryClipUri:
+          params.sourceSecondaryClipUri !== undefined
+            ? params.sourceSecondaryClipUri
+            : params.secondaryClipUri,
+      });
       setPendingFeedPlayback(buildPending(stable));
       void runJob(stable);
     },
@@ -287,47 +377,62 @@ export function BackgroundPostUploadProvider({ children }: { children: React.Rea
     resetIdle();
   }, [phase, resetIdle, clearPendingFeedPlayback, clearPostedOverride]);
 
+  const resumeIfPending = React.useCallback(async () => {
+    if (runningRef.current) return;
+    const pending = await loadPendingPostUpload();
+    if (!pending || runningRef.current) return;
+    if (
+      pending.sessionId != null &&
+      pending.sessionId !== uploadSessionIdRef.current &&
+      uploadSessionIdRef.current !== 0
+    ) {
+      return;
+    }
+    const clipReady =
+      (await localMediaFileExists(pending.params.clipUri)) ||
+      (pending.params.sourceClipUri
+        ? await localMediaFileExists(pending.params.sourceClipUri)
+        : false);
+    if (!clipReady) {
+      await clearPendingPostUpload();
+      return;
+    }
+    if (await alreadyPostedLeap(pending.params.uid, pending.params.viewingChallengeDateKey)) {
+      await clearPendingPostUpload();
+      return;
+    }
+    jobRef.current = pending.params;
+    if (pending.sessionId && pending.sessionId > uploadSessionIdRef.current) {
+      uploadSessionIdRef.current = pending.sessionId;
+    }
+    setPendingFeedPlayback(buildPending(pending.params));
+    void runJob(pending.params);
+  }, [runJob]);
+
   // Resume unfinished posts after force-quit / process death.
   React.useEffect(() => {
     if (resumeCheckedRef.current) return;
     resumeCheckedRef.current = true;
     let cancelled = false;
     void (async () => {
-      const pending = await loadPendingPostUpload();
-      if (cancelled || !pending || runningRef.current) return;
-      if (await alreadyPostedLeap(pending.params.uid, pending.params.viewingChallengeDateKey)) {
-        await clearPendingPostUpload();
-        return;
-      }
-      jobRef.current = pending.params;
-      setPendingFeedPlayback(buildPending(pending.params));
-      void runJob(pending.params);
+      if (cancelled) return;
+      await resumeIfPending();
     })();
     return () => {
       cancelled = true;
     };
-  }, [runJob]);
+  }, [resumeIfPending]);
 
   // If a background URLSession finished while suspended, kick progress when we return.
   React.useEffect(() => {
     const onChange = (next: AppStateStatus) => {
       if (next !== 'active') return;
       if (runningRef.current || phase === 'failed') return;
-      void (async () => {
-        const pending = await loadPendingPostUpload();
-        if (!pending || runningRef.current) return;
-        if (await alreadyPostedLeap(pending.params.uid, pending.params.viewingChallengeDateKey)) {
-          await clearPendingPostUpload();
-          return;
-        }
-        jobRef.current = pending.params;
-        setPendingFeedPlayback(buildPending(pending.params));
-        void runJob(pending.params);
-      })();
+      void resumeIfPending();
     };
     const sub = AppState.addEventListener('change', onChange);
     return () => sub.remove();
-  }, [phase, runJob]);
+  }, [phase, resumeIfPending]);
 
   const isActive = phase === 'uploading' || phase === 'saving';
 

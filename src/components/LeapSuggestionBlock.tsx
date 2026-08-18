@@ -92,7 +92,7 @@ export function LeapSuggestionBlock() {
     try {
       await submitChallengeSuggestion(body);
       setText('');
-      showInfo('Thanks!', 'Your idea was sent to the Leap team.');
+      showInfo('Submitted', 'Your leap is pending approval. If it wins, you get +5″.');
     } catch (e: unknown) {
       let msg = 'Something went wrong. Try again.';
       if (e instanceof FunctionsError && e.code === 'functions/unauthenticated') {

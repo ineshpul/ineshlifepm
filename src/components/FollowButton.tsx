@@ -12,6 +12,8 @@ type Props = {
   targetUsername: string;
   /** When set, stored on the follow edge for avatar lists (see `FollowingRow.targetPhotoUrl`). */
   targetPhotoUrl?: string | null;
+  /** Feed reels only offer the follow action — once you follow, the pill gets out of the way. */
+  hideWhenFollowing?: boolean;
 };
 
 export function FollowButton({
@@ -20,6 +22,7 @@ export function FollowButton({
   targetUid,
   targetUsername,
   targetPhotoUrl,
+  hideWhenFollowing = false,
 }: Props) {
   const { colors } = useTheme();
   const styles = useThemedStyles((colors) => ({
@@ -56,6 +59,7 @@ export function FollowButton({
   }, [viewerUid, targetUid]);
 
   if (viewerUid === targetUid) return null;
+  if (hideWhenFollowing && following && !busy) return null;
 
   const onToggle = async () => {
     setBusy(true);

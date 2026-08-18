@@ -13,6 +13,8 @@ import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 
 let recordingHolders = 0;
 let applyChain: Promise<void> = Promise.resolve();
+/** Last category we successfully applied — avoids choppy reconfigs mid-play. */
+let lastAppliedCategory: 'recording' | 'playback' | null = null;
 
 async function applyRecordingMode(): Promise<void> {
   await Audio.setAudioModeAsync({
@@ -25,9 +27,13 @@ async function applyRecordingMode(): Promise<void> {
     playThroughEarpieceAndroid: false,
     staysActiveInBackground: false,
   });
+  lastAppliedCategory = 'recording';
 }
 
-async function applyPlaybackMode(): Promise<void> {
+async function applyPlaybackMode(force = false): Promise<void> {
+  if (!force && lastAppliedCategory === 'playback' && recordingHolders === 0) {
+    return;
+  }
   await Audio.setAudioModeAsync({
     allowsRecordingIOS: false,
     playsInSilentModeIOS: true,
@@ -37,6 +43,7 @@ async function applyPlaybackMode(): Promise<void> {
     playThroughEarpieceAndroid: false,
     staysActiveInBackground: false,
   });
+  lastAppliedCategory = 'playback';
 }
 
 function enqueue(op: () => Promise<void>): Promise<void> {
@@ -78,7 +85,7 @@ export async function enterRecording(): Promise<() => void> {
  */
 export async function enterPlayback(): Promise<void> {
   if (recordingHolders > 0) return;
-  await enqueue(applyPlaybackMode);
+  await enqueue(() => applyPlaybackMode(false));
 }
 
 /**
@@ -99,6 +106,8 @@ export async function patchAudioMode(partial: {
   if (Object.keys(next).length === 0) return;
   await enqueue(async () => {
     await Audio.setAudioModeAsync(next);
+    if (next.allowsRecordingIOS === true) lastAppliedCategory = 'recording';
+    else if (next.allowsRecordingIOS === false) lastAppliedCategory = 'playback';
   });
 }
 

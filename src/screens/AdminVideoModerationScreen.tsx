@@ -24,6 +24,7 @@ import { normalizeTaskDurationSeconds } from '../state/challenge';
 import { deleteStaffVideo } from '../services/deleteVideo';
 import { staffAnnounceAppReview } from '../services/appReviewAdmin';
 import { showError, showInfo } from '../utils/ui';
+import { navigateToVideoInFeed } from '../navigation/navigationHelpers';
 
 type QueueItem = {
   id: string;
@@ -362,6 +363,20 @@ export function AdminVideoModerationScreen() {
         <Text style={styles.modSettingsKicker}>MOD SETTINGS</Text>
         <TouchableOpacity
           style={styles.modSettingsRow}
+          onPress={() => nav.navigate('AdminLeapSuggestions')}
+          activeOpacity={0.65}
+        >
+          <View style={styles.modSettingsTextCol}>
+            <Text style={styles.modSettingsLabel}>Leap suggestions</Text>
+            <Text style={styles.modSettingsSub}>
+              Approve community ideas for tomorrow’s ballot. Winners get +5″.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.muted2} />
+        </TouchableOpacity>
+        <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 4 }} />
+        <TouchableOpacity
+          style={styles.modSettingsRow}
           onPress={runAnnounceAppReview}
           disabled={broadcastBusy}
           activeOpacity={0.65}
@@ -411,10 +426,10 @@ export function AdminVideoModerationScreen() {
                   {item.url ? (
                     <TouchableOpacity
                       style={styles.thumbWrap}
-                      onPress={() => nav.navigate('VideoPost', { videoId: item.id })}
+                      onPress={() => navigateToVideoInFeed(item.id, nav)}
                       activeOpacity={0.85}
                       accessibilityRole="button"
-                      accessibilityLabel="Preview full video"
+                      accessibilityLabel="Open video in feed"
                     >
                       <Video
                         source={{ uri: item.url }}

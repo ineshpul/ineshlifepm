@@ -30,6 +30,36 @@ export function navigateToFeedTab(navigation: NavigationProp<ParamListBase>) {
   navigation.dispatch(resetAction);
 }
 
+/** Opens the full-screen Daily Leaps reel at a specific video. */
+export function navigateToVideoInFeed(
+  videoId: string,
+  navigation?: NavigationProp<ParamListBase>
+) {
+  const id = String(videoId ?? '').trim();
+  if (!id) return;
+  const params = { mode: 'daily' as const, initialVideoId: id };
+  if (rootNavigationRef.isReady()) {
+    rootNavigationRef.navigate('Tabs', { screen: 'Feed', params });
+    return;
+  }
+  navigation?.navigate('Feed', params);
+}
+
+/** Opens the full-screen Best Part reel at a specific moment. */
+export function navigateToBestPartInFeed(
+  bestPartId: string,
+  navigation?: NavigationProp<ParamListBase>
+) {
+  const id = String(bestPartId ?? '').trim();
+  if (!id) return;
+  const params = { mode: 'bpotd' as const, initialBestPartId: id };
+  if (rootNavigationRef.isReady()) {
+    rootNavigationRef.navigate('Tabs', { screen: 'Feed', params });
+    return;
+  }
+  navigation?.navigate('Feed', params);
+}
+
 /** Record lives on the root stack (modal), not inside tabs — resolve the stack that owns `Record`. */
 /** Opens `UserProfile` on the root stack (works from nested tab routes). */
 export function navigateToUserProfile(

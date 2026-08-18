@@ -205,10 +205,10 @@ function CreatePostSheetBody({
 
               <ModernActionRow
                 title="Suggest tomorrow's leap"
-                subtitle="Send an idea to the Leap team"
+                subtitle="Vote + suggest · winners get +5″"
                 leading={<Ionicons name="bulb-outline" size={21} color={colors.green} />}
                 leadingStyle={styles.suggestTile}
-                onPress={() => setStep('suggest')}
+                onPress={() => closeThen(() => nav.navigate('PickTomorrowLeap'))}
               />
             </>
           ) : (
@@ -226,7 +226,7 @@ function CreatePostSheetBody({
               </View>
               <LeapSuggestionBlock />
               <Text style={styles.suggestNote}>
-                Ideas go to the Leap team for an upcoming daily leap.
+                Ideas go to moderation first. If yours wins the ballot, you get +5″.
               </Text>
             </>
           )}

@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { Audio } from 'expo-av';
@@ -96,6 +97,7 @@ async function ensureMicrophonePermissionForRecording(): Promise<boolean> {
 
 export function RecordScreen() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useThemedStyles((colors) => ({
   screen: {
     backgroundColor: '#0C0F0D',
@@ -112,9 +114,55 @@ export function RecordScreen() {
     gap: 10,
     zIndex: 30,
   },
+  /** Capture chrome mirrors BestPartCaptureScreen: floating controls over a full-bleed preview. */
+  captureTopBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingTop: insets.top + 8,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  topRight: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  captureHeadline: {
+    position: 'absolute',
+    top: insets.top + 58,
+    left: 20,
+    right: 20,
+    alignItems: 'center',
+    gap: 8,
+    zIndex: 40,
+  },
+  capturePromptPill: {
+    flex: 0,
+    maxWidth: '100%',
+  },
+  captureBottomBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: insets.bottom + 20,
+    paddingBottom: 0,
+    paddingTop: 0,
+    alignItems: 'center',
+    gap: 10,
+    zIndex: 40,
+  },
+  captureAttemptsCard: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: insets.bottom + 170,
+    zIndex: 40,
+  },
   frogStrip: {
-    marginTop: 8,
-    marginHorizontal: 16,
+    alignSelf: 'stretch',
   },
   topBtn: {
     width: 38,
@@ -129,6 +177,13 @@ export function RecordScreen() {
   reviewTopBtn: {
     backgroundColor: '#FFFFFF',
     borderColor: '#E6EBE4',
+  },
+  topBtnActive: {
+    backgroundColor: 'rgba(28,124,67,0.78)',
+    borderColor: '#1C7C43',
+  },
+  topBtnDisabled: {
+    opacity: 0.45,
   },
   topBtnText: {
     color: colors.white,
@@ -154,6 +209,7 @@ export function RecordScreen() {
     color: colors.white,
     fontSize: 13,
     fontFamily: typography.bodyBold,
+    textAlign: 'center',
   },
   reviewPromptText: {
     color: '#101A14',
@@ -173,8 +229,7 @@ export function RecordScreen() {
   },
   postedText: { color: colors.white, fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
   outOfAttemptsCard: {
-    marginHorizontal: 16,
-    marginTop: 10,
+    alignSelf: 'stretch',
     padding: 14,
     borderRadius: 16,
     backgroundColor: 'rgba(255,255,255,0.06)',
@@ -197,6 +252,13 @@ export function RecordScreen() {
     marginTop: 14,
     marginHorizontal: 0,
     borderRadius: 0,
+    overflow: 'hidden',
+    backgroundColor: '#171B14',
+  },
+  cameraFull: {
+    ...StyleSheet.absoluteFillObject,
+    marginTop: 0,
+    zIndex: 0,
     overflow: 'hidden',
     backgroundColor: '#171B14',
   },
@@ -226,37 +288,8 @@ export function RecordScreen() {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.18)',
   },
-  cornerFabDisabled: {
-    opacity: 0.45,
-  },
-  cornerFabActive: {
-    backgroundColor: 'rgba(76,175,80,0.55)',
-    borderColor: 'rgba(255,255,255,0.45)',
-  },
-  cornerFabLeft: {
-    left: 14,
-  },
-  cornerFabRight: {
-    right: 14,
-  },
-  cornerFab: {
-    position: 'absolute',
-    bottom: 14,
-    zIndex: 20,
-    width: 46,
-    height: 46,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   recordTimerBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 18,
+    ...StyleSheet.absoluteFillObject,
     zIndex: 25,
     alignItems: 'center',
     justifyContent: 'center',
@@ -309,6 +342,8 @@ export function RecordScreen() {
     fontSize: 12,
     fontFamily: typography.bodyBold,
     letterSpacing: 0.4,
+    textAlign: 'center',
+    overflow: 'hidden',
     backgroundColor: 'rgba(20,26,20,0.55)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.16)',
@@ -374,10 +409,14 @@ export function RecordScreen() {
     lineHeight: 18,
   },
   recordHint: {
-    color: 'rgba(255,255,255,0.75)',
+    color: 'rgba(255,255,255,0.9)',
     fontSize: 11,
     fontWeight: '900',
     letterSpacing: 2,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.55)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   postBtn: {
     width: '100%',
@@ -393,7 +432,6 @@ export function RecordScreen() {
     width: 220,
     height: 44,
     borderRadius: 14,
-    marginTop: 10,
   },
   coLeapBtn: {
     width: '100%',
@@ -1240,13 +1278,43 @@ export function RecordScreen() {
   }, [user?.uid, recordingChallengeDateKey, unlockBaseAfterReduction, unlockFirstPostBaseAfterReduction]);
 
   const isReviewing = Boolean(clipUri);
+  const showFlipControl =
+    !isReviewing && !recordingBlocked && preRecordCountdown == null && cameraMode === 'single';
+  const showModeControl = !isReviewing && !recordingBlocked && preRecordCountdown == null;
+
+  const metaLine = playerFacing.canRecord
+    ? isRecording && recordingSecondsLeft != null
+      ? attemptsLeft <= 0
+        ? `${formatRecorderTime(maxSec - recordingSecondsLeft)} / ${formatRecorderTime(maxSec)} • OUT OF ATTEMPTS`
+        : attemptsLeft === 1
+          ? `${formatRecorderTime(maxSec - recordingSecondsLeft)} / ${formatRecorderTime(maxSec)} • 1 ATTEMPT LEFT`
+          : `${formatRecorderTime(maxSec - recordingSecondsLeft)} / ${formatRecorderTime(maxSec)} • ${attemptsLeft} ATTEMPTS LEFT`
+      : attemptsLeft <= 0
+        ? `${maxSec}S MAX • OUT OF ATTEMPTS`
+        : attemptsLeft === 1
+          ? `${maxSec}S MAX • 1 ATTEMPT LEFT`
+          : `${maxSec}S MAX • ${attemptsLeft} ATTEMPTS LEFT`
+    : playerFacing.instructionsLine;
+
+  /** Only surfaced for states the shutter can't explain on its own. */
+  const recordHintText = !playerFacing.canRecord
+    ? 'DROPS NOON ET'
+    : !permission?.granted
+      ? challenge.allowLibraryAttach
+        ? 'RECORD OR ATTACH BELOW'
+        : cameraDenied
+          ? 'OPEN SETTINGS FOR CAMERA'
+          : 'TAP TO ENABLE CAMERA'
+      : preRecordCountdown != null
+        ? 'GET READY…'
+        : null;
 
   return (
     <Screen
       withSafeArea={false}
       style={[styles.screen, isReviewing && styles.reviewScreen]}
     >
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, !isReviewing && styles.captureTopBar]} pointerEvents="box-none">
         <TouchableOpacity
           onPress={() => {
             if (nav.canGoBack()) nav.goBack();
@@ -1256,35 +1324,92 @@ export function RecordScreen() {
         >
           <Ionicons name={isReviewing ? 'chevron-back' : 'close'} size={20} color={isReviewing ? '#101A14' : colors.white} />
         </TouchableOpacity>
-        <View style={[styles.promptPill, isReviewing && styles.reviewPromptPill]}>
-          <Text style={[styles.promptText, isReviewing && styles.reviewPromptText]} numberOfLines={2}>
-            {isReviewing ? 'Review' : playerFacing.title}
-          </Text>
+        {isReviewing ? (
+          <View style={[styles.promptPill, styles.reviewPromptPill]}>
+            <Text style={[styles.promptText, styles.reviewPromptText]} numberOfLines={2}>
+              Review
+            </Text>
+          </View>
+        ) : null}
+        <View style={styles.topRight}>
+          {showFlipControl ? (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={cameraFacing === 'front' ? 'Use back camera' : 'Use front camera'}
+              onPress={onFlipCamera}
+              // Mid-record flip: expo-camera segments stitched on stop.
+              style={styles.topBtn}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="camera-reverse-outline" size={22} color={colors.white} />
+            </TouchableOpacity>
+          ) : null}
+          {showModeControl ? (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={
+                cameraMode === 'dual' ? 'Switch to single camera' : 'Switch to dual camera'
+              }
+              onPress={toggleCameraMode}
+              // Mode swap recreates the underlying session, so we keep it
+              // disabled while a recording or countdown is in progress to
+              // avoid yanking the camera out from under it.
+              disabled={isRecording || preRecordCountdown != null}
+              style={[
+                styles.topBtn,
+                cameraMode === 'dual' && styles.topBtnActive,
+                (isRecording || preRecordCountdown != null) && styles.topBtnDisabled,
+              ]}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name={cameraMode === 'dual' ? 'copy' : 'copy-outline'}
+                size={20}
+                color={colors.white}
+              />
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            onPress={clearPreview}
+            style={[styles.topBtn, isReviewing && styles.reviewTopBtn]}
+            accessibilityLabel={isReviewing ? 'Retake' : 'Reset camera'}
+          >
+            <Ionicons
+              name="refresh"
+              size={19}
+              color={isReviewing ? '#101A14' : colors.white}
+            />
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          onPress={clearPreview}
-          style={[styles.topBtn, isReviewing && styles.reviewTopBtn]}
-          accessibilityLabel={isReviewing ? 'Retake' : 'Reset camera'}
-        >
-          <Ionicons
-            name="refresh"
-            size={19}
-            color={isReviewing ? '#101A14' : colors.white}
-          />
-        </TouchableOpacity>
       </View>
-      {!playerFacing.canRecord ? (
-        <View style={styles.frogStrip}>
-          <LeapLoadingFrog active dark />
+      {isReviewing ? (
+        recordingBlocked ? (
+          <View style={styles.postedPill}>
+            <Text style={styles.postedText}>POSTED TODAY</Text>
+          </View>
+        ) : null
+      ) : (
+        <View style={styles.captureHeadline} pointerEvents="box-none">
+          <View style={[styles.promptPill, styles.capturePromptPill]}>
+            <Text style={styles.promptText} numberOfLines={2}>
+              {playerFacing.title}
+            </Text>
+          </View>
+          <Text style={styles.meta}>{metaLine}</Text>
+          {recordingBlocked ? (
+            <View style={styles.postedPill}>
+              <Text style={styles.postedText}>POSTED TODAY</Text>
+            </View>
+          ) : null}
+          {!playerFacing.canRecord ? (
+            <View style={styles.frogStrip}>
+              <LeapLoadingFrog active dark />
+            </View>
+          ) : null}
         </View>
-      ) : null}
-      {recordingBlocked ? (
-        <View style={styles.postedPill}>
-          <Text style={styles.postedText}>POSTED TODAY</Text>
-        </View>
-      ) : null}
+      )}
 
-      <View style={[styles.cameraWrap, isReviewing && styles.reviewPreview]}>
+      <View style={[styles.cameraWrap, isReviewing ? styles.reviewPreview : styles.cameraFull]}>
         {clipUri && !clipUri.startsWith('demo://') ? (
           <RecordClipPreview
             key={clipUri}
@@ -1335,49 +1460,6 @@ export function RecordScreen() {
                 onError={handleSingleError}
               />
             )}
-            {!recordingBlocked &&
-            !clipUri &&
-            preRecordCountdown == null &&
-            cameraMode === 'single' ? (
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel={
-                  cameraFacing === 'front' ? 'Use back camera' : 'Use front camera'
-                }
-                onPress={onFlipCamera}
-                // Mid-record flip: expo-camera segments stitched on stop.
-                style={[styles.cornerFab, styles.cornerFabLeft]}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="camera-reverse-outline" size={26} color={colors.white} />
-              </TouchableOpacity>
-            ) : null}
-            {!recordingBlocked && !clipUri && preRecordCountdown == null ? (
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel={
-                  cameraMode === 'dual' ? 'Switch to single camera' : 'Switch to dual camera'
-                }
-                onPress={toggleCameraMode}
-                // Mode swap recreates the underlying session, so we keep it
-                // disabled while a recording or countdown is in progress to
-                // avoid yanking the camera out from under it.
-                disabled={isRecording || preRecordCountdown != null}
-                style={[
-                  styles.cornerFab,
-                  styles.cornerFabRight,
-                  cameraMode === 'dual' && styles.cornerFabActive,
-                  (isRecording || preRecordCountdown != null) && styles.cornerFabDisabled,
-                ]}
-                activeOpacity={0.85}
-              >
-                <Ionicons
-                  name={cameraMode === 'dual' ? 'copy' : 'copy-outline'}
-                  size={24}
-                  color={colors.white}
-                />
-              </TouchableOpacity>
-            ) : null}
           </>
         ) : (
           <View style={styles.demo}>
@@ -1439,7 +1521,7 @@ export function RecordScreen() {
       </View>
 
       {playerFacing.canRecord && !recordingBlocked && attemptsLeft <= 0 && !clipUri ? (
-        <View style={styles.outOfAttemptsCard}>
+        <View style={[styles.outOfAttemptsCard, styles.captureAttemptsCard]}>
           <Text style={styles.outOfAttemptsTitle}>Out of attempts</Text>
           <Text style={styles.outOfAttemptsBody}>
             Spend {ATTEMPT_PURCHASE_BASE_REDUCTION_INCHES}in from your leap base to leap again
@@ -1465,23 +1547,13 @@ export function RecordScreen() {
         </View>
       ) : null}
 
-      <View style={[styles.bottomBar, isReviewing && styles.reviewBottomBar]}>
-        {!isReviewing ? <Text style={styles.meta}>
-          {playerFacing.canRecord
-            ? isRecording && recordingSecondsLeft != null
-              ? attemptsLeft <= 0
-                ? `${formatRecorderTime(maxSec - recordingSecondsLeft)} / ${formatRecorderTime(maxSec)} • OUT OF ATTEMPTS`
-                : attemptsLeft === 1
-                  ? `${formatRecorderTime(maxSec - recordingSecondsLeft)} / ${formatRecorderTime(maxSec)} • 1 ATTEMPT LEFT`
-                  : `${formatRecorderTime(maxSec - recordingSecondsLeft)} / ${formatRecorderTime(maxSec)} • ${attemptsLeft} ATTEMPTS LEFT`
-              : attemptsLeft <= 0
-                ? `${maxSec}S MAX • OUT OF ATTEMPTS`
-                : attemptsLeft === 1
-                  ? `${maxSec}S MAX • 1 ATTEMPT LEFT`
-                  : `${maxSec}S MAX • ${attemptsLeft} ATTEMPTS LEFT`
-            : playerFacing.instructionsLine}
-        </Text> : null}
-
+      <View
+        style={[
+          styles.bottomBar,
+          isReviewing ? styles.reviewBottomBar : styles.captureBottomBar,
+        ]}
+        pointerEvents="box-none"
+      >
         {clipUri ? (
           <>
             <View style={styles.doneCard}>
@@ -1538,6 +1610,7 @@ export function RecordScreen() {
           </>
         ) : (
           <>
+            {recordHintText ? <Text style={styles.recordHint}>{recordHintText}</Text> : null}
             <TouchableOpacity
               accessibilityRole="button"
               onPress={onTapRecord}
@@ -1569,21 +1642,6 @@ export function RecordScreen() {
                   ]}
                 />
               </View>
-              <Text style={styles.recordHint}>
-                {!playerFacing.canRecord
-                  ? 'DROPS NOON ET'
-                  : !permission?.granted
-                    ? challenge.allowLibraryAttach
-                      ? 'RECORD OR ATTACH BELOW'
-                      : cameraDenied
-                        ? 'OPEN SETTINGS FOR CAMERA'
-                        : 'TAP TO ENABLE CAMERA'
-                    : preRecordCountdown != null
-                      ? 'GET READY…'
-                      : isRecording
-                        ? 'TAP TO STOP'
-                        : 'TAP TO RECORD'}
-              </Text>
             </TouchableOpacity>
             {challenge.allowLibraryAttach && playerFacing.canRecord ? (
               <PrimaryButton

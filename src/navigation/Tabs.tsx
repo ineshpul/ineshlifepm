@@ -19,7 +19,9 @@ export type FeedTabMode = 'daily' | 'bpotd';
 export type TabsParamList = {
   Today: undefined;
   /** Daily Leaps + BPOTD community — mode switch lives inside Feed. */
-  Feed: { mode?: FeedTabMode } | undefined;
+  Feed:
+    | { mode?: FeedTabMode; initialVideoId?: string; initialBestPartId?: string }
+    | undefined;
   Chat: NavigatorScreenParams<ChatStackParamList> | undefined;
   Me: undefined;
 };

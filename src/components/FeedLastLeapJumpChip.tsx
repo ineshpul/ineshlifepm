@@ -2,7 +2,8 @@ import * as React from 'react';
 import { Pressable, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import { useThemedStyles } from '../theme/ThemeProvider';
+import { typography } from '../theme/typography';
 
 type Props = {
   onPress: () => void;
@@ -11,8 +12,7 @@ type Props = {
 
 /** TikTok-style chip — jumps to the last allowed leap day in the feed. */
 export function FeedLastLeapJumpChip({ onPress, bottom }: Props) {
-  const { colors } = useTheme();
-  const styles = useThemedStyles((c) => ({
+  const styles = useThemedStyles(() => ({
     chip: {
       position: 'absolute',
       right: 14,
@@ -22,17 +22,14 @@ export function FeedLastLeapJumpChip({ onPress, bottom }: Props) {
       paddingHorizontal: 12,
       paddingVertical: 8,
       borderRadius: 999,
-      backgroundColor: 'rgba(17, 24, 39, 0.88)',
-      shadowColor: '#000',
-      shadowOpacity: 0.2,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 2 },
-      elevation: 6,
+      backgroundColor: 'rgba(10, 17, 12, 0.72)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.16)',
     },
     label: {
       fontSize: 13,
-      fontWeight: '700',
-      color: c.white,
+      fontFamily: typography.bodyBold,
+      color: '#FFFFFF',
     },
   }));
 
@@ -44,7 +41,7 @@ export function FeedLastLeapJumpChip({ onPress, bottom }: Props) {
       style={({ pressed }) => [styles.chip, { bottom }, pressed && { opacity: 0.88 }]}
     >
       <Text style={styles.label}>Last leap</Text>
-      <Ionicons name="chevron-down" size={16} color={colors.coral} />
+      <Ionicons name="chevron-down" size={16} color="rgba(255,255,255,0.72)" />
     </Pressable>
   );
 }
