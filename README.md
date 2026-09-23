@@ -17,29 +17,29 @@ Personal PM system where your life is the product: areas, goals, tasks, metrics,
 |---|---|
 | **Role** | Solo PM + builder |
 | **Problem** | PM frameworks are built for teams — not for running your own life as a product |
-| **Users** | Me (dogfooding) · [YOUR OTHER USERS IF ANY] |
-| **Outcome** | [YOUR METRICS — e.g. daily planning loop, areas tracked, shipped V1 screens] |
+| **Users** | Personal use — I plan my own week in it |
+| **Outcome** | V1 is live: a daily planning loop, capacity-aware scoring, and the full screen set from Today through Settings |
 | **Stack** | Next.js 15 · Supabase · Tailwind · Vercel |
 
 ---
 
 ## PM highlights
 
-- **PRD-driven V1** — 13 screens: Today, Goals, Vision, Calendar, Metrics, Triage, Learning, Delegated, Knowledge, Initiatives, reviews, Settings
+- **PRD-driven V1** — Today, Weekly, Goals, Triage, Calendar, Vision, Learning, Delegated, Knowledge, Initiatives, Metrics, weekly and monthly reviews, Settings
 - **Scoring engine** — priority, capacity, morning proposal mix constraints, commitment-kept scoring
+- **Nudge engine** — Today shows at most three nudges (stale initiatives, cadence slips, capacity). Vision items never fire one
 - **nesh workspace** — sectors, goals, weekly overview, team invites, life plan apply flow
 - **Knowledge + areas** — area journal, knowledge upload, pulse reminders, technical board
-- [YOUR AI PM ANGLE — e.g. morning proposal logic, nudge engine design, plan automation]
 
 ---
 
 ## What I owned
 
-- [ ] Problem framing & PRD (life as product)
-- [ ] Data model & Supabase schema
-- [ ] UX flows across all V1 screens
-- [ ] Scoring / nudge business logic
-- [ ] Build, seed scripts, and iteration
+- [x] Problem framing & PRD (life as product) — [`docs/PRD.md`](docs/PRD.md)
+- [x] Data model & Supabase schema — [`supabase/migrations`](supabase/migrations)
+- [x] UX flows across all V1 screens
+- [x] Scoring / nudge business logic — [`lib/scoring.ts`](lib/scoring.ts), [`lib/nudges.ts`](lib/nudges.ts)
+- [x] Build, seed scripts, and iteration — [`scripts/seed.ts`](scripts/seed.ts)
 
 ---
 
@@ -51,7 +51,7 @@ cp .env.example .env.local   # add Supabase keys
 npm run dev
 ```
 
-See the project README in the repo root for full local setup (Supabase migration, seed, env vars).
+Schema lives in `supabase/migrations`. Seed with `npx tsx scripts/seed.ts` after the env file is in place. Product rules are in [`docs/PRD.md`](docs/PRD.md).
 
 ---
 
